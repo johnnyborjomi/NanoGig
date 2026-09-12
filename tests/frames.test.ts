@@ -1,0 +1,72 @@
+import { describe, expect, it } from 'vitest';
+import {
+  CURRENT_STATE_REQUEST,
+  FX_ENABLE_SLOT,
+  GATE_ENABLE_SLOT,
+  METADATA_DUMP_REQUEST,
+  PRESET_CHANGE_ACK,
+  fxBlockBypassFrame,
+  gateBypassFrame,
+  presetLabel,
+  programChange,
+} from '../src/protocol/frames';
+import { toHex } from '../src/protocol/hex';
+
+describe('request frames (byte-exact against the reference tables)', () => {
+  it('metadata dump request', () => {
+    expect(toHex(METADATA_DUMP_REQUEST)).toBe('06 C0 08 03 01 00 00 00');
+  });
+  it('current-preset-state dump request', () => {
+    expect(toHex(CURRENT_STATE_REQUEST)).toBe('0C C0 08 03 18 01 20 01 28 01 01 00 00 00');
+  });
+  it('preset-change acknowledgement', () => {
+    expect(toHex(PRESET_CHANGE_ACK)).toBe('06 C0 20 01 1E 00 00 00');
+  });
+  it('frames follow the length-prefix convention byte[0] = length - 2', () => {
+    for (const f of [METADATA_DUMP_REQUEST, CURRENT_STATE_REQUEST, PRESET_CHANGE_ACK]) {
+      expect(f[0]).toBe(f.length - 2);
+      expect(f[1]).toBe(0xc0);
+    }
+  });
+});
+
+describe('FX block bypass frames', () => {
+  it('uses enable slots pre1=4 … post3=8 and gate=9', () => {
+    expect(FX_ENABLE_SLOT).toEqual({ pre1: 4, pre2: 5, post1: 6, post2: 7, post3: 8 });
+    expect(GATE_ENABLE_SLOT).toBe(9);
+  });
+  it('pre1 ON / OFF', () => {
+    expect(toHex(fxBlockBypassFrame('pre1', true))).toBe('0A C0 08 01 18 04 20 00 1F 00 00 00');
+    expect(toHex(fxBlockBypassFrame('pre1', false))).toBe('0A C0 08 01 18 04 20 01 1F 00 00 00');
+  });
+  it('post3 OFF', () => {
+    expect(toHex(fxBlockBypassFrame('post3', false))).toBe('0A C0 08 01 18 08 20 01 1F 00 00 00');
+  });
+  it('gate ON / OFF', () => {
+    expect(toHex(gateBypassFrame(true))).toBe('0A C0 08 01 18 09 20 00 1F 00 00 00');
+    expect(toHex(gateBypassFrame(false))).toBe('0A C0 08 01 18 09 20 01 1F 00 00 00');
+  });
+});
+
+describe('MIDI program change', () => {
+  it('encodes zero-based preset on channel 1', () => {
+    expect(toHex(programChange(0))).toBe('C0 00');
+    expect(toHex(programChange(63))).toBe('C0 3F');
+    expect(toHex(programChange(9, 2))).toBe('C1 09');
+  });
+  it('rejects out-of-range presets and channels', () => {
+    expect(() => programChange(64)).toThrow(RangeError);
+    expect(() => programChange(-1)).toThrow(RangeError);
+    expect(() => programChange(0, 17)).toThrow(RangeError);
+  });
+});
+
+describe('presetLabel', () => {
+  it('maps indices to bank/slot labels', () => {
+    expect(presetLabel(0)).toBe('A1');
+    expect(presetLabel(7)).toBe('A8');
+    expect(presetLabel(8)).toBe('B1');
+    expect(presetLabel(63)).toBe('H8');
+    expect(presetLabel(64)).toBe('—');
+  });
+});
