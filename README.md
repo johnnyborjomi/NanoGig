@@ -96,10 +96,10 @@ app-initiated change is tagged **sending**.
 ## Hardware checklist (acceptance)
 
 - [x] Connect from Chrome (2026-09-12: a002 c300–c307 found, c305/c306 subscribed).
-- [ ] Preset name shows within ~2 s of a footswitch press (event decoded; verify on screen).
+- [x] Preset name follows footswitch presses (2026-09-12).
 - [ ] Tile states match the pedal's LEDs (gate, pre/post blocks, cab).
 - [ ] Footswitch preset change updates the screen without touching the browser.
-- [ ] Power-cycle the pedal: the app reconnects without a page reload.
+- [x] Power-cycle the pedal: the app reconnects without a page reload (2026-09-12, first attempt, ~13 s).
 - [ ] (writes) Tapping a tile toggles the block on the pedal and the tile settles to the
       state reported by the next dump.
 

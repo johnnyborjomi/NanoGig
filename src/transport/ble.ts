@@ -27,7 +27,7 @@ import {
 } from './types';
 
 const WRITE_TIMEOUT_MS = 3000;
-const CONNECT_TIMEOUT_MS = 12000;
+const CONNECT_TIMEOUT_MS = 25000; // a power-cycled pedal took ~13 s to accept the connection (2026-09-12)
 const DISCOVER_TIMEOUT_MS = 8000;
 const UNSUBSCRIBE_TIMEOUT_MS = 1000;
 const DEDUPE_WINDOW_MS = 500;

@@ -189,7 +189,7 @@ button.warn {
   width: 100%;
   white-space: nowrap;
   overflow: hidden;
-  font-size: 20vw;
+  font-size: 12vh;
 }
 .preset-name.empty {
   color: var(--dim);
