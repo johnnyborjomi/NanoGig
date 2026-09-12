@@ -135,3 +135,10 @@ if (forceMock) {
     if (!ok) store.appendLog({ at: Date.now(), dir: 'info', text: 'Nothing to resume; use Connect' });
   });
 }
+
+// PWA: offline shell for the installed app (production builds only; dev keeps HMR simple).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((err) => console.warn('SW registration failed', err));
+  });
+}

@@ -43,6 +43,14 @@ The "Log" button shows every TX/RX frame in hex; "copy" puts the log on the clip
 protocol debugging. Tap "Fullscreen" on stage; the Screen Wake Lock keeps the display on
 while connected.
 
+## Hosted build (GitHub Pages / PWA)
+
+Every push to `main` runs the tests, builds, and deploys `dist/` to GitHub Pages via
+`.github/workflows/pages.yml`, at `https://johnnyborjomi.github.io/NanoGig/`. The site is a
+PWA: on Android Chrome open it, choose "Add to Home screen", and it launches fullscreen in
+landscape with an offline shell. Web Bluetooth works there; on iPhone use Bluefy instead
+(Safari has no Web Bluetooth, so an installed PWA cannot connect).
+
 ## How it works
 
 ```
