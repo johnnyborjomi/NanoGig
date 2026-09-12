@@ -76,6 +76,49 @@ export function programChange(presetIndex: number, channel = 1): Uint8Array {
   return new Uint8Array([0xc0 | (channel - 1), presetIndex]);
 }
 
+/**
+ * MIDI-over-BLE framing: `[0x80 | ts_hi, 0x80 | ts_lo, ...midi]`. The rixrix
+ * preset probe sends a fixed `80 80` header (`ble_midi_program_change_bytes`);
+ * kept byte-identical here rather than inventing a timestamp scheme.
+ */
+export function bleMidiFrame(midi: Uint8Array): Uint8Array {
+  return Uint8Array.from([0x80, 0x80, ...midi]);
+}
+
+export type MidiChar = 'web-midi' | 'c302' | 'c303';
+/** `sequential` = one GATT write per MIDI byte (rixrix probe mode). */
+export type MidiFraming = 'raw' | 'ble-midi' | 'sequential';
+
+export interface MidiStrategy {
+  id: string;
+  char: MidiChar;
+  framing: MidiFraming;
+}
+
+/** Web MIDI through the OS Bluetooth-MIDI pairing: the web editor's verified path. */
+export const WEB_MIDI_STRATEGY: MidiStrategy = { id: 'web-midi', char: 'web-midi', framing: 'raw' };
+
+/**
+ * BLE ways to deliver a Program Change, all taken from rixrix
+ * `nano_ble_preset_probe` (modes raw / ble-midi / sequential; chars c303 then
+ * c302). Hardware 2026-09-12: c302 rejects every write ("GATT operation
+ * failed"), c303 accepts them but the pedal does not switch. Kept as fallbacks
+ * for other firmware; `WEB_MIDI_STRATEGY` is tried first when available.
+ */
+export const BLE_MIDI_STRATEGIES: readonly MidiStrategy[] = [
+  { id: 'c303-ble-midi', char: 'c303', framing: 'ble-midi' },
+  { id: 'c302-ble-midi', char: 'c302', framing: 'ble-midi' },
+  { id: 'c303-raw', char: 'c303', framing: 'raw' },
+  { id: 'c303-sequential', char: 'c303', framing: 'sequential' },
+  { id: 'c302-raw', char: 'c302', framing: 'raw' },
+];
+
+export const MIDI_STRATEGIES: readonly MidiStrategy[] = [WEB_MIDI_STRATEGY, ...BLE_MIDI_STRATEGIES];
+
+export function midiStrategyById(id: string | null | undefined): MidiStrategy | null {
+  return MIDI_STRATEGIES.find((s) => s.id === id) ?? null;
+}
+
 /** Human label for a zero-based preset index: banks A–H × slots 1–8, e.g. 9 → "B2". */
 export function presetLabel(presetIndex: number): string {
   if (!Number.isInteger(presetIndex) || presetIndex < 0 || presetIndex >= PRESET_COUNT) return '—';

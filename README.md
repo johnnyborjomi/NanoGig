@@ -37,6 +37,7 @@ URL flags:
 | `?mock=1`   | Demo mode: a fake device replays captured packets, no hardware needed. |
 | `?writes=1` | Enables tile taps (FX / gate toggle) and ◀ ▶ preset buttons. Off by default. |
 | `?debug=1`  | Opens the hex log console on load.                                     |
+| `?midi=<id>`| Pin the MIDI delivery for preset switching: `web-midi`, `c303-ble-midi`, `c302-ble-midi`, `c303-raw`, `c303-sequential`, `c302-raw`. Default: probe in that order. |
 
 The "Log" button shows every TX/RX frame in hex; "copy" puts the log on the clipboard for
 protocol debugging. Tap "Fullscreen" on stage; the Screen Wake Lock keeps the display on
@@ -75,6 +76,18 @@ Protocol summary (provisional; verified on NanOS 2.2.1 hardware on 2026-09-12 un
 - Current-state request `0C C0 08 03 18 01 20 01 28 01 01 00 00 00` → state message (type 2):
   **field 13 = active preset index**, field 31 = 5-byte bypass array (0 = on), field 54 =
   gate (inverted, absent = on), field 12 present = cab on, fields 32/33 = capture / IR.
+- **Preset switching (writes mode).** MIDI Program Changes written to the proprietary
+  characteristics do NOT switch presets on NanOS 2.2.1 (2026-09-12): `c302` rejects every write
+  ("GATT operation failed"), `c303` accepts raw and MIDI-over-BLE framed writes but the pedal
+  ignores them and emits no preset-changed event. The pedal also advertises only its own
+  `a002` service, not the standard Bluetooth-MIDI service, so macOS never lists it in MIDI
+  Studio. **The verified path is Web MIDI over USB:** plug the pedal into the computer and
+  macOS exposes a MIDI port named "Nano Cortex"; a Program Change on it switches presets
+  (confirmed 2026-09-12). The Bluetooth connection keeps serving the display. The app tries
+  Web MIDI first, then the BLE variants from the rixrix probe, confirms each against the
+  pedal's own preset report (event `0x1D` / dump field 13), and remembers what worked. Pin
+  one with `?midi=<id>`. Bluefy on iPad has no Web MIDI, so preset switching there is not
+  possible with any documented frame.
 - Live events (single-packet messages, by trailer type): `0x1D` preset changed
   (`10 C0 08 01 20 <preset> 28 <IA> 30 <IB> 38 <IIA> 40 <IIB> 1D 00 00 00`), `0x1F` bypass
   changed, `0x1A` knob, `0x1C` encoder/bank, `0x40` expression, `0x73` unknown. The app
@@ -100,8 +113,9 @@ app-initiated change is tagged **sending**.
 - [ ] Tile states match the pedal's LEDs (gate, pre/post blocks, cab).
 - [ ] Footswitch preset change updates the screen without touching the browser.
 - [x] Power-cycle the pedal: the app reconnects without a page reload (2026-09-12, first attempt, ~13 s).
-- [ ] (writes) Tapping a tile toggles the block on the pedal and the tile settles to the
-      state reported by the next dump.
+- [x] (writes) Tapping a tile toggles the block on the pedal and the tile settles to the
+      state reported by the next dump (2026-09-12).
+- [x] (writes) Prev/Next switches presets via Web MIDI over USB (2026-09-12).
 
 If a step fails, open the Log, reproduce, "copy", and file the hex.
 

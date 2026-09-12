@@ -200,19 +200,118 @@ describe('SyncEngine writes', () => {
     engine.dispose();
   });
 
-  it('selectPreset sends MIDI PC on c302, the ack on c304, then re-reads state', async () => {
-    const { mock, store, engine } = setup({ writes: true });
+  it('selectPreset probes MIDI deliveries until the device confirms, then remembers the winner', async () => {
+    // Mock pedal: rejects raw c302 like the hardware did, honours c303 BLE-MIDI framing.
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, acceptedMidi: 'c303-ble-midi' });
+    const store = new Store();
+    const engine = new SyncEngine(mock, store, { writesEnabled: true, confirmDelayMs: 50, presetConfirmTimeoutMs: 300 });
     await connect(mock);
     await flush(3500);
+
     const p = engine.selectPreset(3);
-    await flush(100);
+    await flush(2000);
     await p;
     const tx = store.get().log.filter((l) => l.dir === 'tx');
-    expect(tx.some((l) => l.text.includes('c302') && l.hex === 'C0 03')).toBe(true);
+    expect(tx.some((l) => l.text.includes('c303-ble-midi') && l.hex === '80 80 C0 03')).toBe(true);
     expect(tx.some((l) => l.hex === '06 C0 20 01 1E 00 00 00')).toBe(true);
-    await flush(1000);
+    expect(engine.activeMidiStrategy?.id).toBe('c303-ble-midi');
     expect(store.get().activePreset.value).toBe(3);
     expect(store.get().captureName.value).toBe('Brit 1959 Crunch');
+
+    // Second switch goes straight to the remembered strategy: exactly one MIDI write.
+    const before = store.get().log.filter((l) => l.dir === 'tx' && l.text.startsWith('TX c30') && l.text.includes('[')).length;
+    const q = engine.selectPreset(4);
+    await flush(1500);
+    await q;
+    const after = store.get().log.filter((l) => l.dir === 'tx' && l.text.startsWith('TX c30') && l.text.includes('[')).length;
+    expect(after - before).toBe(1);
+    expect(store.get().activePreset.value).toBe(4);
+    engine.dispose();
+  });
+
+  it('selectPreset walks past a rejected and an ignored strategy to reach the working one', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, acceptedMidi: 'c303-raw' });
+    const store = new Store();
+    const engine = new SyncEngine(mock, store, { writesEnabled: true, confirmDelayMs: 50, presetConfirmTimeoutMs: 200 });
+    await connect(mock);
+    await flush(3500);
+    const p = engine.selectPreset(5);
+    await flush(3000);
+    await p;
+    const ids = store
+      .get()
+      .log.filter((l) => l.dir === 'tx' && /\[(c30[23]-[a-z-]+)\]/.test(l.text))
+      .map((l) => /\[(c30[23]-[a-z-]+)\]/.exec(l.text)![1]);
+    expect(ids).toEqual(['c303-ble-midi', 'c302-ble-midi', 'c303-raw']);
+    expect(engine.activeMidiStrategy?.id).toBe('c303-raw');
+    expect(store.get().activePreset.value).toBe(5);
+    engine.dispose();
+  });
+
+  it('prefers Web MIDI when an output is available and confirms through the device', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, acceptedMidi: 'none' });
+    const store = new Store();
+    const sent: number[][] = [];
+    const midiOut = {
+      id: 'web-midi',
+      portName: 'Neural DSP Nano Cortex Bluetooth',
+      isSupported: () => true,
+      open: async () => {},
+      send: async (bytes: Uint8Array) => {
+        sent.push(Array.from(bytes));
+        mock.pressFootswitch(bytes[1]!); // the pedal reports the switch like a footswitch press
+      },
+    };
+    const engine = new SyncEngine(mock, store, { writesEnabled: true, midiOut, confirmDelayMs: 50, presetConfirmTimeoutMs: 300 });
+    await connect(mock);
+    await flush(3500);
+    const p = engine.selectPreset(6);
+    await flush(1000);
+    await p;
+    expect(sent).toEqual([[0xc0, 6]]);
+    expect(engine.activeMidiStrategy?.id).toBe('web-midi');
+    expect(store.get().log.filter((l) => l.dir === 'tx' && /\[c30/.test(l.text))).toHaveLength(0); // no BLE attempts
+    expect(store.get().activePreset.value).toBe(6);
+    engine.dispose();
+  });
+
+  it('falls back to BLE variants when Web MIDI has no Nano output', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, acceptedMidi: 'c303-ble-midi' });
+    const store = new Store();
+    const midiOut = {
+      id: 'web-midi',
+      portName: null,
+      isSupported: () => true,
+      open: async () => {
+        throw new Error('No Nano Cortex MIDI output (outputs: none). Connect the pedal over USB for preset switching.');
+      },
+      send: async () => {},
+    };
+    const engine = new SyncEngine(mock, store, { writesEnabled: true, midiOut, confirmDelayMs: 50, presetConfirmTimeoutMs: 300 });
+    await connect(mock);
+    await flush(3500);
+    const p = engine.selectPreset(2);
+    await flush(2000);
+    await p;
+    expect(store.get().log.some((l) => l.dir === 'warn' && /web-midi rejected: No Nano Cortex MIDI output/.test(l.text))).toBe(true);
+    expect(engine.activeMidiStrategy?.id).toBe('c303-ble-midi');
+    expect(store.get().activePreset.value).toBe(2);
+    engine.dispose();
+  });
+
+  it('a pinned strategy is used alone and failure is reported', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, acceptedMidi: 'c303-ble-midi' });
+    const store = new Store();
+    const engine = new SyncEngine(mock, store, { writesEnabled: true, midiStrategy: 'c302-raw', presetConfirmTimeoutMs: 200 });
+    await connect(mock);
+    await flush(3500);
+    const p = engine.selectPreset(2);
+    await flush(2000);
+    await p;
+    const midiWrites = store.get().log.filter((l) => l.dir === 'tx' && l.text.includes('['));
+    expect(midiWrites).toHaveLength(1);
+    expect(store.get().log.some((l) => l.dir === 'error' && /no MIDI delivery/.test(l.text))).toBe(true);
+    expect(store.get().activePreset.value).toBe(7); // resynced from the pedal
     engine.dispose();
   });
 });

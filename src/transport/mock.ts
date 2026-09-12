@@ -14,6 +14,7 @@ import {
   METADATA_DUMP_REQUEST,
   PRESET_CHANGE_ACK,
   type FxSlot,
+  type MidiStrategy,
 } from '../protocol/frames';
 import { bytesEqual, toHex } from '../protocol/hex';
 import {
@@ -51,6 +52,11 @@ export interface MockOptions {
   replayRealDumpFirst?: boolean;
   /** Force reply shape instead of alternating. */
   stateReplyShape?: 'single' | 'segmented' | 'alternate';
+  /**
+   * Which MIDI delivery the fake pedal honours. Others are ignored silently,
+   * except raw-on-c302 which fails like the real pedal did on 2026-09-12.
+   */
+  acceptedMidi?: string;
 }
 
 export class MockTransport implements Transport {
@@ -76,6 +82,7 @@ export class MockTransport implements Transport {
       autoEventIntervalMs: opts.autoEventIntervalMs ?? 0,
       replayRealDumpFirst: opts.replayRealDumpFirst ?? true,
       stateReplyShape: opts.stateReplyShape ?? 'alternate',
+      acceptedMidi: opts.acceptedMidi ?? 'c303-ble-midi',
     };
     this.presets = this.opts.presets;
     this.device = { ...defaultMockDeviceState(), ...this.opts.initialState };
@@ -172,9 +179,7 @@ export class MockTransport implements Transport {
       return;
     }
     if (bytesEqual(bytes, PRESET_CHANGE_ACK)) {
-      // Device reports the switch with a preset-changed message (hardware-observed shape).
-      this.schedule(() => this.emit(buildPresetChangedEvent(this.device.activePreset)), this.opts.latencyMs);
-      return;
+      return; // reply shape after an app-initiated change not captured yet
     }
     // Bypass frame: 0A C0 08 01 18 <slot> 20 <0/1> 1F 00 00 00
     if (bytes.length === 12 && bytes[0] === 0x0a && bytes[1] === 0xc0 && bytes[4] === 0x18 && bytes[6] === 0x20 && bytes[8] === 0x1f) {
@@ -191,11 +196,16 @@ export class MockTransport implements Transport {
     this.log('warn', 'mock: unrecognised command frame ignored', toHex(bytes));
   }
 
-  async writeMidi(bytes: Uint8Array): Promise<void> {
+  async writeMidi(bytes: Uint8Array, strategy: MidiStrategy): Promise<void> {
     if (this._status !== 'connected') throw new Error('mock: not connected');
-    this.log('tx', 'TX c302 (mock)', toHex(bytes));
+    const payload = strategy.framing === 'ble-midi' ? Uint8Array.from([0x80, 0x80, ...bytes]) : bytes; // sequential logged as one line
+    this.log('tx', `TX ${strategy.char} [${strategy.id}] (mock)`, toHex(payload));
+    if (strategy.id === 'c302-raw') throw new Error('GATT operation failed for unknown reason.');
+    if (strategy.id !== this.opts.acceptedMidi) return; // pedal ignores this form
     if (bytes.length === 2 && (bytes[0]! & 0xf0) === 0xc0 && bytes[1]! < 64) {
       this.device.activePreset = bytes[1]!;
+      // The real pedal announces the switch with a preset-changed message.
+      this.schedule(() => this.emit(buildPresetChangedEvent(this.device.activePreset)), this.opts.latencyMs);
       return;
     }
     this.log('warn', 'mock: unrecognised MIDI bytes ignored', toHex(bytes));

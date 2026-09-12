@@ -30,8 +30,10 @@ export const ALL_SERVICE_UUIDS: readonly string[] = [
   SERVICE_VENDOR,
 ];
 
-/** MIDI bytes (PC/CC). write / write-without-response. */
+/** MIDI bytes (PC/CC). write (with response). */
 export const CHAR_C302 = shortUuid(0xc302);
+/** MIDI bytes, write-without-response variant (the rixrix preset probe prefers this one). */
+export const CHAR_C303 = shortUuid(0xc303);
 /** Command/editor frames (dump requests, toggles). write. */
 export const CHAR_C304 = shortUuid(0xc304);
 /** Replies + device events. notify (primary). */
@@ -39,10 +41,11 @@ export const CHAR_C305 = shortUuid(0xc305);
 /** Duplicate of c305. indicate. Subscribe and dedupe. */
 export const CHAR_C306 = shortUuid(0xc306);
 
-export type CharKey = 'c302' | 'c304' | 'c305' | 'c306';
+export type CharKey = 'c302' | 'c303' | 'c304' | 'c305' | 'c306';
 
 export const CHAR_BY_KEY: Record<CharKey, string> = {
   c302: CHAR_C302,
+  c303: CHAR_C303,
   c304: CHAR_C304,
   c305: CHAR_C305,
   c306: CHAR_C306,

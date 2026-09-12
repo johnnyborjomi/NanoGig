@@ -4,8 +4,11 @@ import {
   FX_ENABLE_SLOT,
   GATE_ENABLE_SLOT,
   METADATA_DUMP_REQUEST,
+  MIDI_STRATEGIES,
   PRESET_CHANGE_ACK,
+  bleMidiFrame,
   fxBlockBypassFrame,
+  midiStrategyById,
   gateBypassFrame,
   presetLabel,
   programChange,
@@ -68,5 +71,16 @@ describe('presetLabel', () => {
     expect(presetLabel(8)).toBe('B1');
     expect(presetLabel(63)).toBe('H8');
     expect(presetLabel(64)).toBe('—');
+  });
+});
+
+describe('MIDI delivery strategies', () => {
+  it('BLE-MIDI framing is the rixrix probe shape: 80 80 <status> <program>', () => {
+    expect(toHex(bleMidiFrame(programChange(15)))).toBe('80 80 C0 0F');
+  });
+  it('lists Web MIDI first, then the BLE variants from the rixrix probe, raw c302 last', () => {
+    expect(MIDI_STRATEGIES.map((s) => s.id)).toEqual(['web-midi', 'c303-ble-midi', 'c302-ble-midi', 'c303-raw', 'c303-sequential', 'c302-raw']);
+    expect(midiStrategyById('c302-raw')).toEqual({ id: 'c302-raw', char: 'c302', framing: 'raw' });
+    expect(midiStrategyById('nope')).toBeNull();
   });
 });

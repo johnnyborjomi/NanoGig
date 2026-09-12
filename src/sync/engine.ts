@@ -28,16 +28,21 @@ import {
   FX_SLOTS,
   METADATA_DUMP_REQUEST,
   PRESET_CHANGE_ACK,
+  BLE_MIDI_STRATEGIES,
   PRESET_COUNT,
+  WEB_MIDI_STRATEGY,
   fxBlockBypassFrame,
   gateBypassFrame,
+  midiStrategyById,
   programChange,
   type FxSlot,
+  type MidiStrategy,
 } from '../protocol/frames';
 import { toHex } from '../protocol/hex';
 import { MSG, MessageAssembler, classifyPacket, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
 import type { Store } from '../state/store';
 import type { NotifyPacket, Transport } from '../transport/types';
+import type { MidiOut } from '../transport/webmidi';
 
 export interface EngineOptions {
   writesEnabled?: boolean;
@@ -53,6 +58,12 @@ export interface EngineOptions {
   alwaysRefreshMetadata?: boolean;
   /** Assembler inactivity fallback, ms. */
   inactivityMs?: number;
+  /** Pin one MIDI delivery strategy (id from MIDI_STRATEGIES) instead of probing. */
+  midiStrategy?: string | null;
+  /** How long to wait for the device to confirm a preset switch, ms. */
+  presetConfirmTimeoutMs?: number;
+  /** OS-level MIDI output (Web MIDI). Tried first for preset switching when supported. */
+  midiOut?: MidiOut | null;
 }
 
 /** Fewer preset records than this is treated as a corrupt / partial list and not applied. */
@@ -68,6 +79,10 @@ export class SyncEngine {
   private stateRequestInFlightSince = 0;
   private awaitingMetadata = false;
   private unsubs: (() => void)[] = [];
+  /** MIDI delivery that the device confirmed (or the pinned one). */
+  private midiStrategy: MidiStrategy | null = null;
+  private midiPinned = false;
+  private presetWaiters: { index: number; resolve: (ok: boolean) => void }[] = [];
   private readonly opts: Required<EngineOptions>;
 
   constructor(
@@ -83,7 +98,12 @@ export class SyncEngine {
       confirmDelayMs: opts.confirmDelayMs ?? 300,
       alwaysRefreshMetadata: opts.alwaysRefreshMetadata ?? false,
       inactivityMs: opts.inactivityMs ?? 2500,
+      midiStrategy: opts.midiStrategy ?? null,
+      presetConfirmTimeoutMs: opts.presetConfirmTimeoutMs ?? 1500,
+      midiOut: opts.midiOut ?? null,
     };
+    this.midiStrategy = midiStrategyById(this.opts.midiStrategy);
+    this.midiPinned = this.midiStrategy !== null;
     this.store.patch({ transportName: transport.name, writesEnabled: this.opts.writesEnabled });
     this.assembler = new MessageAssembler({
       onMessage: (body, meta) => this.onAssembledMessage(body, meta),
@@ -127,6 +147,8 @@ export class SyncEngine {
     } else {
       this.assembler.cancel();
       this.awaitingMetadata = false;
+      this.stateRequestInFlightSince = 0; // never coalesce the first request of a new link
+      this.settlePresetWaiters(-1);
       if (status === 'disconnected' || status === 'reconnecting') this.store.clearDeviceState();
     }
   }
@@ -226,6 +248,7 @@ export class SyncEngine {
       case 'program-change':
         this.log('info', `Preset changed → ${ev.preset + 1} (${ev.shape})`, toHex(pkt.data));
         this.store.setField('activePreset', ev.preset, 'event', pkt.at);
+        this.settlePresetWaiters(ev.preset);
         this.scheduleConfirm(150);
         return;
       case 'bypass-changed':
@@ -277,6 +300,7 @@ export class SyncEngine {
   private applyState(state: CurrentState) {
     const at = Date.now();
     this.lastState = state;
+    this.stateRequestInFlightSince = 0; // reply received; the next request may go out immediately
     if (state.fxOn) this.store.setField('fxOn', { ...state.fxOn }, 'dump', at);
     this.store.setField('gateOn', state.gateOn, 'dump', at);
     this.store.setField('cabOn', state.cabOn, 'dump', at);
@@ -286,6 +310,7 @@ export class SyncEngine {
 
     if (state.activePreset !== null) {
       this.store.setField('activePreset', state.activePreset, 'dump', at);
+      this.settlePresetWaiters(state.activePreset);
     } else {
       const current = this.store.get().activePreset;
       if (this.metadata && (current.value === null || current.source === 'inferred')) {
@@ -338,15 +363,80 @@ export class SyncEngine {
     this.scheduleConfirm();
   }
 
-  /** Switch preset by zero-based index: MIDI PC on c302, ack frame on c304, then state re-request. */
+  private settlePresetWaiters(actual: number) {
+    const waiters = this.presetWaiters;
+    this.presetWaiters = [];
+    for (const w of waiters) w.resolve(w.index === actual);
+  }
+
+  /** Resolve true when the device reports `index` as active (event or dump), false on timeout. */
+  private waitForPreset(index: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const waiter = { index, resolve: (ok: boolean) => resolve(ok) };
+      this.presetWaiters.push(waiter);
+      setTimeout(() => {
+        if (this.presetWaiters.includes(waiter)) {
+          this.presetWaiters = this.presetWaiters.filter((w) => w !== waiter);
+          resolve(false);
+        }
+      }, this.opts.presetConfirmTimeoutMs);
+    });
+  }
+
+  /** The MIDI delivery currently in use (confirmed, pinned, or null while unknown). */
+  get activeMidiStrategy(): MidiStrategy | null {
+    return this.midiStrategy;
+  }
+
+  /**
+   * Switch preset by zero-based index. Sends a MIDI Program Change, then the
+   * ack frame on c304, then waits for the device to report the new preset
+   * (preset-changed event or state dump field 13). If the delivery strategy is
+   * not yet known, the documented variants are tried in order until the device
+   * confirms one; the winner is remembered for the session.
+   */
   async selectPreset(index: number): Promise<void> {
     this.assertWrites();
     if (!Number.isInteger(index) || index < 0 || index >= PRESET_COUNT) throw new RangeError(`bad preset index ${index}`);
     this.store.setField('activePreset', index, 'optimistic');
-    await this.transport.writeMidi(programChange(index));
-    await new Promise((r) => setTimeout(r, 50));
-    await this.transport.writeCommand(PRESET_CHANGE_ACK);
-    this.scheduleConfirm();
+    const midiOut = this.opts.midiOut;
+    const all = [...(midiOut?.isSupported() ? [WEB_MIDI_STRATEGY] : []), ...BLE_MIDI_STRATEGIES];
+    const candidates = this.midiStrategy ? [this.midiStrategy, ...(this.midiPinned ? [] : all.filter((s) => s.id !== this.midiStrategy!.id))] : all;
+    for (const strategy of candidates) {
+      const confirmed = this.waitForPreset(index);
+      try {
+        if (strategy.char === 'web-midi') {
+          if (!midiOut) throw new Error('Web MIDI not configured');
+          await midiOut.open();
+          const pc = programChange(index);
+          this.log('info', `TX web-midi [${strategy.id}] → ${midiOut.portName}`, toHex(pc));
+          await midiOut.send(pc);
+        } else {
+          await this.transport.writeMidi(programChange(index), strategy);
+        }
+      } catch (err) {
+        this.log('warn', `Preset switch via ${strategy.id} rejected: ${(err as Error).message}`);
+        this.settlePresetWaiters(-1);
+        continue;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+      await this.transport.writeCommand(PRESET_CHANGE_ACK).catch((err) => this.log('warn', `ack frame failed: ${(err as Error).message}`));
+      this.scheduleConfirm(this.midiStrategy === strategy ? this.opts.confirmDelayMs : 400);
+      if (await confirmed) {
+        if (this.midiStrategy !== strategy) {
+          this.midiStrategy = strategy;
+          this.log('info', `Preset switching works via ${strategy.id}; remembering it for this session`);
+        }
+        return;
+      }
+      this.log('warn', `Preset switch via ${strategy.id} not confirmed by the device`);
+      if (this.midiPinned) break;
+    }
+    this.log(
+      'error',
+      'Preset switch failed: no MIDI delivery was confirmed by the device. Connect the pedal over USB so Web MIDI can reach its "Nano Cortex" port.',
+    );
+    void this.requestState(); // resync the optimistic value with reality
   }
 
   async nextPreset(): Promise<void> {

@@ -3,6 +3,7 @@ import { BleTransport, canResumePermittedDevices, isWebBluetoothAvailable } from
 import { MockTransport } from './transport/mock';
 import type { Transport } from './transport/types';
 import { Store } from './state/store';
+import { WebMidiOut } from './transport/webmidi';
 import { SyncEngine } from './sync/engine';
 import { GigView } from './ui/gigview';
 
@@ -12,6 +13,7 @@ const flag = (name: string) => params.get(name) === '1' || params.get(name) === 
 const forceMock = flag('mock');
 let writesEnabled = flag('writes');
 const debug = flag('debug');
+const midiStrategy = params.get('midi'); // pin a MIDI delivery strategy, e.g. ?midi=c303-ble-midi
 
 const store = new Store();
 let transport: Transport | null = null;
@@ -20,7 +22,11 @@ let engine: SyncEngine | null = null;
 function attach(t: Transport) {
   engine?.dispose();
   transport = t;
-  engine = new SyncEngine(t, store, { writesEnabled });
+  engine = new SyncEngine(t, store, {
+    writesEnabled,
+    midiStrategy,
+    midiOut: t instanceof BleTransport ? new WebMidiOut() : null,
+  });
 }
 
 async function startMock(): Promise<void> {

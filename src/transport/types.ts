@@ -1,4 +1,5 @@
 /** Transport abstraction so the BLE and mock transports are interchangeable. */
+import type { MidiStrategy } from '../protocol/frames';
 
 export type TransportStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -33,8 +34,11 @@ export interface Transport {
   disconnect(): Promise<void>;
   /** Write a command/editor frame to c304. */
   writeCommand(bytes: Uint8Array): Promise<void>;
-  /** Write MIDI bytes (PC/CC) to c302. */
-  writeMidi(bytes: Uint8Array): Promise<void>;
+  /**
+   * Write MIDI bytes (PC/CC). `strategy` picks the characteristic and framing;
+   * the bytes passed are plain MIDI — the transport applies the framing.
+   */
+  writeMidi(bytes: Uint8Array, strategy: MidiStrategy): Promise<void>;
   onPacket(cb: (pkt: NotifyPacket) => void): Unsubscribe;
   onStatus(cb: (status: TransportStatus) => void): Unsubscribe;
   onLog(cb: (line: LogLine) => void): Unsubscribe;

@@ -8,6 +8,7 @@
  * auto-reconnect on `gattserverdisconnected`.
  */
 import { toHex } from '../protocol/hex';
+import { bleMidiFrame, type MidiStrategy } from '../protocol/frames';
 import { PacketDeduper } from './dedupe';
 import {
   ALL_SERVICE_UUIDS,
@@ -196,7 +197,7 @@ export class BleTransport implements Transport {
       const missing = (['c304', 'c305'] as CharKey[]).filter((k) => !this.chars.has(k));
       throw new Error(`Required characteristic(s) not found: ${missing.join(', ')} (services seen: ${services.map((s) => s.uuid.slice(4, 8)).join(', ')})`);
     }
-    if (!this.chars.has('c302')) this.log('warn', 'c302 (MIDI write) not found — preset switching via MIDI will be unavailable');
+    if (!this.chars.has('c302') && !this.chars.has('c303')) this.log('warn', 'c302/c303 (MIDI write) not found — preset switching via MIDI will be unavailable');
 
     for (const key of ['c305', 'c306'] as CharKey[]) {
       const ch = this.chars.get(key);
@@ -399,16 +400,23 @@ export class BleTransport implements Transport {
     });
   }
 
-  writeMidi(bytes: Uint8Array): Promise<void> {
-    return this.enqueueWrite('c302 write', async () => {
-      const ch = this.chars.get('c302');
-      if (!ch) throw new Error('not connected (c302 unavailable)');
-      this.log('tx', `TX c302`, toHex(bytes));
-      const payload = copyForWrite(bytes);
-      const write = ch.properties.writeWithoutResponse
-        ? ch.writeValueWithoutResponse(payload)
-        : ch.writeValueWithResponse(payload);
-      await withTimeout(write, WRITE_TIMEOUT_MS, 'c302 write');
+  writeMidi(bytes: Uint8Array, strategy: MidiStrategy): Promise<void> {
+    return this.enqueueWrite(`${strategy.char} write`, async () => {
+      if (strategy.char === 'web-midi') throw new Error('web-midi is not a BLE characteristic');
+      const ch = this.chars.get(strategy.char);
+      if (!ch) throw new Error(`not connected (${strategy.char} unavailable)`);
+      const chunks: Uint8Array[] =
+        strategy.framing === 'sequential'
+          ? Array.from(bytes, (b) => Uint8Array.of(b))
+          : [strategy.framing === 'ble-midi' ? bleMidiFrame(bytes) : bytes];
+      for (const chunk of chunks) {
+        const payload = copyForWrite(chunk);
+        this.log('tx', `TX ${strategy.char} [${strategy.id}]`, toHex(payload));
+        const write = ch.properties.writeWithoutResponse
+          ? ch.writeValueWithoutResponse(payload)
+          : ch.writeValueWithResponse(payload);
+        await withTimeout(write, WRITE_TIMEOUT_MS, `${strategy.char} write`);
+      }
     });
   }
 
