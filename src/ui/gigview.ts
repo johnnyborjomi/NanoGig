@@ -100,12 +100,7 @@ export class GigView {
   private readonly reconnectBtn = el("button", "primary", "Reconnect now");
   private renderedLogCount = 0;
   private wakeLock: WakeLockSentinel | null = null;
-  private lastName = "";
   private lastState: GigState | null = null;
-  private readonly resize =
-    typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(() => this.fitName())
-      : null;
 
   constructor(
     root: HTMLElement,
@@ -175,7 +170,6 @@ export class GigView {
     irWrap.append(irLbl, this.irEl);
     this.subEl.append(capWrap, el("span", "sep", "•"), irWrap);
     preset.append(this.slotEl, this.nameEl, this.subEl);
-    this.resize?.observe(preset);
 
     // Tiles -----------------------------------------------------------
     const tiles = el("div", "tiles");
@@ -285,7 +279,7 @@ export class GigView {
       el(
         "p",
         "hint",
-        "Everything shown is provisional: decoded from a reverse-engineered protocol verified on NanOS 2.2.x. Add ?mock=1 for demo mode, ?writes=1 to enable tile taps / preset buttons, ?debug=1 to open the hex log.",
+        "Everything shown is provisional: decoded from a reverse-engineered protocol verified on NanOS 2.2.x. After a reload the app reconnects to the last pedal by itself when Chrome remembers the permission. Add ?mock=1 for demo mode, ?writes=1 to enable tile taps / preset buttons, ?debug=1 to open the hex log.",
       ),
     );
     this.overlay.append(card);
@@ -356,22 +350,6 @@ export class GigView {
     }
   }
 
-  private fitName() {
-    // const node = this.nameEl;
-    // const parent = node.parentElement;
-    // if (!parent || !node.textContent) return;
-    // node.classList.remove('wrap');
-    // const maxPx = Math.min(parent.clientWidth * 0.22, parent.clientHeight * 0.62, 360);
-    // let size = Math.max(maxPx, 24);
-    // node.style.fontSize = `${size}px`;
-    // let guard = 0;
-    // while (node.scrollWidth > parent.clientWidth && size > 40 && guard++ < 40) {
-    //   size *= 0.92;
-    //   node.style.fontSize = `${size}px`;
-    // }
-    // if (node.scrollWidth > parent.clientWidth) node.classList.add('wrap');
-  }
-
   private render(s: GigState) {
     this.lastState = s;
     // Connection ----------------------------------------------------
@@ -437,11 +415,7 @@ export class GigView {
           : "—"
         : name || `Preset ${idx + 1}`;
     this.nameEl.classList.toggle("empty", idx === null || !name);
-    if (shown !== this.lastName) {
-      this.nameEl.textContent = shown;
-      this.lastName = shown;
-      this.fitName();
-    }
+    if (this.nameEl.textContent !== shown) this.nameEl.textContent = shown;
     this.captureEl.textContent = s.captureName.value || "—";
     const cabOff = s.cabOn.value === false;
     this.irEl.textContent =

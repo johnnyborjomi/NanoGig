@@ -12,6 +12,7 @@ import { PacketDeduper } from './dedupe';
 import {
   ALL_SERVICE_UUIDS,
   SERVICE_A002,
+  looksLikeNano,
   charKeyOf,
   type CharKey,
 } from '../protocol/uuids';
@@ -33,6 +34,28 @@ const UNSUBSCRIBE_TIMEOUT_MS = 1000;
 const DEDUPE_WINDOW_MS = 500;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const RECONNECT_MAX_ATTEMPTS = 40; // ~20 minutes at the 30 s cap
+const LAST_DEVICE_KEY = 'nanogig.lastDeviceId';
+
+function rememberDevice(id: string) {
+  try {
+    localStorage.setItem(LAST_DEVICE_KEY, id);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function rememberedDeviceId(): string | null {
+  try {
+    return localStorage.getItem(LAST_DEVICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** True when Chrome can hand back previously permitted devices without the chooser. */
+export function canResumePermittedDevices(): boolean {
+  return isWebBluetoothAvailable() && typeof navigator.bluetooth.getDevices === 'function';
+}
 
 /** Web Bluetooth wants an ArrayBuffer-backed view; copy so subarray views / shared buffers are safe. */
 function copyForWrite(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
@@ -113,6 +136,7 @@ export class BleTransport implements Transport {
       this.log('info', 'Requesting device…');
       const device = await navigator.bluetooth.requestDevice(request);
       this.attachDevice(device);
+      rememberDevice(device.id);
       await this.openGatt();
       this.setStatus('connected');
     } catch (err) {
@@ -271,7 +295,7 @@ export class BleTransport implements Transport {
     void this.reconnectLoop();
   }
 
-  private async reconnectLoop(): Promise<void> {
+  private async reconnectLoop(immediateFirst = false): Promise<void> {
     if (this.reconnecting) return;
     this.reconnecting = true;
     this.setStatus('reconnecting');
@@ -279,9 +303,11 @@ export class BleTransport implements Transport {
     try {
       for (let attempt = 0; attempt < RECONNECT_MAX_ATTEMPTS; attempt++) {
         if (this.intentionalDisconnect || !this.device) break;
-        const delay = RECONNECT_BACKOFF_MS[Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)]!;
-        this.log('info', `Reconnect attempt ${attempt + 1} in ${delay / 1000} s`);
-        await this.waitOrWake(delay);
+        const delay = immediateFirst && attempt === 0 ? 0 : RECONNECT_BACKOFF_MS[Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)]!;
+        if (delay > 0) {
+          this.log('info', `Reconnect attempt ${attempt + 1} in ${delay / 1000} s`);
+          await this.waitOrWake(delay);
+        }
         if (this.intentionalDisconnect) break;
         try {
           this.log('info', `Reconnect attempt ${attempt + 1}: connecting…`);
@@ -304,6 +330,36 @@ export class BleTransport implements Transport {
       this.stopAdvertisementWatch();
       this.reconnecting = false;
     }
+  }
+
+  /**
+   * After a page reload the GATT link is gone, but Chrome remembers the
+   * permission. Reconnect to the remembered pedal without showing the chooser.
+   * Resolves true once connected, false if there is nothing to resume or the
+   * retry loop gave up. Requires `navigator.bluetooth.getDevices()`.
+   */
+  async resume(): Promise<boolean> {
+    if (!canResumePermittedDevices()) return false;
+    if (this._status === 'connected' || this.reconnecting) return this._status === 'connected';
+    let devices: BluetoothDevice[] = [];
+    try {
+      devices = await navigator.bluetooth.getDevices();
+    } catch (err) {
+      this.log('info', `getDevices failed: ${(err as Error).message}`);
+      return false;
+    }
+    const remembered = rememberedDeviceId();
+    const device =
+      devices.find((d) => d.id === remembered) ?? devices.find((d) => looksLikeNano(d.name)) ?? devices[0] ?? null;
+    if (!device) {
+      this.log('info', 'No previously permitted device to resume');
+      return false;
+    }
+    this.intentionalDisconnect = false;
+    this.attachDevice(device);
+    this.log('info', `Resuming ${device.name ?? '(unnamed)'} without the chooser…`);
+    await this.reconnectLoop(true);
+    return this.status === 'connected';
   }
 
   async disconnect(): Promise<void> {

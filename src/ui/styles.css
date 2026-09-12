@@ -189,15 +189,12 @@ button.warn {
   width: 100%;
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12vh;
 }
 .preset-name.empty {
   color: var(--dim);
   font-weight: 600;
-}
-.preset-name.wrap {
-  white-space: normal;
-  word-break: break-word;
 }
 .preset-sub {
   font-size: clamp(16px, 2.6vw, 30px);
@@ -420,13 +417,5 @@ button.warn {
 @media (max-width: 700px) {
   .tiles {
     grid-template-columns: repeat(4, 1fr);
-  }
-  .preset-name {
-    font-size: 18vw;
-  }
-}
-@media (orientation: portrait) and (min-width: 700px) {
-  .preset-name {
-    font-size: 17vw;
   }
 }

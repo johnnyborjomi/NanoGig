@@ -1,5 +1,5 @@
 import './ui/styles.css';
-import { BleTransport, isWebBluetoothAvailable } from './transport/ble';
+import { BleTransport, canResumePermittedDevices, isWebBluetoothAvailable } from './transport/ble';
 import { MockTransport } from './transport/mock';
 import type { Transport } from './transport/types';
 import { Store } from './state/store';
@@ -89,4 +89,13 @@ Object.assign(window as unknown as Record<string, unknown>, {
 });
 
 // ?mock=1 starts demo mode immediately (the overlay's demo button remains as a fallback).
-if (forceMock) void startMock();
+if (forceMock) {
+  void startMock();
+} else if (canResumePermittedDevices()) {
+  // After a reload (or a Vite full reload) reconnect to the remembered pedal without the chooser.
+  const ble = new BleTransport();
+  attach(ble);
+  void ble.resume().then((ok) => {
+    if (!ok) store.appendLog({ at: Date.now(), dir: 'info', text: 'Nothing to resume; use Connect' });
+  });
+}
