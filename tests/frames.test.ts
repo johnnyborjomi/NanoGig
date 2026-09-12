@@ -6,7 +6,9 @@ import {
   METADATA_DUMP_REQUEST,
   MIDI_STRATEGIES,
   PRESET_CHANGE_ACK,
+  PRESET_NAME_MAX_LENGTH,
   bleMidiFrame,
+  presetLabelParts,
   fxBlockBypassFrame,
   midiStrategyById,
   gateBypassFrame,
@@ -65,12 +67,32 @@ describe('MIDI program change', () => {
 });
 
 describe('presetLabel', () => {
-  it('maps indices to bank/slot labels', () => {
-    expect(presetLabel(0)).toBe('A1');
-    expect(presetLabel(7)).toBe('A8');
-    expect(presetLabel(8)).toBe('B1');
-    expect(presetLabel(63)).toBe('H8');
+  it('defaults to the Mvave Chocolate layout: 4 per bank, bank number + preset letter', () => {
+    expect(presetLabel(0)).toBe('1A');
+    expect(presetLabel(1)).toBe('1B');
+    expect(presetLabel(4)).toBe('2A');
+    expect(presetLabel(9)).toBe('3B');
+    expect(presetLabel(63)).toBe('16D');
     expect(presetLabel(64)).toBe('—');
+  });
+  it('supports the Nano Cortex A–H layout', () => {
+    const nano = { presetsPerBank: 8, style: 'letter-number' as const };
+    expect(presetLabel(0, nano)).toBe('A1');
+    expect(presetLabel(7, nano)).toBe('A8');
+    expect(presetLabel(8, nano)).toBe('B1');
+    expect(presetLabel(9, nano)).toBe('B2');
+    expect(presetLabel(63, nano)).toBe('H8');
+  });
+  it('exposes the two figures separately for colouring', () => {
+    expect(presetLabelParts(9)).toEqual({ bank: '3', slot: 'B', slotIndex: 1 });
+    expect(presetLabelParts(9, { presetsPerBank: 8, style: 'letter-number' })).toEqual({ bank: 'B', slot: '2', slotIndex: 1 });
+    expect(presetLabelParts(64)).toBeNull();
+    expect(PRESET_NAME_MAX_LENGTH).toBe(20);
+  });
+  it('handles other bank sizes and falls back on invalid ones', () => {
+    expect(presetLabel(9, { presetsPerBank: 4, style: 'letter-number' })).toBe('C2');
+    expect(presetLabel(63, { presetsPerBank: 2, style: 'letter-number' })).toBe('AF2'); // letters continue past Z
+    expect(presetLabel(5, { presetsPerBank: 0 })).toBe('2B'); // invalid size falls back to 4
   });
 });
 

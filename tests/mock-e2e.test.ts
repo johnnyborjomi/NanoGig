@@ -35,6 +35,7 @@ describe('mock mode end-to-end', () => {
       prevPreset: () => engine.prevPreset(),
       setWritesEnabled: (v: boolean) => engine.setWritesEnabled(v),
       reconnectNow: () => {},
+      setSettings: (patch: Partial<{ presetsPerBank: number; labelStyle: 'number-letter' | 'letter-number'; showPresetNumber: boolean }>) => store.patch(patch),
     };
     new GigView(root, store, actions, { bluetoothAvailable: false, showMockButton: true });
 
@@ -44,9 +45,9 @@ describe('mock mode end-to-end', () => {
     const text = (sel: string) => root.querySelector(sel)?.textContent ?? '';
     const tile = (k: string) => root.querySelector<HTMLElement>(`.tile[data-key="${k}"]`)!.dataset.on;
 
-    expect(root.querySelector('.overlay')?.classList.contains('open')).toBe(false);
+    expect(root.querySelector('.overlay.connect')?.classList.contains('open')).toBe(false);
     expect(text('.preset-name')).toBe('Clean Chief'); // field 13 = 7 in the real dump
-    expect(text('.slot-label')).toContain('A8');
+    expect(text('.slot-label')).toContain('2D'); // index 7 in the default 4-per-bank Mvave layout
     expect(root.querySelector<HTMLElement>('.src')!.hidden).toBe(true); // dump source: no tag
     expect(text('.capture')).toBe('NoMatch Chief 1');
     expect(text('.ir')).toContain('110 US PRN C10R');
@@ -63,7 +64,7 @@ describe('mock mode end-to-end', () => {
     mock.pressFootswitch(4);
     await wait(10);
     expect(text('.preset-name')).toBe('Rectified');
-    expect(text('.slot-label')).toContain('A5');
+    expect(text('.slot-label')).toContain('2A'); // index 4 in the default 4-per-bank Mvave layout
     expect(text('.src')).toBe('live');
     await wait(400);
     expect(text('.capture')).toBe('Cali Recto Modern');

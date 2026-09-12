@@ -3,6 +3,7 @@ import { BleTransport, canResumePermittedDevices, isWebBluetoothAvailable } from
 import { MockTransport } from './transport/mock';
 import type { Transport } from './transport/types';
 import { Store } from './state/store';
+import type { PresetLabelStyle } from './protocol/frames';
 import { WebMidiOut } from './transport/webmidi';
 import { SyncEngine } from './sync/engine';
 import { GigView } from './ui/gigview';
@@ -15,7 +16,32 @@ let writesEnabled = flag('writes');
 const debug = flag('debug');
 const midiStrategy = params.get('midi'); // pin a MIDI delivery strategy, e.g. ?midi=c303-ble-midi
 
-const store = new Store();
+const SETTINGS_KEY = 'nanogig.settings';
+type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean };
+function loadSettings(): Partial<Settings> {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<Settings>;
+    const out: Partial<Settings> = {};
+    if (typeof parsed.presetsPerBank === 'number' && parsed.presetsPerBank >= 1 && parsed.presetsPerBank <= 64) out.presetsPerBank = parsed.presetsPerBank;
+    if (parsed.labelStyle === 'number-letter' || parsed.labelStyle === 'letter-number') out.labelStyle = parsed.labelStyle;
+    if (typeof parsed.showPresetNumber === 'boolean') out.showPresetNumber = parsed.showPresetNumber;
+    return out;
+  } catch {
+    return {};
+  }
+}
+function saveSettings() {
+  const { presetsPerBank, labelStyle, showPresetNumber } = store.get();
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber }));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+const store = new Store(loadSettings());
 let transport: Transport | null = null;
 let engine: SyncEngine | null = null;
 
@@ -68,6 +94,10 @@ const view = new GigView(
       store.appendLog({ at: Date.now(), dir: 'warn', text: enabled ? 'Control mode ON: tile taps and ◀ ▶ now change the pedal' : 'Control mode off' });
     },
     reconnectNow: () => transport?.reconnectNow?.(),
+    setSettings: (patch) => {
+      store.patch(patch);
+      saveSettings();
+    },
   },
   {
     bluetoothAvailable: isWebBluetoothAvailable() && !forceMock,

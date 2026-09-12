@@ -3,11 +3,13 @@
  * Designed for a pedalboard-mounted tablet read from standing height:
  * contrast and size over density.
  */
-import { FX_SLOTS, presetLabel, type FxSlot } from "../protocol/frames";
+import { FX_SLOTS, PRESETS_PER_BANK_CHOICES, presetLabel, presetLabelParts, type FxSlot, type PresetLabelStyle } from "../protocol/frames";
 import type { GigState } from "../state/store";
 import type { Store } from "../state/store";
 import type { LogLine } from "../transport/types";
-import { Maximize, Menu, Minimize, Power, createElement as lucideElement } from "lucide";
+import { LogOut, Maximize, Menu, Minimize, Power, RefreshCw, ScrollText, Settings, createElement as lucideElement } from "lucide";
+import { REFERENCE_PX, fitPresetRowFont } from "./fit";
+import { PRESET_COUNT } from "../protocol/frames";
 
 export interface GigViewActions {
   connect(acceptAll?: boolean): Promise<void>;
@@ -23,6 +25,7 @@ export interface GigViewActions {
   simulateDrop?(): void;
   setWritesEnabled(enabled: boolean): void;
   reconnectNow(): void;
+  setSettings(patch: { presetsPerBank?: number; labelStyle?: PresetLabelStyle; showPresetNumber?: boolean }): void;
 }
 
 export interface GigViewOptions {
@@ -92,10 +95,17 @@ export class GigView {
   private readonly dot = el("span", "dot");
   private readonly statusText = el("span", "status-text", "Disconnected");
   private readonly writesBadge = el("span", "badge warn", "control on");
-  private readonly slotEl = el("div", "preset-slot");
-  private readonly slotLabel = el("span", "slot-label", "—");
+  private readonly slotEl = el("div", "preset-row");
+  private readonly slotLabel = el("span", "slot-label");
+  private readonly slotBank = el("span", "slot-bank", "—");
+  private readonly slotSlot = el("span", "slot-slot", "");
+  private readonly slotNum = el("span", "slot-num", "");
   private readonly sourceTag = el("span", "src");
   private readonly nameEl = el("div", "preset-name empty", "—");
+  private readonly numberCheck = el("input", "menu-check");
+  private presetEl: HTMLElement | null = null;
+  private fitKey = "";
+  private readonly rowResize = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => this.fitPresetRow()) : null;
   private readonly subEl = el("div", "preset-sub");
   private readonly captureEl = el("span", "capture");
   private readonly irEl = el("span", "ir");
@@ -107,7 +117,7 @@ export class GigView {
   private readonly nav = el("div", "nav");
   private readonly consoleEl = el("div", "console");
   private readonly consoleBody = el("div", "c-body");
-  private readonly overlay = el("div", "overlay open");
+  private readonly overlay = el("div", "overlay connect open");
   private readonly overlayErr = el("div", "err");
   private readonly connectBtn = el("button", "primary", "Connect Nano Cortex");
   private readonly connectAllBtn = el("button", "", "Show all devices");
@@ -120,6 +130,11 @@ export class GigView {
   private readonly menuBtn = el("button", "ghost icon-btn", "");
   private readonly menu = el("div", "menu");
   private readonly menuInfo = el("div", "menu-info");
+  private readonly bankSelect = el("select", "menu-select");
+  private readonly styleSelect = el("select", "menu-select");
+  private readonly settingsBtn = el("button", "menu-item", "Settings");
+  private readonly settingsOverlay = el("div", "overlay settings");
+  private readonly settingsPreview = el("p", "hint");
   private readonly reconnectBtn = el("button", "primary", "Reconnect now");
   private renderedLogCount = 0;
   private wakeLock: WakeLockSentinel | null = null;
@@ -190,12 +205,24 @@ export class GigView {
       e.stopPropagation();
       this.menu.classList.toggle("open");
     });
-    for (const b of [this.refreshBtn, this.consoleBtn, this.disconnectBtn]) {
+    // Items: icon on the left, label, separators between; device info at the bottom.
+    const items: [HTMLButtonElement, typeof Settings, string][] = [
+      [this.settingsBtn, Settings, "Settings"],
+      [this.refreshBtn, RefreshCw, "Refresh"],
+      [this.consoleBtn, ScrollText, "Log"],
+      [this.disconnectBtn, LogOut, "Disconnect"],
+    ];
+    items.forEach(([b, icon, label], i) => {
       b.className = "menu-item";
+      b.replaceChildren(lucideElement(icon, { "aria-hidden": "true" }), el("span", "", label));
       b.addEventListener("click", () => this.menu.classList.remove("open"));
-    }
+      if (i > 0) this.menu.append(el("div", "menu-sep"));
+      this.menu.append(b);
+    });
+    this.disconnectBtn.classList.add("danger");
+    this.settingsBtn.addEventListener("click", () => this.settingsOverlay.classList.add("open"));
     this.menuInfo.hidden = true;
-    this.menu.append(this.menuInfo, this.refreshBtn, this.consoleBtn, this.disconnectBtn);
+    this.menu.append(el("div", "menu-sep strong"), this.menuInfo);
     document.addEventListener("click", (e) => {
       if (!this.menu.contains(e.target as Node)) this.menu.classList.remove("open");
     });
@@ -210,7 +237,8 @@ export class GigView {
 
     // Preset area ------------------------------------------------------
     const preset = el("div", "preset");
-    this.slotEl.append(this.slotLabel, this.sourceTag);
+    this.slotLabel.append(this.slotBank, this.slotSlot, this.slotNum);
+    this.slotEl.append(this.slotLabel, this.nameEl, this.sourceTag);
     const capLbl = el("span", "lbl", "capture");
     const irLbl = el("span", "lbl", "cab / ir");
     const capWrap = el("span");
@@ -218,34 +246,45 @@ export class GigView {
     const irWrap = el("span");
     irWrap.append(irLbl, this.irEl);
     this.subEl.append(capWrap, el("span", "sep", "•"), irWrap);
-    preset.append(this.slotEl, this.nameEl, this.subEl);
+    preset.append(this.slotEl, this.subEl);
+    this.presetEl = preset;
+    this.rowResize?.observe(preset);
+    window.addEventListener("resize", () => this.fitPresetRow());
 
-    // Tiles -----------------------------------------------------------
+    // Blocks: gate line, separator, then the five FX tiles (pre | post) -----
+    const blocks = el("div", "blocks");
     const tiles = el("div", "tiles");
     for (const key of TILE_ORDER) {
       const tile = el("button", "tile");
       tile.dataset.on = "unknown";
       tile.setAttribute("aria-label", TILE_LABELS[key]);
       tile.dataset.key = key;
-      const wrap = el("div", "tile-wrap");
-      const slot = el("div", "t-slot", TILE_LABELS[key]);
       const name = el("div", "t-name", key === "gate" ? "" : TILE_LABELS[key]);
       const category = el("div", "t-cat", "");
       tile.dataset.cat = key === "gate" || key === "cab" ? key : "none";
+      tile.addEventListener("click", () => this.onTileTap(key));
+      this.tiles.set(key, { root: tile, name, category });
+
       if (key === "gate") {
-        // Narrow tile: a power icon carries the state, the slot label above says "GATE".
+        // Own line: "GATE" text followed by a small power button.
+        tile.classList.add("gate-btn");
         const icon = lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" });
         icon.classList.add("t-icon");
         tile.append(icon);
-      } else {
-        // Category is the primary line (large), the model name the secondary one (small).
-        tile.append(category, name);
+        const gateRow = el("div", "gate-row");
+        gateRow.append(el("div", "t-slot", TILE_LABELS[key]), tile);
+        blocks.append(gateRow, el("div", "hsep"));
+        continue;
       }
-      tile.addEventListener("click", () => this.onTileTap(key));
-      wrap.append(slot, tile);
+
+      // Category is the primary line (large), the model name the secondary one (small).
+      tile.append(category, name);
+      const wrap = el("div", "tile-wrap");
+      wrap.append(el("div", "t-slot", TILE_LABELS[key]), tile);
+      if (key === "post1") tiles.append(el("div", "vsep")); // pre | post divider
       tiles.append(wrap);
-      this.tiles.set(key, { root: tile, name, category });
     }
+    blocks.append(tiles);
 
     // Footer ----------------------------------------------------------
     const footer = el("div", "footer");
@@ -299,6 +338,63 @@ export class GigView {
     }
     this.consoleEl.append(head, this.consoleBody);
 
+    // Settings overlay --------------------------------------------------
+    {
+      const card = el("div", "card");
+      card.append(el("h1", "", "Settings"));
+      card.append(
+        el(
+          "p",
+          "",
+          "The pedal has no banks. These only change the bank/slot label so it matches your MIDI controller.",
+        ),
+      );
+      const bankRow = el("label", "setting-row");
+      bankRow.append(el("span", "", "Presets per bank"));
+      for (const n of PRESETS_PER_BANK_CHOICES) {
+        const opt = document.createElement("option");
+        opt.value = String(n);
+        opt.textContent = String(n);
+        this.bankSelect.append(opt);
+      }
+      this.bankSelect.addEventListener("change", () =>
+        this.actions.setSettings({ presetsPerBank: Number(this.bankSelect.value) }),
+      );
+      bankRow.append(this.bankSelect);
+
+      const styleRow = el("label", "setting-row");
+      styleRow.append(el("span", "", "Label style"));
+      for (const [value, text] of [
+        ["number-letter", "1B — bank number, preset letter (Mvave Chocolate)"],
+        ["letter-number", "A2 — bank letter, preset number (Nano Cortex)"],
+      ] as const) {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = text;
+        this.styleSelect.append(opt);
+      }
+      this.styleSelect.addEventListener("change", () =>
+        this.actions.setSettings({ labelStyle: this.styleSelect.value as PresetLabelStyle }),
+      );
+      styleRow.append(this.styleSelect);
+
+      const numberRow = el("label", "setting-row");
+      numberRow.append(el("span", "", "Show pedal preset number (1–64)"));
+      this.numberCheck.type = "checkbox";
+      this.numberCheck.addEventListener("change", () =>
+        this.actions.setSettings({ showPresetNumber: this.numberCheck.checked }),
+      );
+      numberRow.append(this.numberCheck);
+
+      const close = el("button", "primary", "Done");
+      close.addEventListener("click", () => this.settingsOverlay.classList.remove("open"));
+      card.append(bankRow, styleRow, numberRow, this.settingsPreview, close);
+      this.settingsOverlay.append(card);
+      this.settingsOverlay.addEventListener("click", (e) => {
+        if (e.target === this.settingsOverlay) this.settingsOverlay.classList.remove("open");
+      });
+    }
+
     // Connect overlay -----------------------------------------------
     const card = el("div", "card");
     card.append(el("h1", "", "Nano Cortex Gig View"));
@@ -345,7 +441,7 @@ export class GigView {
     );
     this.overlay.append(card);
 
-    root.append(top, preset, tiles, footer, this.consoleEl, this.overlay);
+    root.append(top, preset, blocks, footer, this.consoleEl, this.settingsOverlay, this.overlay);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") void this.requestWakeLock();
     });
@@ -411,6 +507,57 @@ export class GigView {
     }
   }
 
+  /**
+   * Size the preset row for the worst case (widest label under the current
+   * settings + widest preset name on the pedal) so every preset fits on one
+   * line at a stable size. Re-measures only when width, names or settings change.
+   */
+  private fitPresetRow(state: GigState | null = this.lastState) {
+    const s = state;
+    const container = this.presetEl;
+    if (!s || !container || !container.isConnected) return;
+    const cs = getComputedStyle(container);
+    const available = container.clientWidth - parseFloat(cs.paddingLeft || "0") - parseFloat(cs.paddingRight || "0");
+    if (!(available > 0)) return;
+    const maxPx = Math.max(24, Math.round(window.innerHeight * 0.12));
+    const names = s.presetNames.value.filter(Boolean);
+    const key = `${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${names.join("\u0000")}`;
+    if (key === this.fitKey) return;
+    this.fitKey = key;
+
+    // Measure at the reference size with the row's real fonts, in one layout pass.
+    const probe = el("div", "fit-probe");
+    const rowCs = getComputedStyle(this.slotEl);
+    const mk = (text: string, cls: string) => {
+      const span = el("span", cls, text);
+      span.style.fontFamily = rowCs.fontFamily;
+      return span;
+    };
+    const labelSpans: HTMLElement[] = [];
+    for (let i = 0; i < PRESET_COUNT; i++) {
+      const parts = presetLabelParts(i, { presetsPerBank: s.presetsPerBank, style: s.labelStyle });
+      if (!parts) continue;
+      const span = mk(`${parts.bank}${parts.slot}${s.showPresetNumber ? `·${i + 1}` : ""}`, "slot-label");
+      if (s.showPresetNumber) {
+        // The number is 0.4em: approximate by wrapping it in its own span with the real class.
+        span.replaceChildren(el("span", "", `${parts.bank}${parts.slot}`), el("span", "slot-num", `·${i + 1}`));
+      }
+      labelSpans.push(span);
+    }
+    const nameCandidates = names.length ? names : [this.nameEl.textContent ?? ""];
+    const nameSpans = nameCandidates.map((n) => mk(n, "preset-name"));
+    probe.append(...labelSpans, ...nameSpans);
+    container.append(probe);
+    const labelWidthRef = Math.max(0, ...labelSpans.map((e) => e.getBoundingClientRect().width));
+    // preset-name is 0.8em inside the probe (probe is REFERENCE_PX): normalise back to 1em.
+    const nameWidthRef = Math.max(0, ...nameSpans.map((e) => e.getBoundingClientRect().width)) / 0.8;
+    probe.remove();
+    if (!(labelWidthRef > 0)) return; // no layout engine (tests): keep the CSS size
+
+    const px = fitPresetRowFont({ availableWidth: available, labelWidthRef, nameWidthRef, maxPx });
+    this.slotEl.style.fontSize = `${px}px`;
+  }
+
   private render(s: GigState) {
     this.lastState = s;
     // Connection ----------------------------------------------------
@@ -445,8 +592,19 @@ export class GigView {
 
     // Preset --------------------------------------------------------
     const idx = s.activePreset.value;
-    this.slotLabel.textContent =
-      idx === null ? "— —" : `${presetLabel(idx)}  ·  ${idx + 1}`;
+    const label = idx === null ? null : presetLabelParts(idx, { presetsPerBank: s.presetsPerBank, style: s.labelStyle });
+    this.slotBank.textContent = label ? label.bank : "—";
+    this.slotSlot.textContent = label ? label.slot : "";
+    this.slotSlot.dataset.slot = label ? String(label.slotIndex) : "";
+    this.slotNum.textContent = label && s.showPresetNumber && idx !== null ? `·${idx + 1}` : "";
+    this.slotNum.hidden = this.slotNum.textContent === "";
+    if (this.numberCheck.checked !== s.showPresetNumber) this.numberCheck.checked = s.showPresetNumber;
+    if (this.bankSelect.value !== String(s.presetsPerBank)) this.bankSelect.value = String(s.presetsPerBank);
+    if (this.styleSelect.value !== s.labelStyle) this.styleSelect.value = s.labelStyle;
+    {
+      const opts = { presetsPerBank: s.presetsPerBank, style: s.labelStyle };
+      this.settingsPreview.textContent = `Preview: preset 1 → ${presetLabel(0, opts)}, preset ${s.presetsPerBank + 2} → ${presetLabel(s.presetsPerBank + 1, opts)}, preset 64 → ${presetLabel(63, opts)}`;
+    }
     this.sourceTag.textContent =
       s.activePreset.source === "inferred"
         ? "inferred"
@@ -461,6 +619,7 @@ export class GigView {
     const shown = idx === null ? placeholderFor(s) : name || `Preset ${idx + 1}`;
     this.nameEl.classList.toggle("empty", idx === null || !name);
     if (this.nameEl.textContent !== shown) this.nameEl.textContent = shown;
+    this.fitPresetRow(s);
     this.captureEl.textContent = s.captureName.value || "—";
     const cabOff = s.cabOn.value === false;
     this.irEl.textContent =

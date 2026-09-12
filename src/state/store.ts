@@ -3,7 +3,7 @@
  * `Field<T>` that carries `provisional: true` and the source it came from, so
  * the UI can never mistake decoded BLE data for confirmed device truth.
  */
-import { PRESET_COUNT, type FxSlot } from '../protocol/frames';
+import { DEFAULT_LABEL_STYLE, DEFAULT_PRESETS_PER_BANK, PRESET_COUNT, type FxSlot, type PresetLabelStyle } from '../protocol/frames';
 import type { LogLine, TransportStatus } from '../transport/types';
 import type { FxModelsBySlot } from '../protocol/models';
 
@@ -25,6 +25,12 @@ export interface GigState {
   syncPhase: SyncPhase;
   lastError: string | null;
   writesEnabled: boolean;
+  /** User setting: how many presets one bank of their MIDI controller spans (label only). */
+  presetsPerBank: number;
+  /** User setting: "number-letter" (1B, Mvave) or "letter-number" (A2, Nano). */
+  labelStyle: PresetLabelStyle;
+  /** User setting: show the pedal's absolute preset number (1–64) after the bank label. */
+  showPresetNumber: boolean;
 
   presetNames: Field<string[]>;
   activePreset: Field<number | null>;
@@ -57,6 +63,9 @@ export function initialState(transportName = 'none'): GigState {
     syncPhase: 'idle',
     lastError: null,
     writesEnabled: false,
+    presetsPerBank: DEFAULT_PRESETS_PER_BANK,
+    labelStyle: DEFAULT_LABEL_STYLE,
+    showPresetNumber: false,
     presetNames: field(Array.from({ length: PRESET_COUNT }, () => '')),
     activePreset: field<number | null>(null),
     fxOn: field<Record<FxSlot, boolean | null>>({ pre1: null, pre2: null, post1: null, post2: null, post3: null }),

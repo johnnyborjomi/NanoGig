@@ -21,7 +21,7 @@ import {
   readVarint,
   type ProtoField,
 } from './proto';
-import { FX_SLOTS, PRESET_COUNT, type FxSlot } from './frames';
+import { FX_SLOTS, PRESET_COUNT, PRESET_NAME_MAX_LENGTH, type FxSlot } from './frames';
 import { MSG, parseFrameHeader, splitTrailer } from './reassembly';
 
 export const PROVISIONAL = true as const;
@@ -63,10 +63,15 @@ export function isInternalIdentifier(value: string): boolean {
   return compact.length >= 12 && /^[0-9a-fA-F]+$/.test(compact);
 }
 
-/** Trim, blank non-printable / identifier-like names, cap absurd lengths. */
+/**
+ * Trim, blank non-printable / identifier-like names, cap absurd lengths.
+ * Real preset names are ≤ PRESET_NAME_MAX_LENGTH (20) characters; the cap here
+ * stays loose (120) so capture / IR names, which can be longer, pass through.
+ */
 export function sanitizeName(value: string | null): string {
   if (value === null) return '';
   const trimmed = value.trim();
+  void PRESET_NAME_MAX_LENGTH;
   if (trimmed.length === 0 || trimmed.length > 120 || isInternalIdentifier(trimmed)) return '';
   return trimmed;
 }

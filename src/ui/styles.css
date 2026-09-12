@@ -210,11 +210,43 @@ button.warn {
   padding: 8px 14px 6px;
   font-size: 12px;
   color: var(--muted);
-  border-bottom: 1px solid #1f2630;
-  margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.menu-sep {
+  height: 1px;
+  background: #1f2630;
+  margin: 2px 6px;
+}
+.menu-sep.strong {
+  background: #3a4453;
+  margin: 6px 6px 2px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 16px;
+  min-height: 44px;
+}
+.setting-row .menu-select {
+  max-width: 60%;
+}
+.menu-check {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--accent);
+}
+.menu-select {
+  font: inherit;
+  color: inherit;
+  background: var(--panel-2);
+  border: 1px solid #242b35;
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-height: 40px;
 }
 .menu-item {
   background: transparent;
@@ -224,62 +256,120 @@ button.warn {
   padding: 12px 14px;
   font-size: 16px;
   min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.menu-item svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  opacity: 0.85;
 }
 .menu-item:hover {
   background: var(--panel-2);
 }
+.menu-item.danger {
+  color: var(--error);
+}
+.menu-item.danger svg {
+  color: var(--error);
+  opacity: 1;
+}
 
 /* ---------- preset ---------- */
 .preset {
+  position: relative; /* anchors .fit-probe */
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  text-align: center;
+  text-align: left;
   min-height: 0;
   min-width: 0;
   padding: 0 8px;
   gap: 8px;
 }
-.preset-slot {
-  font-size: clamp(22px, 4vw, 44px);
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 14px;
+/* Offscreen probe used to measure label/name widths at the reference size (see ui/fit.ts). */
+.fit-probe {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 100px; /* REFERENCE_PX */
+  line-height: 1;
+  left: 0;
+  top: 0;
 }
-.preset-slot .src {
-  font-size: 0.42em;
+.fit-probe > span {
+  display: inline-block;
+}
+/* One line: big bank/slot label, then the preset name, then the source tag. */
+.preset-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em;
+  width: 100%;
+  min-width: 0;
+  font-size: 12vh;
+  line-height: 1.02;
+}
+.slot-label {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex: none;
+}
+/* Slot colours (second figure), Quad-Cortex-like per position in the bank. */
+.slot-slot[data-slot='0'] { color: #ff5c5c; }
+.slot-slot[data-slot='1'] { color: #ffb454; }
+.slot-slot[data-slot='2'] { color: #4cf06a; }
+.slot-slot[data-slot='3'] { color: #00f0d8; }
+.slot-slot[data-slot='4'] { color: #3d9bff; }
+.slot-slot[data-slot='5'] { color: #a78bfa; }
+.slot-slot[data-slot='6'] { color: #f050c8; }
+.slot-slot[data-slot='7'] { color: #f4f6f8; }
+.slot-num {
+  font-size: 0.4em;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  margin-left: 0.2em;
+}
+.preset-name {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-size: 0.8em;
+  opacity: 0.9;
+  min-width: 0;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 0.25em;
+}
+.preset-name.empty {
+  color: var(--dim);
+  font-weight: 600;
+}
+.preset-row .src {
+  flex: none;
+  font-size: 0.18em;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   padding: 4px 10px;
   border-radius: 8px;
   background: #1c2330;
   color: var(--muted);
+  align-self: center;
 }
-.preset-slot .src[data-source='inferred'] {
+.preset-row .src[data-source='inferred'] {
   color: var(--warn);
   background: rgba(255, 180, 84, 0.12);
 }
-.preset-slot .src[data-source='optimistic'] {
+.preset-row .src[data-source='optimistic'] {
   color: var(--accent);
   background: rgba(90, 169, 255, 0.12);
-}
-.preset-name {
-  font-weight: 800;
-  line-height: 1.02;
-  letter-spacing: -0.02em;
-  width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 12vh;
-}
-.preset-name.empty {
-  color: var(--dim);
-  font-weight: 600;
 }
 .preset-sub {
   font-size: clamp(16px, 2.6vw, 30px);
@@ -287,8 +377,11 @@ button.warn {
   display: flex;
   gap: 18px;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
+  background: rgba(255,255,255,.1);
+  padding: 2px 10px;
+  width: 100%;
 }
 .preset-sub .sep {
   color: var(--dim);
@@ -297,19 +390,63 @@ button.warn {
   font-size: 0.6em;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--dim);
+  color: var(--muted);
   margin-right: 8px;
+      border: 1px solid;
+    border-radius: 3px;
+    padding: 1px 3px;
 }
 
 /* ---------- tiles ---------- */
+.blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.hsep {
+  height: 1px;
+  background: #3a4453;
+}
+/* Gate on its own line: label text, then a small power button. */
+.gate-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.gate-row .t-slot {
+  font-size: clamp(11px, 1.2vw, 15px);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--muted);
+  padding-left: 6px;
+}
+.tile.gate-btn {
+  flex: none;
+  width: clamp(56px, 6vw, 84px);
+  min-height: 0;
+  height: clamp(34px, 4.2vh, 46px);
+  padding: 0;
+  border-radius: 12px;
+}
+.tile.gate-btn .t-icon {
+  width: clamp(18px, 2vw, 26px);
+  height: auto;
+  display: block;
+}
 .tiles {
   display: grid;
-  /* gate is a narrow icon tile; the five FX blocks share the rest.
-     minmax(0, 1fr) lets a column shrink below its text (ellipsis takes over). */
-  grid-template-columns: minmax(56px, 0.45fr) repeat(5, minmax(0, 1fr));
+  /* 2 pre tiles | divider | 3 post tiles. minmax(0, 1fr) lets a column shrink below its text. */
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 1px repeat(3, minmax(0, 1fr));
   min-width: 0;
   gap: 10px;
   min-height: clamp(90px, 16vh, 170px);
+}
+.vsep {
+  width: 1px;
+  background: #3a4453;
+  align-self: stretch;
 }
 .tile-wrap {
   display: flex;
@@ -393,15 +530,6 @@ button.warn {
 }
 .tile.writable {
   cursor: pointer;
-}
-.tile[data-key='gate'] {
-  padding-left: 4px;
-  padding-right: 4px;
-}
-.tile .t-icon {
-  width: clamp(26px, 3.4vw, 48px);
-  height: auto;
-  display: block;
 }
 .tile.writable:active {
   transform: scale(0.97);
@@ -535,6 +663,9 @@ button.warn {
 }
 
 /* ---------- connect overlay ---------- */
+.overlay.settings {
+  z-index: 30;
+}
 .overlay {
   position: fixed;
   inset: 0;
@@ -591,7 +722,7 @@ button.warn {
 
 @media (max-width: 700px) {
   .tiles {
-    grid-template-columns: minmax(48px, 0.5fr) repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr)) 1px repeat(3, minmax(0, 1fr));
     gap: 6px;
   }
 }

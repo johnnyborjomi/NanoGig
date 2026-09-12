@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, nextPreset: p, prevPreset: p, setWritesEnabled: () => {}, reconnectNow: () => {} };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, nextPreset: p, prevPreset: p, setWritesEnabled: () => {}, reconnectNow: () => {}, setSettings: () => {} };
 }
 
 describe('GigView', () => {
@@ -15,7 +15,7 @@ describe('GigView', () => {
     const store = new Store();
     new GigView(root, store, noopActions(), { bluetoothAvailable: false, showMockButton: true });
 
-    expect(root.querySelector('.overlay')?.classList.contains('open')).toBe(true);
+    expect(root.querySelector('.overlay.connect')?.classList.contains('open')).toBe(true);
     expect(root.querySelector('.preset-name')?.textContent).toBe('—');
 
     store.patch({ connection: 'connected', deviceName: 'Nano Cortex', syncPhase: 'ready' });
@@ -39,10 +39,15 @@ describe('GigView', () => {
     store.setField('captureName', 'Brit 1959 Crunch', 'dump');
     store.setField('irName', '412 UK GRN V30', 'dump');
 
-    expect(root.querySelector('.overlay')?.classList.contains('open')).toBe(false);
+    expect(root.querySelector('.overlay.connect')?.classList.contains('open')).toBe(false);
     expect(root.querySelector('.preset-name')?.textContent).toBe('Big Lead Tone');
-    expect(root.querySelector('.slot-label')?.textContent).toContain('B2');
-    expect(root.querySelector('.slot-label')?.textContent).toContain('10');
+    expect(root.querySelector('.slot-label')?.textContent).toBe('3B'); // index 9, default Mvave layout, no number
+    expect(root.querySelector<HTMLElement>('.slot-slot')?.dataset.slot).toBe('1');
+    store.patch({ showPresetNumber: true });
+    expect(root.querySelector('.slot-label')?.textContent).toBe('3B·10');
+    store.patch({ presetsPerBank: 8, labelStyle: 'letter-number', showPresetNumber: false });
+    expect(root.querySelector('.slot-label')?.textContent).toBe('B2');
+    expect(root.querySelector<HTMLSelectElement>('.menu-select')?.value).toBe('8');
     const tile = (key: string) => root.querySelector<HTMLElement>(`.tile[data-key="${key}"]`)!;
     expect(tile('pre1').dataset.on).toBe('true');
     expect(tile('pre2').dataset.on).toBe('false');
@@ -58,6 +63,9 @@ describe('GigView', () => {
     expect(tile('post3').querySelector('.t-cat')?.textContent).toBe('');
     expect(tile('gate').querySelector('svg.t-icon')).not.toBeNull(); // power icon, no text
     expect(tile('gate').textContent?.trim()).toBe('');
+    expect(tile('gate').closest('.gate-row')?.querySelector('.t-slot')?.textContent).toBe('GATE'); // own line
+    expect(root.querySelector('.blocks > .hsep')).not.toBeNull(); // separator under the gate line
+    expect(root.querySelector('.tiles > .vsep')?.nextElementSibling?.querySelector('.tile')?.getAttribute('data-key')).toBe('post1'); // pre | post divider
     expect(root.querySelector('.capture')?.textContent).toBe('Brit 1959 Crunch');
     expect(root.querySelector('.ir')?.textContent).toBe('412 UK GRN V30');
     expect(root.querySelector('.nav')?.classList.contains('visible')).toBe(false);
@@ -112,7 +120,21 @@ describe('GigView writes toggle and reconnect button', () => {
     expect(menu.classList.contains('open')).toBe(false);
     root.querySelector<HTMLButtonElement>('button[aria-label="Menu"]')!.click();
     expect(menu.classList.contains('open')).toBe(true);
-    expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Refresh', 'Log', 'Disconnect']);
+    expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Log', 'Disconnect']);
+    expect(menu.querySelectorAll('button svg').length).toBe(4); // an icon per item
+    expect(menu.querySelectorAll('.menu-sep').length).toBe(4); // between items + a stronger one above the info line
+    expect(menu.lastElementChild?.classList.contains('menu-info')).toBe(true); // device/firmware info at the bottom
+    expect(menu.querySelector('button.danger')?.textContent).toBe('Disconnect');
+    // Settings opens its own popup with the two selects and closes the menu.
+    Array.from(menu.querySelectorAll('button')).find((b) => b.textContent === 'Settings')!.click();
+    expect(menu.classList.contains('open')).toBe(false);
+    const settings = root.querySelector('.overlay.settings')!;
+    expect(settings.classList.contains('open')).toBe(true);
+    expect(settings.querySelectorAll('select').length).toBe(2);
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(1);
+    expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
+    Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
+    expect(settings.classList.contains('open')).toBe(false);
     expect(root.querySelector('.badge')?.textContent).not.toBe('provisional');
     expect(root.querySelector('button[aria-label="Fullscreen"] svg')).not.toBeNull();
   });

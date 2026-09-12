@@ -62,6 +62,9 @@ export function gateBypassFrame(enabled: boolean): Uint8Array {
 
 export const PRESET_COUNT = 64;
 
+/** Preset names are at most 20 characters — confirmed in Cortex Cloud (2026-09-12). */
+export const PRESET_NAME_MAX_LENGTH = 20;
+
 /**
  * MIDI Program Change for `c302`: `[0xC0 | (channel-1), presetIndex]`.
  * `presetIndex` is zero-based (0..63); the UI's "preset 1" is index 0.
@@ -119,8 +122,57 @@ export function midiStrategyById(id: string | null | undefined): MidiStrategy | 
   return MIDI_STRATEGIES.find((s) => s.id === id) ?? null;
 }
 
-/** Human label for a zero-based preset index: banks A–H × slots 1–8, e.g. 9 → "B2". */
-export function presetLabel(presetIndex: number): string {
-  if (!Number.isInteger(presetIndex) || presetIndex < 0 || presetIndex >= PRESET_COUNT) return '—';
-  return `${String.fromCharCode(65 + Math.floor(presetIndex / 8))}${(presetIndex % 8) + 1}`;
+/** Mvave Chocolate style is the default: 4 presets per bank, shown as "1B" (bank number + preset letter). */
+export const DEFAULT_PRESETS_PER_BANK = 4;
+export const PRESETS_PER_BANK_CHOICES = [2, 3, 4, 5, 6, 8] as const;
+
+/** "number-letter" = 1B (Mvave Chocolate); "letter-number" = A2 (Nano Cortex A–H). */
+export type PresetLabelStyle = "number-letter" | "letter-number";
+export const DEFAULT_LABEL_STYLE: PresetLabelStyle = "number-letter";
+
+export interface PresetLabelOptions {
+  presetsPerBank?: number;
+  style?: PresetLabelStyle;
+}
+
+/** Bank letter(s): A…Z, then AA, AB… so any bank size 2..8 over 64 presets has a name. */
+export function bankName(bank: number): string {
+  let n = bank;
+  let out = "";
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return out;
+}
+
+/**
+ * Human label for a zero-based preset index as bank + slot. The pedal has no
+ * real banks; this mirrors the user's MIDI controller layout:
+ *   index 9, 4 per bank, number-letter → "3B"  (Mvave Chocolate)
+ *   index 9, 8 per bank, letter-number → "B2"  (Nano Cortex A–H)
+ */
+export interface PresetLabelParts {
+  /** First figure: bank ("3" or "B"). */
+  bank: string;
+  /** Second figure: preset within the bank ("B" or "2"). */
+  slot: string;
+  /** Zero-based position within the bank; drives the slot colour. */
+  slotIndex: number;
+}
+
+export function presetLabelParts(presetIndex: number, opts: PresetLabelOptions = {}): PresetLabelParts | null {
+  if (!Number.isInteger(presetIndex) || presetIndex < 0 || presetIndex >= PRESET_COUNT) return null;
+  const per = Math.min(Math.max(Math.floor(opts.presetsPerBank ?? DEFAULT_PRESETS_PER_BANK) || DEFAULT_PRESETS_PER_BANK, 1), PRESET_COUNT);
+  const style = opts.style ?? DEFAULT_LABEL_STYLE;
+  const bank = Math.floor(presetIndex / per);
+  const slot = presetIndex % per;
+  return style === "number-letter"
+    ? { bank: String(bank + 1), slot: bankName(slot), slotIndex: slot }
+    : { bank: bankName(bank), slot: String(slot + 1), slotIndex: slot };
+}
+
+export function presetLabel(presetIndex: number, opts: PresetLabelOptions = {}): string {
+  const parts = presetLabelParts(presetIndex, opts);
+  return parts ? `${parts.bank}${parts.slot}` : "—";
 }
