@@ -25,6 +25,23 @@ No backend, no account, nothing is sent anywhere. Read-only by default.
 > **Control mode writes to your pedal.** It is off by default. Back up your presets in Cortex
 > Cloud before turning it on, and try it on a preset you don't mind losing first.
 
+## Acknowledgements
+
+NanoGig stands on two projects without which it would not exist:
+
+- **[choldy / nano-cortex-web-editor](https://github.com/choldy/nano-cortex-web-editor)** (MIT)
+  reverse-engineered the Nano Cortex's private Bluetooth protocol in the first place: the
+  command frames, the protobuf field maps, the multi-packet reassembly and the FX model
+  catalogue all originate there. Thank you.
+- **[rixrix / deskop-nano-cortex](https://github.com/rixrix/deskop-nano-cortex)** (Apache-2.0)
+  turned that knowledge into a proper specification, built the BLE probe tooling, captured
+  the live footswitch / expression events and the real firmware-2.2.1 state dump this project
+  tests against, and set the "everything is provisional" standard NanoGig follows. Thank you.
+
+What NanoGig adds on top is documented in [How it works](#how-it-works): the c305 framing
+(14-bit length + START/END flags), the active-preset index in the state dump, and the
+preset-changed event, all found from hardware logs in September 2026.
+
 ## Requirements
 
 - **Desktop Chrome or Edge** (Web Bluetooth). Firefox and Safari are not supported.
