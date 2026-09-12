@@ -1,9 +1,11 @@
 {
-  "name": "nano-cortex-gig-view",
+  "name": "nanogig",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Stage-friendly live gig view for the Neural DSP Nano Cortex over Web Bluetooth",
+  "description": "NanoGig: unofficial stage gig view for the Neural DSP Nano Cortex over Web Bluetooth",
+  "license": "MIT",
+  "repository": "github:johnnyborjomi/NanoGig",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

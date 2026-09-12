@@ -397,12 +397,12 @@ export class GigView {
 
     // Connect overlay -----------------------------------------------
     const card = el("div", "card");
-    card.append(el("h1", "", "Nano Cortex Gig View"));
+    card.append(el("h1", "", "NanoGig"));
     card.append(
       el(
         "p",
         "",
-        "Live preset name and block states read from the Nano Cortex over Bluetooth LE. Read-only by default. The app replaces Cortex Cloud while connected — disconnect it first.",
+        "Unofficial gig view for the Neural DSP Nano Cortex: live preset name and block states over Bluetooth LE. Read-only by default. The app replaces Cortex Cloud while connected — disconnect it first.",
       ),
     );
     const row = el("div", "row");
@@ -436,7 +436,7 @@ export class GigView {
       el(
         "p",
         "hint",
-        "Everything shown is provisional: decoded from a reverse-engineered protocol verified on NanOS 2.2.x. After a reload the app reconnects to the last pedal by itself when Chrome remembers the permission. Add ?mock=1 for demo mode, ?writes=1 to enable tile taps / preset buttons, ?debug=1 to open the hex log.",
+        "Not affiliated with or endorsed by Neural DSP; \"Nano Cortex\" is their trademark. Everything shown is decoded from a reverse-engineered protocol verified on NanOS 2.2.x and may be wrong. Control mode writes to your pedal: back up your presets first. After a reload the app reconnects to the last pedal by itself. Add ?mock=1 for demo mode, ?writes=1 for control mode, ?debug=1 to open the hex log.",
       ),
     );
     this.overlay.append(card);

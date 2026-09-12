@@ -1,7 +1,7 @@
 {
-  "name": "Nano Cortex Gig View",
+  "name": "NanoGig (unofficial gig view for Nano Cortex)",
   "short_name": "NanoGig",
-  "description": "Live preset name and FX block states from a Neural DSP Nano Cortex over Bluetooth LE.",
+  "description": "Unofficial live preset name and FX block display for the Neural DSP Nano Cortex over Bluetooth LE. Not affiliated with Neural DSP.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

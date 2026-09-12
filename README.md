@@ -1,7 +1,15 @@
-# Nano Cortex Gig View
+# NanoGig
 
-A browser-based, stage-friendly **gig view** for the Neural DSP Nano Cortex. It reads
-live state from the pedal over Bluetooth LE and shows, in very large type:
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Deploy](https://github.com/johnnyborjomi/NanoGig/actions/workflows/pages.yml/badge.svg)](https://github.com/johnnyborjomi/NanoGig/actions/workflows/pages.yml)
+
+> **Unofficial.** NanoGig is an independent community project, not affiliated with, endorsed
+> by, or supported by Neural DSP. "Nano Cortex", "Cortex Cloud" and "Neural DSP" are
+> trademarks of Neural DSP Technologies and are used here only to describe compatibility.
+> The protocol is reverse-engineered and every value shown is provisional. Use at your own risk.
+
+**NanoGig** is a browser-based, stage-friendly **gig view** for the Neural DSP Nano Cortex. It
+reads live state from the pedal over Bluetooth LE and shows, in very large type:
 
 - the active **preset name** (bank/slot label alongside),
 - the **FX block states** — gate, pre 1, pre 2, post 1, post 2, post 3, cab/IR — as big
@@ -13,6 +21,9 @@ No backend, no account, nothing is sent anywhere. Read-only by default.
 > **Everything on screen is provisional.** The protocol is reverse-engineered, verified
 > against NanOS 2.2.x, and may change silently with a firmware update. The app fails soft:
 > unknown payloads are logged in hex and ignored.
+>
+> **Control mode writes to your pedal.** It is off by default. Back up your presets in Cortex
+> Cloud before turning it on, and try it on a preset you don't mind losing first.
 
 ## Requirements
 
@@ -127,6 +138,30 @@ app-initiated change is tagged **sending**.
 
 If a step fails, open the Log, reproduce, "copy", and file the hex.
 
+## Disclaimer & trademarks
+
+- NanoGig is **not** an official Neural DSP product and has no connection to the company.
+  Neural DSP has not reviewed or approved it and provides no support for it.
+- "Nano Cortex", "Quad Cortex", "Cortex Cloud" and "Neural DSP" are trademarks of Neural DSP
+  Technologies. They appear in this project only to identify the hardware it works with.
+- The Bluetooth protocol was learned by observing traffic between a user's own pedal and
+  the official app (via the referenced open-source projects), not by decompiling any Neural
+  DSP software. No Neural DSP code, firmware, artwork, fonts or captures are included.
+- The software is provided as is, without warranty of any kind. You are responsible for what
+  you send to your hardware, especially in control mode.
+
+## Privacy
+
+No backend, no analytics, no telemetry. See [PRIVACY.md](PRIVACY.md).
+
+## Support
+
+Best-effort, see [SUPPORT.md](SUPPORT.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE). Third-party attributions are in [NOTICE](NOTICE).
+
 ## Attribution
 
 - Transport / frames / decoders are adapted from
@@ -136,4 +171,4 @@ If a step fails, open the Log, reproduce, "copy", and file the hex.
   `docs/specs/110-backend-midi-ble/spec.md` (Apache-2.0); the real firmware-2.2.1 state
   dump and live-event fixtures come from that project's tests.
 
-See [NOTICE](./NOTICE). Not affiliated with or endorsed by Neural DSP.
+See [NOTICE](./NOTICE).
