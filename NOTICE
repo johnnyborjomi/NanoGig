@@ -15,8 +15,9 @@ Adapted material: the Web Bluetooth connect flow (service/characteristic
 discovery for C304/C305), the c304 command frames (metadata dump request,
 current-state dump request, preset-change acknowledgement, FX-block / gate
 bypass frames), the c305 multi-packet stream detection and reassembly rules,
-the hand-rolled protobuf wire-format walker, and the metadata / current-state
-field maps. Reimplemented in TypeScript in `src/transport/ble.ts`,
+the hand-rolled protobuf wire-format walker, the metadata / current-state
+field maps, and the FX model catalogue (model ID → name / category,
+`src/protocol/models.ts`). Reimplemented in TypeScript in `src/transport/ble.ts`,
 `src/protocol/frames.ts`, `src/protocol/reassembly.ts`, `src/protocol/proto.ts`
 and `src/protocol/decode.ts`.
 

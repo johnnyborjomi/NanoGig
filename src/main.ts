@@ -65,7 +65,7 @@ const view = new GigView(
     setWritesEnabled: (enabled) => {
       writesEnabled = enabled;
       engine?.setWritesEnabled(enabled);
-      store.appendLog({ at: Date.now(), dir: 'warn', text: enabled ? 'Writes ENABLED: tile taps and ◀ ▶ now change the pedal' : 'Writes disabled' });
+      store.appendLog({ at: Date.now(), dir: 'warn', text: enabled ? 'Control mode ON: tile taps and ◀ ▶ now change the pedal' : 'Control mode off' });
     },
     reconnectNow: () => transport?.reconnectNow?.(),
   },

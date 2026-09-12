@@ -47,6 +47,8 @@ describe('SyncEngine with the mock transport', () => {
     expect(s.irName.value).toBe('110 US PRN C10R');
     expect(s.firmware.value).toBe('2.2.1');
     expect(s.fxOn.provisional).toBe(true);
+    expect(s.fxModels.value.pre1?.name).toBe('Transpose');
+    expect(s.fxModels.value.post3?.category).toBe('Reverb');
     // Active preset comes from dump field 13 (= 7 in the real capture → "Clean Chief").
     expect(s.activePreset.value).toBe(7);
     expect(s.activePreset.source).toBe('dump');

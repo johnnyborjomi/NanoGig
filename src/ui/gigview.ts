@@ -7,6 +7,7 @@ import { FX_SLOTS, presetLabel, type FxSlot } from "../protocol/frames";
 import type { GigState } from "../state/store";
 import type { Store } from "../state/store";
 import type { LogLine } from "../transport/types";
+import { Maximize, Menu, Minimize, Power, createElement as lucideElement } from "lucide";
 
 export interface GigViewActions {
   connect(acceptAll?: boolean): Promise<void>;
@@ -40,15 +41,8 @@ const TILE_LABELS: Record<FxSlot | "gate" | "cab", string> = {
   cab: "CAB",
 };
 
-const TILE_ORDER: (FxSlot | "gate" | "cab")[] = [
-  "gate",
-  "pre1",
-  "pre2",
-  "post1",
-  "post2",
-  "post3",
-  "cab",
-];
+/** Cab/IR is shown on the capture/IR line instead of as a tile, to leave room for the FX blocks. */
+const TILE_ORDER: (FxSlot | "gate" | "cab")[] = ["gate", "pre1", "pre2", "post1", "post2", "post3"];
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -61,6 +55,33 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** What the big name line says while there is no preset to show. */
+export function placeholderFor(s: GigState): string {
+  switch (s.connection) {
+    case "connecting":
+      return "Connecting…";
+    case "reconnecting":
+      return "Reconnecting…";
+    case "disconnected":
+      return "—";
+  }
+  switch (s.syncPhase) {
+    case "metadata":
+      return "Loading presets…";
+    case "state":
+      return "Reading pedal…";
+    case "error":
+      return "Sync failed";
+    default:
+      return "Tap a footswitch to sync";
+  }
+}
+
+/** "Wah/Filter" → "wah-filter", used as the data-cat attribute matched by CSS. */
+export function categorySlug(category: string): string {
+  return category.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
 function fmtTime(ms: number): string {
   const d = new Date(ms);
   return `${d.toLocaleTimeString([], { hour12: false })}.${String(d.getMilliseconds()).padStart(3, "0")}`;
@@ -70,8 +91,7 @@ export class GigView {
   private readonly root: HTMLElement;
   private readonly dot = el("span", "dot");
   private readonly statusText = el("span", "status-text", "Disconnected");
-  private readonly provisionalBadge = el("span", "badge", "provisional");
-  private readonly writesBadge = el("span", "badge warn", "writes on");
+  private readonly writesBadge = el("span", "badge warn", "control on");
   private readonly slotEl = el("div", "preset-slot");
   private readonly slotLabel = el("span", "slot-label", "—");
   private readonly sourceTag = el("span", "src");
@@ -81,7 +101,7 @@ export class GigView {
   private readonly irEl = el("span", "ir");
   private readonly tiles = new Map<
     FxSlot | "gate" | "cab",
-    { root: HTMLButtonElement; state: HTMLElement }
+    { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement }
   >();
   private readonly footerInfo = el("span", "footer-info");
   private readonly nav = el("div", "nav");
@@ -93,10 +113,13 @@ export class GigView {
   private readonly connectAllBtn = el("button", "", "Show all devices");
   private readonly mockBtn = el("button", "", "Demo mode (no device)");
   private readonly disconnectBtn = el("button", "ghost", "Disconnect");
-  private readonly fullscreenBtn = el("button", "ghost", "Fullscreen");
+  private readonly fullscreenBtn = el("button", "ghost icon-btn", "");
   private readonly consoleBtn = el("button", "ghost", "Log");
   private readonly refreshBtn = el("button", "ghost", "Refresh");
-  private readonly writesBtn = el("button", "ghost", "Writes: off");
+  private readonly writesBtn = el("button", "ghost", "Control: off");
+  private readonly menuBtn = el("button", "ghost icon-btn", "");
+  private readonly menu = el("div", "menu");
+  private readonly menuInfo = el("div", "menu-info");
   private readonly reconnectBtn = el("button", "primary", "Reconnect now");
   private renderedLogCount = 0;
   private wakeLock: WakeLockSentinel | null = null;
@@ -123,8 +146,6 @@ export class GigView {
     const status = el("div", "status");
     status.append(this.dot, this.statusText);
     const actions = el("div", "actions");
-    this.provisionalBadge.title =
-      "Every value on screen is decoded from a reverse-engineered BLE protocol and may be wrong.";
     this.writesBadge.hidden = true;
     this.writesBadge.title =
       "Tap tiles to toggle blocks; ◀ ▶ switch presets. Writes go to real hardware.";
@@ -141,7 +162,7 @@ export class GigView {
       () => void this.actions.disconnect(),
     );
     this.writesBtn.title =
-      "Enable tile taps (FX / gate toggle) and ◀ ▶ preset buttons. Writes go to real hardware.";
+      "Control mode: tap tiles to toggle blocks, ◀ ▶ to switch presets. Changes go to the real pedal.";
     this.writesBtn.addEventListener("click", () =>
       this.actions.setWritesEnabled(!this.store.get().writesEnabled),
     );
@@ -149,15 +170,43 @@ export class GigView {
     this.reconnectBtn.addEventListener("click", () =>
       this.actions.reconnectNow(),
     );
-    actions.append(
-      this.reconnectBtn,
-      this.refreshBtn,
-      this.writesBtn,
-      this.fullscreenBtn,
-      this.consoleBtn,
-      this.disconnectBtn,
-    );
-    top.append(status, this.provisionalBadge, this.writesBadge, actions);
+
+    // Fullscreen: icon only.
+    this.fullscreenBtn.title = "Fullscreen";
+    this.fullscreenBtn.setAttribute("aria-label", "Fullscreen");
+    this.fullscreenBtn.append(lucideElement(Maximize, { "aria-hidden": "true" }));
+    document.addEventListener("fullscreenchange", () => {
+      this.fullscreenBtn.replaceChildren(
+        lucideElement(document.fullscreenElement ? Minimize : Maximize, { "aria-hidden": "true" }),
+      );
+    });
+
+    // Burger menu: refresh / log / disconnect.
+    this.menuBtn.title = "Menu";
+    this.menuBtn.setAttribute("aria-label", "Menu");
+    this.menuBtn.setAttribute("aria-haspopup", "true");
+    this.menuBtn.append(lucideElement(Menu, { "aria-hidden": "true" }));
+    this.menuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.menu.classList.toggle("open");
+    });
+    for (const b of [this.refreshBtn, this.consoleBtn, this.disconnectBtn]) {
+      b.className = "menu-item";
+      b.addEventListener("click", () => this.menu.classList.remove("open"));
+    }
+    this.menuInfo.hidden = true;
+    this.menu.append(this.menuInfo, this.refreshBtn, this.consoleBtn, this.disconnectBtn);
+    document.addEventListener("click", (e) => {
+      if (!this.menu.contains(e.target as Node)) this.menu.classList.remove("open");
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") this.menu.classList.remove("open");
+    });
+    const menuWrap = el("div", "menu-wrap");
+    menuWrap.append(this.menuBtn, this.menu);
+
+    actions.append(this.reconnectBtn, this.writesBtn, this.fullscreenBtn, menuWrap);
+    top.append(status, this.writesBadge, actions);
 
     // Preset area ------------------------------------------------------
     const preset = el("div", "preset");
@@ -178,12 +227,24 @@ export class GigView {
       tile.dataset.on = "unknown";
       tile.setAttribute("aria-label", TILE_LABELS[key]);
       tile.dataset.key = key;
-      const name = el("div", "t-name", TILE_LABELS[key]);
-      const state = el("div", "t-state", "—");
-      tile.append(name, state);
+      const wrap = el("div", "tile-wrap");
+      const slot = el("div", "t-slot", TILE_LABELS[key]);
+      const name = el("div", "t-name", key === "gate" ? "" : TILE_LABELS[key]);
+      const category = el("div", "t-cat", "");
+      tile.dataset.cat = key === "gate" || key === "cab" ? key : "none";
+      if (key === "gate") {
+        // Narrow tile: a power icon carries the state, the slot label above says "GATE".
+        const icon = lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" });
+        icon.classList.add("t-icon");
+        tile.append(icon);
+      } else {
+        // Category is the primary line (large), the model name the secondary one (small).
+        tile.append(category, name);
+      }
       tile.addEventListener("click", () => this.onTileTap(key));
-      tiles.append(tile);
-      this.tiles.set(key, { root: tile, state });
+      wrap.append(slot, tile);
+      tiles.append(wrap);
+      this.tiles.set(key, { root: tile, name, category });
     }
 
     // Footer ----------------------------------------------------------
@@ -311,7 +372,7 @@ export class GigView {
       this.store.appendLog({
         at: Date.now(),
         dir: "warn",
-        text: "Tile tap ignored: writes are off (use the Writes button or ?writes=1)",
+        text: "Tile tap ignored: control mode is off (use the Control button or ?writes=1)",
       });
       return;
     }
@@ -354,35 +415,24 @@ export class GigView {
     this.lastState = s;
     // Connection ----------------------------------------------------
     this.dot.dataset.state = s.connection;
-    const phase =
+    this.statusText.textContent =
       s.connection === "connected"
-        ? s.syncPhase === "ready"
-          ? ""
-          : s.syncPhase === "metadata"
-            ? " · loading names…"
-            : s.syncPhase === "state"
-              ? " · reading state…"
-              : s.syncPhase === "error"
-                ? ` · sync error`
-                : ""
-        : "";
-    const label =
-      s.connection === "connected"
-        ? `${s.deviceName ?? "Connected"}${phase}`
+        ? "Connected"
         : s.connection === "connecting"
           ? "Connecting…"
           : s.connection === "reconnecting"
             ? "Reconnecting…"
             : "Disconnected";
-    this.statusText.textContent =
-      s.firmware.value && s.connection === "connected"
-        ? `${label} · NanOS ${s.firmware.value}`
-        : label;
+    this.menuInfo.textContent = [s.deviceName, s.firmware.value ? `NanOS ${s.firmware.value}` : null]
+      .filter(Boolean)
+      .join(" · ");
+    this.menuInfo.hidden = this.menuInfo.textContent === "";
     this.overlay.classList.toggle("open", s.connection === "disconnected");
     this.disconnectBtn.hidden = s.connection === "disconnected";
     this.refreshBtn.hidden = s.connection !== "connected";
+    this.menuBtn.hidden = s.connection === "disconnected";
     this.writesBadge.hidden = !s.writesEnabled;
-    this.writesBtn.textContent = s.writesEnabled ? "Writes: ON" : "Writes: off";
+    this.writesBtn.textContent = s.writesEnabled ? "Control: ON" : "Control: off";
     this.writesBtn.classList.toggle("warn", s.writesEnabled);
     this.writesBtn.hidden = s.connection === "disconnected";
     this.reconnectBtn.hidden = s.connection !== "reconnecting";
@@ -408,12 +458,7 @@ export class GigView {
     this.sourceTag.dataset.source = s.activePreset.source;
     this.sourceTag.hidden = this.sourceTag.textContent === "";
     const name = idx === null ? "" : (s.presetNames.value[idx] ?? "");
-    const shown =
-      idx === null
-        ? s.connection === "connected"
-          ? "Press a footswitch"
-          : "—"
-        : name || `Preset ${idx + 1}`;
+    const shown = idx === null ? placeholderFor(s) : name || `Preset ${idx + 1}`;
     this.nameEl.classList.toggle("empty", idx === null || !name);
     if (this.nameEl.textContent !== shown) this.nameEl.textContent = shown;
     this.captureEl.textContent = s.captureName.value || "—";
@@ -431,14 +476,21 @@ export class GigView {
             ? s.cabOn.value
             : s.fxOn.value[key];
       t.root.dataset.on = on === null ? "unknown" : on ? "true" : "false";
-      t.state.textContent = on === null ? "—" : on ? "ON" : "OFF";
+      if (key !== "gate" && key !== "cab") {
+        const model = s.fxModels.value[key];
+        t.name.textContent = model ? model.name : on === null ? TILE_LABELS[key] : "Empty";
+        t.category.textContent = model?.known ? model.category : "";
+        t.root.classList.toggle("empty", !model && on !== null);
+        // Category drives the tile colour (see --fx-* in styles.css).
+        t.root.dataset.cat = model?.known ? categorySlug(model.category) : model ? "unknown" : "none";
+      }
       const writable =
         s.writesEnabled &&
         s.connection === "connected" &&
         on !== null &&
         (key !== "cab" || !!this.actions.toggleCab);
       t.root.classList.toggle("writable", writable);
-      t.root.disabled = !writable;
+      t.root.setAttribute("aria-disabled", writable ? "false" : "true");
       t.root.style.pointerEvents = writable ? "auto" : "none";
     }
 

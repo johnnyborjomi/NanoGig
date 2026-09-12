@@ -50,10 +50,14 @@ describe('mock mode end-to-end', () => {
     expect(root.querySelector<HTMLElement>('.src')!.hidden).toBe(true); // dump source: no tag
     expect(text('.capture')).toBe('NoMatch Chief 1');
     expect(text('.ir')).toContain('110 US PRN C10R');
-    expect([tile('gate'), tile('pre1'), tile('pre2'), tile('post1'), tile('post2'), tile('post3'), tile('cab')]).toEqual([
-      'true', 'false', 'false', 'true', 'true', 'true', 'false',
+    expect([tile('gate'), tile('pre1'), tile('pre2'), tile('post1'), tile('post2'), tile('post3')]).toEqual([
+      'true', 'false', 'false', 'true', 'true', 'true',
     ]);
-    expect(text('.status-text')).toContain('NanOS 2.2.1');
+    expect(root.querySelectorAll('.tile').length).toBe(6);
+    expect(text('.status-text')).toBe('Connected');
+    expect(text('.menu-info')).toContain('NanOS 2.2.1');
+    expect(text('.tile[data-key="pre1"] .t-name')).toBe('Transpose');
+    expect(text('.tile[data-key="post3"] .t-cat')).toBe('Reverb');
 
     // Footswitch → preset 4 ("Rectified") : name updates immediately, dump confirms capture.
     mock.pressFootswitch(4);

@@ -5,6 +5,7 @@
  */
 import { PRESET_COUNT, type FxSlot } from '../protocol/frames';
 import type { LogLine, TransportStatus } from '../transport/types';
+import type { FxModelsBySlot } from '../protocol/models';
 
 export type FieldSource = 'none' | 'dump' | 'metadata' | 'event' | 'inferred' | 'optimistic';
 
@@ -28,6 +29,8 @@ export interface GigState {
   presetNames: Field<string[]>;
   activePreset: Field<number | null>;
   fxOn: Field<Record<FxSlot, boolean | null>>;
+  /** Model loaded in each FX slot (name/category from the catalogue), null = empty slot. */
+  fxModels: Field<FxModelsBySlot>;
   gateOn: Field<boolean | null>;
   cabOn: Field<boolean | null>;
   captureName: Field<string | null>;
@@ -57,6 +60,7 @@ export function initialState(transportName = 'none'): GigState {
     presetNames: field(Array.from({ length: PRESET_COUNT }, () => '')),
     activePreset: field<number | null>(null),
     fxOn: field<Record<FxSlot, boolean | null>>({ pre1: null, pre2: null, post1: null, post2: null, post3: null }),
+    fxModels: field<FxModelsBySlot>({ pre1: null, pre2: null, post1: null, post2: null, post3: null }),
     gateOn: field<boolean | null>(null),
     cabOn: field<boolean | null>(null),
     captureName: field<string | null>(null),
@@ -118,6 +122,7 @@ export class Store {
       ...this.state,
       activePreset: s.activePreset,
       fxOn: s.fxOn,
+      fxModels: s.fxModels,
       gateOn: s.gateOn,
       cabOn: s.cabOn,
       captureName: s.captureName,

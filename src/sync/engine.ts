@@ -41,6 +41,7 @@ import {
 import { toHex } from '../protocol/hex';
 import { MSG, MessageAssembler, classifyPacket, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
 import type { Store } from '../state/store';
+import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
 import type { NotifyPacket, Transport } from '../transport/types';
 import type { MidiOut } from '../transport/webmidi';
 
@@ -302,6 +303,9 @@ export class SyncEngine {
     this.lastState = state;
     this.stateRequestInFlightSince = 0; // reply received; the next request may go out immediately
     if (state.fxOn) this.store.setField('fxOn', { ...state.fxOn }, 'dump', at);
+    const models = {} as FxModelsBySlot;
+    for (const slot of FX_SLOTS) models[slot] = lookupFxModel(state.fxModelIds[slot]);
+    this.store.setField('fxModels', models, 'dump', at);
     this.store.setField('gateOn', state.gateOn, 'dump', at);
     this.store.setField('cabOn', state.cabOn, 'dump', at);
     this.store.setField('captureName', state.capture?.name ?? null, 'dump', at);
@@ -322,7 +326,7 @@ export class SyncEngine {
       }
     }
     this.store.patch({ lastStateSyncAt: at, syncPhase: 'ready' });
-    const on = FX_SLOTS.map((s) => `${s}=${state.fxOn ? (state.fxOn[s] ? 'on' : 'off') : '?'}`).join(' ');
+    const on = FX_SLOTS.map((s) => `${s}=${models[s]?.name ?? 'empty'}:${state.fxOn ? (state.fxOn[s] ? 'on' : 'off') : '?'}`).join(' ');
     this.log(
       'info',
       `State: preset=${state.activePreset === null ? '?' : state.activePreset + 1} ${on} gate=${state.gateOn} cab=${state.cabOn} capture="${state.capture?.name ?? ''}" ir="${state.ir?.shortName ?? ''}"`,
