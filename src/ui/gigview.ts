@@ -20,6 +20,8 @@ export interface GigViewActions {
   nextPreset(): Promise<void>;
   prevPreset(): Promise<void>;
   simulateDrop?(): void;
+  setWritesEnabled(enabled: boolean): void;
+  reconnectNow(): void;
 }
 
 export interface GigViewOptions {
@@ -79,6 +81,8 @@ export class GigView {
   private readonly fullscreenBtn = el('button', 'ghost', 'Fullscreen');
   private readonly consoleBtn = el('button', 'ghost', 'Log');
   private readonly refreshBtn = el('button', 'ghost', 'Refresh');
+  private readonly writesBtn = el('button', 'ghost', 'Writes: off');
+  private readonly reconnectBtn = el('button', 'primary', 'Reconnect now');
   private renderedLogCount = 0;
   private wakeLock: WakeLockSentinel | null = null;
   private lastName = '';
@@ -113,7 +117,11 @@ export class GigView {
     this.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
     this.consoleBtn.addEventListener('click', () => this.consoleEl.classList.toggle('open'));
     this.disconnectBtn.addEventListener('click', () => void this.actions.disconnect());
-    actions.append(this.refreshBtn, this.fullscreenBtn, this.consoleBtn, this.disconnectBtn);
+    this.writesBtn.title = 'Enable tile taps (FX / gate toggle) and ◀ ▶ preset buttons. Writes go to real hardware.';
+    this.writesBtn.addEventListener('click', () => this.actions.setWritesEnabled(!this.store.get().writesEnabled));
+    this.reconnectBtn.hidden = true;
+    this.reconnectBtn.addEventListener('click', () => this.actions.reconnectNow());
+    actions.append(this.reconnectBtn, this.refreshBtn, this.writesBtn, this.fullscreenBtn, this.consoleBtn, this.disconnectBtn);
     top.append(status, this.provisionalBadge, this.writesBadge, actions);
 
     // Preset area ------------------------------------------------------
@@ -246,7 +254,10 @@ export class GigView {
 
   private onTileTap(key: FxSlot | 'gate' | 'cab') {
     const s = this.store.get();
-    if (!s.writesEnabled) return;
+    if (!s.writesEnabled) {
+      this.store.appendLog({ at: Date.now(), dir: 'warn', text: 'Tile tap ignored: writes are off (use the Writes button or ?writes=1)' });
+      return;
+    }
     const run =
       key === 'gate'
         ? this.actions.toggleGate()
@@ -327,6 +338,10 @@ export class GigView {
     this.disconnectBtn.hidden = s.connection === 'disconnected';
     this.refreshBtn.hidden = s.connection !== 'connected';
     this.writesBadge.hidden = !s.writesEnabled;
+    this.writesBtn.textContent = s.writesEnabled ? 'Writes: ON' : 'Writes: off';
+    this.writesBtn.classList.toggle('warn', s.writesEnabled);
+    this.writesBtn.hidden = s.connection === 'disconnected';
+    this.reconnectBtn.hidden = s.connection !== 'reconnecting';
     this.nav.classList.toggle('visible', s.writesEnabled && s.connection === 'connected');
     if (s.connection === 'connected' && !this.wakeLock) void this.requestWakeLock();
 

@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, nextPreset: p, prevPreset: p };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, nextPreset: p, prevPreset: p, setWritesEnabled: () => {}, reconnectNow: () => {} };
 }
 
 describe('GigView', () => {
@@ -54,5 +54,32 @@ describe('GigView', () => {
     store.setField('activePreset', 3, 'inferred');
     expect(root.querySelector('.preset-name')?.textContent).toBe('Preset 4');
     expect(root.querySelector('.src')?.textContent).toBe('inferred');
+  });
+});
+
+describe('GigView writes toggle and reconnect button', () => {
+  it('shows the Writes button when connected, the Reconnect button only while reconnecting', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    const calls: string[] = [];
+    const actions = { ...noopActions(), setWritesEnabled: (v: boolean) => calls.push(`writes:${v}`), reconnectNow: () => calls.push('reconnect') };
+    new GigView(root, store, actions, { bluetoothAvailable: true, showMockButton: false });
+    const btn = (label: RegExp) => Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((b) => label.test(b.textContent ?? ''))!;
+
+    store.patch({ connection: 'connected', syncPhase: 'ready' });
+    expect(btn(/^Writes: off$/).hidden).toBe(false);
+    expect(btn(/Reconnect now/).hidden).toBe(true);
+    btn(/^Writes: off$/).click();
+    expect(calls).toEqual(['writes:true']);
+
+    store.patch({ writesEnabled: true });
+    expect(btn(/^Writes: ON$/)).toBeTruthy();
+    expect(root.querySelector('.nav')?.classList.contains('visible')).toBe(true);
+
+    store.patch({ connection: 'reconnecting' });
+    expect(btn(/Reconnect now/).hidden).toBe(false);
+    btn(/Reconnect now/).click();
+    expect(calls).toEqual(['writes:true', 'reconnect']);
   });
 });

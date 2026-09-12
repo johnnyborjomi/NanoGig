@@ -10,7 +10,7 @@ const params = new URLSearchParams(location.search);
 const flag = (name: string) => params.get(name) === '1' || params.get(name) === 'true';
 
 const forceMock = flag('mock');
-const writesEnabled = flag('writes');
+let writesEnabled = flag('writes');
 const debug = flag('debug');
 
 const store = new Store();
@@ -56,6 +56,12 @@ const view = new GigView(
     simulateDrop: () => {
       if (transport instanceof MockTransport) transport.simulateDrop();
     },
+    setWritesEnabled: (enabled) => {
+      writesEnabled = enabled;
+      engine?.setWritesEnabled(enabled);
+      store.appendLog({ at: Date.now(), dir: 'warn', text: enabled ? 'Writes ENABLED: tile taps and ◀ ▶ now change the pedal' : 'Writes disabled' });
+    },
+    reconnectNow: () => transport?.reconnectNow?.(),
   },
   {
     bluetoothAvailable: isWebBluetoothAvailable() && !forceMock,

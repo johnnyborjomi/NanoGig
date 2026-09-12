@@ -51,6 +51,9 @@ export class BleTransport implements Transport {
   private _status: TransportStatus = 'disconnected';
   private intentionalDisconnect = false;
   private reconnecting = false;
+  /** Resolves the current reconnect back-off early (advertisement seen or user tapped "Reconnect"). */
+  private wakeReconnect: (() => void) | null = null;
+  private advertisementAbort: AbortController | null = null;
   private writeQueue: Promise<unknown> = Promise.resolve();
   private readonly deduper = new PacketDeduper(DEDUPE_WINDOW_MS);
   private readonly packets = new Emitter<NotifyPacket>();
@@ -211,24 +214,83 @@ export class BleTransport implements Transport {
     void this.reconnectLoop();
   }
 
+  /** Wait `ms`, or less if something wakes the loop (advertisement / manual reconnect). */
+  private waitOrWake(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const t = setTimeout(() => {
+        this.wakeReconnect = null;
+        resolve();
+      }, ms);
+      this.wakeReconnect = () => {
+        clearTimeout(t);
+        this.wakeReconnect = null;
+        resolve();
+      };
+    });
+  }
+
+  /**
+   * Chrome only reconnects reliably once the device is advertising again. Where
+   * `watchAdvertisements` is available, use it to retry the moment the pedal is
+   * back instead of waiting out the back-off.
+   */
+  private startAdvertisementWatch(): void {
+    const device = this.device;
+    if (!device || typeof device.watchAdvertisements !== 'function') return;
+    this.stopAdvertisementWatch();
+    const abort = new AbortController();
+    this.advertisementAbort = abort;
+    device.addEventListener(
+      'advertisementreceived',
+      () => {
+        this.log('info', 'Advertisement received from the device; retrying now');
+        this.wakeReconnect?.();
+      },
+      { signal: abort.signal },
+    );
+    device.watchAdvertisements({ signal: abort.signal }).then(
+      () => this.log('info', 'Watching advertisements for the device'),
+      (err) => this.log('info', `watchAdvertisements unavailable: ${(err as Error).message}`),
+    );
+  }
+
+  private stopAdvertisementWatch(): void {
+    this.advertisementAbort?.abort();
+    this.advertisementAbort = null;
+  }
+
+  /** Skip the current back-off and try to reconnect immediately (user action). */
+  reconnectNow(): void {
+    if (this._status === 'connected' || !this.device) return;
+    this.intentionalDisconnect = false;
+    if (this.reconnecting) {
+      this.log('info', 'Manual reconnect requested');
+      this.wakeReconnect?.();
+      return;
+    }
+    void this.reconnectLoop();
+  }
+
   private async reconnectLoop(): Promise<void> {
     if (this.reconnecting) return;
     this.reconnecting = true;
     this.setStatus('reconnecting');
+    this.startAdvertisementWatch();
     try {
       for (let attempt = 0; attempt < RECONNECT_MAX_ATTEMPTS; attempt++) {
         if (this.intentionalDisconnect || !this.device) break;
         const delay = RECONNECT_BACKOFF_MS[Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)]!;
         this.log('info', `Reconnect attempt ${attempt + 1} in ${delay / 1000} s`);
-        await sleep(delay);
+        await this.waitOrWake(delay);
         if (this.intentionalDisconnect) break;
         try {
+          this.log('info', `Reconnect attempt ${attempt + 1}: connecting…`);
           await this.openGatt();
           this.log('info', 'Reconnected');
           this.setStatus('connected');
           return;
         } catch (err) {
-          this.log('warn', `Reconnect failed: ${(err as Error).message}`);
+          this.log('warn', `Reconnect attempt ${attempt + 1} failed: ${(err as Error).name}: ${(err as Error).message}`);
           try {
             this.device?.gatt?.disconnect();
           } catch {
@@ -236,14 +298,18 @@ export class BleTransport implements Transport {
           }
         }
       }
+      this.log('error', 'Gave up reconnecting; use Connect to start again');
       this.setStatus('disconnected');
     } finally {
+      this.stopAdvertisementWatch();
       this.reconnecting = false;
     }
   }
 
   async disconnect(): Promise<void> {
     this.intentionalDisconnect = true;
+    this.wakeReconnect?.();
+    this.stopAdvertisementWatch();
     const device = this.device;
     for (const ch of this.subscribed) {
       try {

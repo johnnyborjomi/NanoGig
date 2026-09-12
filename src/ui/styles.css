@@ -72,6 +72,10 @@ button.primary {
 button.ghost {
   background: transparent;
 }
+button.warn {
+  color: var(--warn);
+  border-color: rgba(255, 180, 84, 0.5);
+}
 
 /* ---------- header ---------- */
 .topbar {

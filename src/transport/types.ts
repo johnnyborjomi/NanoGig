@@ -38,6 +38,8 @@ export interface Transport {
   onPacket(cb: (pkt: NotifyPacket) => void): Unsubscribe;
   onStatus(cb: (status: TransportStatus) => void): Unsubscribe;
   onLog(cb: (line: LogLine) => void): Unsubscribe;
+  /** Retry immediately while reconnecting (optional). */
+  reconnectNow?(): void;
 }
 
 export class Emitter<T> {

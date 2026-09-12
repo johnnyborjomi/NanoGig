@@ -33,6 +33,8 @@ describe('mock mode end-to-end', () => {
       toggleGate: () => engine.toggleGate(),
       nextPreset: () => engine.nextPreset(),
       prevPreset: () => engine.prevPreset(),
+      setWritesEnabled: (v: boolean) => engine.setWritesEnabled(v),
+      reconnectNow: () => {},
     };
     new GigView(root, store, actions, { bluetoothAvailable: false, showMockButton: true });
 
