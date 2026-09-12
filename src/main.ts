@@ -1,5 +1,7 @@
 import './ui/styles.css';
+import { Capacitor } from '@capacitor/core';
 import { BleTransport, canResumePermittedDevices, isWebBluetoothAvailable } from './transport/ble';
+import { CapacitorBleTransport } from './transport/ble-capacitor';
 import { MockTransport } from './transport/mock';
 import type { Transport } from './transport/types';
 import { Store } from './state/store';
@@ -41,6 +43,12 @@ function saveSettings() {
   }
 }
 
+/** Native shell (Capacitor on iOS/Android) uses the plugin transport; browsers use Web Bluetooth. */
+const isNative = Capacitor.isNativePlatform();
+type BleLike = BleTransport | CapacitorBleTransport;
+const createBle = (): BleLike => (isNative ? new CapacitorBleTransport() : new BleTransport());
+const isBle = (t: Transport | null): t is BleLike => t instanceof BleTransport || t instanceof CapacitorBleTransport;
+
 const store = new Store(loadSettings());
 let transport: Transport | null = null;
 let engine: SyncEngine | null = null;
@@ -51,7 +59,7 @@ function attach(t: Transport) {
   engine = new SyncEngine(t, store, {
     writesEnabled,
     midiStrategy,
-    midiOut: t instanceof BleTransport ? new WebMidiOut() : null,
+    midiOut: t instanceof BleTransport ? new WebMidiOut() : null, // no Web MIDI inside native web views
   });
 }
 
@@ -72,7 +80,7 @@ const view = new GigView(
   {
     async connect(acceptAll) {
       if (forceMock) return this.connectMock();
-      if (!(transport instanceof BleTransport)) attach(new BleTransport());
+      if (!isBle(transport)) attach(createBle());
       await transport!.connect({ acceptAll: !!acceptAll });
     },
     connectMock: startMock,
@@ -100,7 +108,7 @@ const view = new GigView(
     },
   },
   {
-    bluetoothAvailable: isWebBluetoothAvailable() && !forceMock,
+    bluetoothAvailable: (isNative || isWebBluetoothAvailable()) && !forceMock,
     showMockButton: true,
     openConsole: debug,
   },
@@ -127,9 +135,9 @@ Object.assign(window as unknown as Record<string, unknown>, {
 // ?mock=1 starts demo mode immediately (the overlay's demo button remains as a fallback).
 if (forceMock) {
   void startMock();
-} else if (canResumePermittedDevices()) {
-  // After a reload (or a Vite full reload) reconnect to the remembered pedal without the chooser.
-  const ble = new BleTransport();
+} else if (isNative || canResumePermittedDevices()) {
+  // After a reload / relaunch reconnect to the remembered pedal without the chooser.
+  const ble = createBle();
   attach(ble);
   void ble.resume().then((ok) => {
     if (!ok) store.appendLog({ at: Date.now(), dir: 'info', text: 'Nothing to resume; use Connect' });
@@ -137,7 +145,7 @@ if (forceMock) {
 }
 
 // PWA: offline shell for the installed app (production builds only; dev keeps HMR simple).
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+if (import.meta.env.PROD && !isNative && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((err) => console.warn('SW registration failed', err));
   });

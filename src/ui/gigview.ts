@@ -436,7 +436,7 @@ export class GigView {
       el(
         "p",
         "hint",
-        "Not affiliated with or endorsed by Neural DSP; \"Nano Cortex\" is their trademark. Everything shown is decoded from a reverse-engineered protocol verified on NanOS 2.2.x and may be wrong. Control mode writes to your pedal: back up your presets first. After a reload the app reconnects to the last pedal by itself. Add ?mock=1 for demo mode, ?writes=1 for control mode, ?debug=1 to open the hex log.",
+        "Not affiliated with or endorsed by Neural DSP; \"Nano Cortex\" is their trademark. Everything shown is decoded from a reverse-engineered protocol verified on NanOS 2.2.x and may be wrong. Control mode writes to your pedal: back up your presets first. After a reload the app reconnects to the last pedal by itself.",
       ),
     );
     this.overlay.append(card);

@@ -79,6 +79,24 @@ PWA: on Android Chrome open it, choose "Add to Home screen", and it launches ful
 landscape with an offline shell. Web Bluetooth works there; on iPhone use Bluefy instead
 (Safari has no Web Bluetooth, so an installed PWA cannot connect).
 
+## iPad / iPhone app (Capacitor, free signing)
+
+Apple web views have no Web Bluetooth, so the same app is wrapped with
+[Capacitor](https://capacitorjs.com) and talks to the pedal through the
+`@capacitor-community/bluetooth-le` plugin (`src/transport/ble-capacitor.ts`). Everything
+else is the identical web code.
+
+```bash
+npm run ios:sync      # build the web app and copy it into ios/App
+npm run ios:open      # open ios/App/App.xcworkspace in Xcode
+```
+
+In Xcode: select the **App** target → Signing & Capabilities → Team = your personal Apple ID
+(free), let Xcode fix the bundle identifier if it complains, plug in the iPad, pick it as the
+run destination and press Run. On the iPad, allow the app in Settings → General → VPN & Device
+Management the first time. With free signing the install expires after 7 days; run again from
+Xcode to renew. Preset switching is not available in the iOS app (no MIDI path there yet).
+
 ## How it works
 
 ```
