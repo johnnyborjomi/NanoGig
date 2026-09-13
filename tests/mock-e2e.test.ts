@@ -31,6 +31,8 @@ describe('mock mode end-to-end', () => {
       refreshNames: () => engine.requestMetadata(),
       toggleFx: (slot: 'pre1' | 'pre2' | 'post1' | 'post2' | 'post3') => engine.toggleFx(slot),
       toggleGate: () => engine.toggleGate(),
+      toggleCab: () => engine.toggleCab(),
+      toggleCapture: () => engine.toggleCapture(),
       nextPreset: () => engine.nextPreset(),
       prevPreset: () => engine.prevPreset(),
       setWritesEnabled: (v: boolean) => engine.setWritesEnabled(v),
@@ -55,7 +57,7 @@ describe('mock mode end-to-end', () => {
       'true', 'false', 'false', 'true', 'true', 'true',
     ]);
     expect(root.querySelectorAll('.tile').length).toBe(6);
-    expect(text('.status-text')).toBe('Connected');
+    expect(text('.status-text')).toBe('Connected · demo'); // mock transport
     expect(text('.menu-info')).toContain('NanOS 2.2.1');
     expect(text('.tile[data-key="pre1"] .t-name')).toBe('Transpose');
     expect(text('.tile[data-key="post3"] .t-cat')).toBe('Reverb');
@@ -86,7 +88,7 @@ describe('mock mode end-to-end', () => {
     // Drop + recover.
     mock.simulateDrop(50);
     await wait(10);
-    expect(text('.status-text')).toBe('Reconnecting…');
+    expect(text('.status-text')).toBe('Reconnecting… · demo');
     await wait(500);
     expect(store.get().connection).toBe('connected');
     expect(store.get().syncPhase).toBe('ready');

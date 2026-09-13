@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, nextPreset: p, prevPreset: p, setWritesEnabled: () => {}, reconnectNow: () => {}, setSettings: () => {} };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, nextPreset: p, prevPreset: p, setWritesEnabled: () => {}, reconnectNow: () => {}, setSettings: () => {} };
 }
 
 describe('GigView', () => {
@@ -68,6 +68,9 @@ describe('GigView', () => {
     expect(root.querySelector('.tiles > .vsep')?.nextElementSibling?.querySelector('.tile')?.getAttribute('data-key')).toBe('post1'); // pre | post divider
     expect(root.querySelector('.capture')?.textContent).toBe('Brit 1959 Crunch');
     expect(root.querySelector('.ir')?.textContent).toBe('412 UK GRN V30');
+    expect(root.querySelectorAll<HTMLElement>('.lbl .sub-state')[1]?.dataset.on).toBe('true'); // cab label indicator
+    store.setField('captureOn', false, 'dump');
+    expect(root.querySelectorAll<HTMLElement>('.lbl .sub-state')[0]?.dataset.on).toBe('false'); // capture label indicator
     expect(root.querySelector('.nav')?.classList.contains('visible')).toBe(false);
   });
 
@@ -101,19 +104,32 @@ describe('GigView writes toggle and reconnect button', () => {
     const btn = (label: RegExp) => Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((b) => label.test(b.textContent ?? ''))!;
 
     store.patch({ connection: 'connected', syncPhase: 'ready' });
-    expect(btn(/^Control: off$/).hidden).toBe(false);
+    const control = btn(/^Control$/);
+    expect(control.hidden).toBe(false);
+    expect(control.querySelector<HTMLElement>('.btn-state')?.dataset.on).toBe('false');
     expect(btn(/Reconnect now/).hidden).toBe(true);
-    btn(/^Control: off$/).click();
+    control.click();
     expect(calls).toEqual(['writes:true']);
 
     store.patch({ writesEnabled: true });
-    expect(btn(/^Control: ON$/)).toBeTruthy();
+    expect(control.querySelector<HTMLElement>('.btn-state')?.dataset.on).toBe('true');
+    expect(control.getAttribute('aria-pressed')).toBe('true');
+    expect(root.querySelector('.badge')).toBeNull(); // no separate "control on" badge
     expect(root.querySelector('.nav')?.classList.contains('visible')).toBe(true);
 
     store.patch({ connection: 'reconnecting' });
     expect(btn(/Reconnect now/).hidden).toBe(false);
     btn(/Reconnect now/).click();
     expect(calls).toEqual(['writes:true', 'reconnect']);
+
+    // Exit-demo button appears only for the mock transport.
+    const exitDemo = btn(/^Exit demo$/);
+    expect(exitDemo.hidden).toBe(true);
+    store.patch({ transportName: 'mock', connection: 'connected' });
+    expect(exitDemo.hidden).toBe(false);
+    expect(root.querySelector('.status-text')?.textContent).toBe('Connected · demo');
+    store.patch({ transportName: 'ble', connection: 'reconnecting' });
+    expect(exitDemo.hidden).toBe(true);
 
     // Burger menu holds refresh / log / disconnect and toggles open.
     const menu = root.querySelector('.menu')!;
@@ -135,7 +151,7 @@ describe('GigView writes toggle and reconnect button', () => {
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
-    expect(root.querySelector('.badge')?.textContent).not.toBe('provisional');
+    expect(root.querySelector('.badge')).toBeNull();
     expect(root.querySelector('button[aria-label="Fullscreen"] svg')).not.toBeNull();
   });
 });

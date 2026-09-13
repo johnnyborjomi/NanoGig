@@ -84,6 +84,7 @@ export interface MockDeviceState {
   fxOn: Record<FxSlot, boolean>;
   gateOn: boolean;
   cabOn: boolean;
+  captureOn: boolean;
   amp: { gain: number; level: number; bass: number; mid: number; treble: number };
   captureSlot: number;
   captureVolumeRaw: number;
@@ -96,6 +97,7 @@ export function defaultMockDeviceState(): MockDeviceState {
     fxOn: { pre1: false, pre2: false, post1: true, post2: true, post3: true },
     gateOn: true,
     cabOn: false,
+    captureOn: true,
     amp: { gain: 127, level: 144, bass: 129, mid: 127, treble: 113 },
     captureSlot: 2,
     captureVolumeRaw: 127,
@@ -120,7 +122,7 @@ export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset
   body.push(...varintField(5, state.amp.bass));
   body.push(...varintField(6, state.amp.mid));
   body.push(...varintField(7, state.amp.treble));
-  body.push(...varintField(11, state.captureSlot));
+  body.push(...varintField(11, state.captureOn ? state.captureSlot : 0));
   if (state.cabOn) body.push(...varintField(12, 1));
   body.push(...varintField(13, state.activePreset));
   body.push(...varintField(14, 3), ...varintField(15, 7));
@@ -128,7 +130,7 @@ export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset
   body.push(...bytesField(31, FX_SLOTS.map((s) => (state.fxOn[s] ? 0x00 : 0x01))));
   body.push(
     ...bytesField(32, [
-      ...varintField(1, 1),
+      ...varintField(1, state.captureOn ? 1 : 0),
       ...stringField(2, preset.captureName || 'Capture 1'),
       ...stringField(3, 'd48b4316dbcc764b4b4b3f634d8878ab66c966883d480f92648825f9ca3a0030'),
     ]),

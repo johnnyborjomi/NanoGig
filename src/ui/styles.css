@@ -175,6 +175,43 @@ button.warn {
   padding: 8px 12px;
   font-size: 14px;
 }
+/* Buttons are flex rows so text and inline icons share one centre line. */
+.topbar .actions > button,
+.topbar .actions .menu-wrap > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  line-height: 1;
+}
+.topbar .actions > button > svg,
+.topbar .actions .menu-wrap > button > svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.topbar .actions > button[hidden] {
+  display: none;
+}
+.topbar button .btn-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex: none;
+  background: var(--off);
+  color: var(--off-text);
+}
+.topbar button .btn-state svg {
+  width: 16px;
+  height: 16px;
+}
+.topbar button .btn-state[data-on='true'] {
+  background: var(--warn);
+  color: var(--on-text);
+}
 .topbar .icon-btn {
   padding: 8px 10px;
   display: inline-flex;
@@ -376,15 +413,73 @@ button.warn {
   color: var(--muted);
   display: flex;
   gap: 18px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* always one line */
   justify-content: flex-start;
   align-items: center;
+  min-width: 0;
   background: rgba(255,255,255,.1);
   padding: 2px 10px;
   width: 100%;
 }
 .preset-sub .sep {
   color: var(--dim);
+  flex: none;
+}
+/* label + name pair: a flex item itself so the label sits on the name's centre line */
+.preset-sub .sub-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.preset-sub .sub-item .lbl {
+  flex: none;
+  margin-right: 0;
+}
+/* on/off indicator inside the label: sized to the label's text so the label keeps its height */
+.preset-sub .lbl.writable {
+  cursor: pointer;
+}
+.preset-sub .lbl.writable:active {
+  transform: scale(0.96);
+}
+.preset-sub .lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+}
+.preset-sub .sub-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  border-radius: 3px;
+}
+.preset-sub .sub-state svg {
+  width: 0.8em;
+  height: 0.8em;
+}
+.preset-sub .sub-state[data-on='true'] {
+  background: var(--warn);
+  color: var(--on-text);
+}
+.preset-sub .sub-state[data-on='false'] {
+  background: var(--off);
+  color: var(--off-text);
+}
+.preset-sub .sub-state[data-on='unknown'] {
+  color: var(--dim);
+}
+/* names: 10% smaller than the line, never wrap, ellipsis when too long */
+.preset-sub .sub-name {
+  font-size: 0.9em;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .preset-sub .lbl {
   font-size: 0.6em;

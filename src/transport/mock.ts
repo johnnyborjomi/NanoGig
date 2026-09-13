@@ -193,6 +193,15 @@ export class MockTransport implements Transport {
       if (slot) this.device.fxOn[slot] = on;
       return;
     }
+    // Slot-select family: 08 C0 18 <sel> 20 <v> 1C 00 00 00
+    if (bytes.length === 10 && bytes[0] === 0x08 && bytes[1] === 0xc0 && bytes[2] === 0x18 && bytes[4] === 0x20 && bytes[6] === 0x1c) {
+      const sel = bytes[3]!;
+      const v = bytes[5]!;
+      if (sel === 0x01 && v === 0) this.device.captureOn = false; // capture bypass
+      else if (sel === 0x04) this.device.captureOn = true; // capture select (enable)
+      else if (sel === 0x03) this.device.cabOn = v !== 0; // cab/IR slot, 0 = bypass
+      return;
+    }
     this.log('warn', 'mock: unrecognised command frame ignored', toHex(bytes));
   }
 

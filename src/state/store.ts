@@ -40,6 +40,7 @@ export interface GigState {
   gateOn: Field<boolean | null>;
   cabOn: Field<boolean | null>;
   captureName: Field<string | null>;
+  captureOn: Field<boolean | null>;
   irName: Field<string | null>;
   firmware: Field<string | null>;
 
@@ -73,6 +74,7 @@ export function initialState(transportName = 'none'): GigState {
     gateOn: field<boolean | null>(null),
     cabOn: field<boolean | null>(null),
     captureName: field<string | null>(null),
+    captureOn: field<boolean | null>(null),
     irName: field<string | null>(null),
     firmware: field<string | null>(null),
     lastStateSyncAt: null,
@@ -135,6 +137,7 @@ export class Store {
       gateOn: s.gateOn,
       cabOn: s.cabOn,
       captureName: s.captureName,
+      captureOn: s.captureOn,
       irName: s.irName,
       syncPhase: 'idle',
     };

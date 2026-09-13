@@ -31,6 +31,9 @@ import {
   BLE_MIDI_STRATEGIES,
   PRESET_COUNT,
   WEB_MIDI_STRATEGY,
+  cabIrSlotFrame,
+  captureBypassFrame,
+  captureSelectFrame,
   fxBlockBypassFrame,
   gateBypassFrame,
   midiStrategyById,
@@ -309,6 +312,9 @@ export class SyncEngine {
     this.store.setField('gateOn', state.gateOn, 'dump', at);
     this.store.setField('cabOn', state.cabOn, 'dump', at);
     this.store.setField('captureName', state.capture?.name ?? null, 'dump', at);
+    // Capture on/off: sub-message flag when present, else rotary position (0 = bypassed, web editor rule).
+    const captureOn = state.capture?.enabled ?? (state.captureSlot === null ? null : state.captureSlot > 0);
+    this.store.setField('captureOn', captureOn, 'dump', at);
     this.store.setField('irName', state.ir?.shortName ?? null, 'dump', at);
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
 
@@ -354,6 +360,59 @@ export class SyncEngine {
     const next = !current;
     this.store.setField('fxOn', { ...this.store.get().fxOn.value, [slot]: next }, 'optimistic');
     await this.transport.writeCommand(fxBlockBypassFrame(slot, next));
+    this.scheduleConfirm();
+  }
+
+  /** Capture slot 1..25 of the current capture, from the metadata list (by id, then name). */
+  private currentCaptureSlot(): number | null {
+    const cap = this.lastState?.capture;
+    const list = this.metadata?.captures ?? [];
+    if (!cap) return null;
+    let i = cap.id ? list.findIndex((c) => c.id === cap.id) : -1;
+    if (i < 0 && cap.name) i = list.findIndex((c) => c.name.trim().toLowerCase() === cap.name.trim().toLowerCase());
+    return i >= 0 ? i + 1 : null;
+  }
+
+  /** Cab/IR slot 1..5 of the current IR, from the metadata list (by short name). */
+  private currentCabSlot(): number | null {
+    const ir = this.lastState?.ir;
+    const list = this.metadata?.irs ?? [];
+    if (!ir?.shortName) return null;
+    const i = list.findIndex((r) => r.shortName.trim().toLowerCase() === ir.shortName.trim().toLowerCase());
+    return i >= 0 ? i + 1 : null;
+  }
+
+  /** Bypass or re-enable the capture block. Re-enabling needs the slot; refuses rather than guessing. */
+  async toggleCapture(): Promise<void> {
+    this.assertWrites();
+    const current = this.store.get().captureOn.value;
+    if (current === null) throw new Error('Capture state unknown; refusing to toggle blind');
+    if (current) {
+      this.store.setField('captureOn', false, 'optimistic');
+      await this.transport.writeCommand(captureBypassFrame());
+    } else {
+      const slot = this.currentCaptureSlot();
+      if (slot === null) throw new Error('Cannot re-enable: this capture is not in the pedal\'s 25-slot list (metadata missing or a library capture)');
+      this.store.setField('captureOn', true, 'optimistic');
+      await this.transport.writeCommand(captureSelectFrame(slot));
+    }
+    this.scheduleConfirm();
+  }
+
+  /** Bypass or re-enable the cab/IR block. Re-enabling needs the IR slot; refuses rather than guessing. */
+  async toggleCab(): Promise<void> {
+    this.assertWrites();
+    const current = this.store.get().cabOn.value;
+    if (current === null) throw new Error('Cab/IR state unknown; refusing to toggle blind');
+    if (current) {
+      this.store.setField('cabOn', false, 'optimistic');
+      await this.transport.writeCommand(cabIrSlotFrame(0));
+    } else {
+      const slot = this.currentCabSlot();
+      if (slot === null) throw new Error('Cannot re-enable: this IR is not in the pedal\'s 5-slot list (metadata missing or a library IR)');
+      this.store.setField('cabOn', true, 'optimistic');
+      await this.transport.writeCommand(cabIrSlotFrame(slot));
+    }
     this.scheduleConfirm();
   }
 

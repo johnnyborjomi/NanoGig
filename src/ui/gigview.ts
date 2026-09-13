@@ -19,7 +19,8 @@ export interface GigViewActions {
   refreshNames(): Promise<void>;
   toggleFx(slot: FxSlot): Promise<void>;
   toggleGate(): Promise<void>;
-  toggleCab?(): Promise<void>;
+  toggleCab(): Promise<void>;
+  toggleCapture(): Promise<void>;
   nextPreset(): Promise<void>;
   prevPreset(): Promise<void>;
   simulateDrop?(): void;
@@ -94,7 +95,6 @@ export class GigView {
   private readonly root: HTMLElement;
   private readonly dot = el("span", "dot");
   private readonly statusText = el("span", "status-text", "Disconnected");
-  private readonly writesBadge = el("span", "badge warn", "control on");
   private readonly slotEl = el("div", "preset-row");
   private readonly slotLabel = el("span", "slot-label");
   private readonly slotBank = el("span", "slot-bank", "—");
@@ -107,8 +107,11 @@ export class GigView {
   private fitKey = "";
   private readonly rowResize = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => this.fitPresetRow()) : null;
   private readonly subEl = el("div", "preset-sub");
-  private readonly captureEl = el("span", "capture");
-  private readonly irEl = el("span", "ir");
+  private readonly captureEl = el("span", "capture sub-name");
+  private readonly irEl = el("span", "ir sub-name");
+  private subLabels: HTMLElement[] = [];
+  private readonly captureState = el("span", "sub-state");
+  private readonly irState = el("span", "sub-state");
   private readonly tiles = new Map<
     FxSlot | "gate" | "cab",
     { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement }
@@ -126,7 +129,9 @@ export class GigView {
   private readonly fullscreenBtn = el("button", "ghost icon-btn", "");
   private readonly consoleBtn = el("button", "ghost", "Log");
   private readonly refreshBtn = el("button", "ghost", "Refresh");
-  private readonly writesBtn = el("button", "ghost", "Control: off");
+  private readonly writesBtn = el("button", "ghost", "");
+  private readonly writesState = el("span", "btn-state");
+  private readonly exitDemoBtn = el("button", "ghost", "");
   private readonly menuBtn = el("button", "ghost icon-btn", "");
   private readonly menu = el("div", "menu");
   private readonly menuInfo = el("div", "menu-info");
@@ -161,9 +166,6 @@ export class GigView {
     const status = el("div", "status");
     status.append(this.dot, this.statusText);
     const actions = el("div", "actions");
-    this.writesBadge.hidden = true;
-    this.writesBadge.title =
-      "Tap tiles to toggle blocks; ◀ ▶ switch presets. Writes go to real hardware.";
     this.refreshBtn.addEventListener(
       "click",
       () => void this.actions.refresh().catch((e) => this.toast(e)),
@@ -178,6 +180,9 @@ export class GigView {
     );
     this.writesBtn.title =
       "Control mode: tap tiles to toggle blocks, ◀ ▶ to switch presets. Changes go to the real pedal.";
+    this.writesState.append(lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" }));
+    this.writesState.dataset.on = "false";
+    this.writesBtn.append(el("span", "", "Control"), this.writesState);
     this.writesBtn.addEventListener("click", () =>
       this.actions.setWritesEnabled(!this.store.get().writesEnabled),
     );
@@ -232,8 +237,13 @@ export class GigView {
     const menuWrap = el("div", "menu-wrap");
     menuWrap.append(this.menuBtn, this.menu);
 
-    actions.append(this.reconnectBtn, this.writesBtn, this.fullscreenBtn, menuWrap);
-    top.append(status, this.writesBadge, actions);
+    // Demo mode only: a clear way back to the connect screen (Disconnect alone reads as an error).
+    this.exitDemoBtn.hidden = true;
+    this.exitDemoBtn.title = "Leave demo mode and return to the connect screen";
+    this.exitDemoBtn.append(lucideElement(LogOut, { "aria-hidden": "true" }), el("span", "", "Exit demo"));
+    this.exitDemoBtn.addEventListener("click", () => void this.actions.disconnect());
+    actions.append(this.reconnectBtn, this.exitDemoBtn, this.writesBtn, this.fullscreenBtn, menuWrap);
+    top.append(status, actions);
 
     // Preset area ------------------------------------------------------
     const preset = el("div", "preset");
@@ -241,9 +251,19 @@ export class GigView {
     this.slotEl.append(this.slotLabel, this.nameEl, this.sourceTag);
     const capLbl = el("span", "lbl", "capture");
     const irLbl = el("span", "lbl", "cab / ir");
-    const capWrap = el("span");
+    for (const st of [this.captureState, this.irState]) {
+      st.append(lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" }));
+      st.dataset.on = "unknown";
+    }
+    // The indicator lives inside the bordered label, after its text. In control mode the label is a toggle.
+    capLbl.append(this.captureState);
+    irLbl.append(this.irState);
+    capLbl.addEventListener("click", () => this.onLabelTap("capture"));
+    irLbl.addEventListener("click", () => this.onLabelTap("cab"));
+    this.subLabels = [capLbl, irLbl];
+    const capWrap = el("span", "sub-item");
     capWrap.append(capLbl, this.captureEl);
-    const irWrap = el("span");
+    const irWrap = el("span", "sub-item");
     irWrap.append(irLbl, this.irEl);
     this.subEl.append(capWrap, el("span", "sep", "•"), irWrap);
     preset.append(this.slotEl, this.subEl);
@@ -481,6 +501,13 @@ export class GigView {
     void run.catch((e) => this.toast(e));
   }
 
+  private onLabelTap(which: "capture" | "cab") {
+    const s = this.store.get();
+    if (!s.writesEnabled || s.connection !== "connected") return;
+    const run = which === "capture" ? this.actions.toggleCapture() : this.actions.toggleCab();
+    void run.catch((e) => this.toast(e));
+  }
+
   private toast(err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     this.store.appendLog({ at: Date.now(), dir: "error", text: msg });
@@ -578,10 +605,13 @@ export class GigView {
     this.disconnectBtn.hidden = s.connection === "disconnected";
     this.refreshBtn.hidden = s.connection !== "connected";
     this.menuBtn.hidden = s.connection === "disconnected";
-    this.writesBadge.hidden = !s.writesEnabled;
-    this.writesBtn.textContent = s.writesEnabled ? "Control: ON" : "Control: off";
+    this.writesState.dataset.on = s.writesEnabled ? "true" : "false";
     this.writesBtn.classList.toggle("warn", s.writesEnabled);
+    this.writesBtn.setAttribute("aria-pressed", s.writesEnabled ? "true" : "false");
     this.writesBtn.hidden = s.connection === "disconnected";
+    const demo = s.transportName === "mock" && s.connection !== "disconnected";
+    this.exitDemoBtn.hidden = !demo;
+    this.statusText.textContent = demo ? `${this.statusText.textContent} · demo` : this.statusText.textContent;
     this.reconnectBtn.hidden = s.connection !== "reconnecting";
     this.nav.classList.toggle(
       "visible",
@@ -621,9 +651,11 @@ export class GigView {
     if (this.nameEl.textContent !== shown) this.nameEl.textContent = shown;
     this.fitPresetRow(s);
     this.captureEl.textContent = s.captureName.value || "—";
-    const cabOff = s.cabOn.value === false;
-    this.irEl.textContent =
-      (s.irName.value || "—") + (cabOff && s.irName.value ? " (off)" : "");
+    this.irEl.textContent = s.irName.value || "—";
+    const onAttr = (v: boolean | null) => (v === null ? "unknown" : v ? "true" : "false");
+    for (const lbl of this.subLabels) lbl.classList.toggle("writable", s.writesEnabled && s.connection === "connected");
+    this.captureState.dataset.on = onAttr(s.captureOn.value);
+    this.irState.dataset.on = onAttr(s.cabOn.value);
 
     // Tiles --------------------------------------------------------
     for (const key of TILE_ORDER) {
@@ -647,7 +679,7 @@ export class GigView {
         s.writesEnabled &&
         s.connection === "connected" &&
         on !== null &&
-        (key !== "cab" || !!this.actions.toggleCab);
+        true;
       t.root.classList.toggle("writable", writable);
       t.root.setAttribute("aria-disabled", writable ? "false" : "true");
       t.root.style.pointerEvents = writable ? "auto" : "none";

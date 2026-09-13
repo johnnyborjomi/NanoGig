@@ -60,6 +60,34 @@ export function gateBypassFrame(enabled: boolean): Uint8Array {
   return bypassFrame(GATE_ENABLE_SLOT, enabled);
 }
 
+/** Footer tag of the slot-select family (capture / cab-IR). */
+const SLOT_SELECT_TAG = 0x1c;
+
+/** Capture bypass: `08 C0 18 01 20 00 1C 00 00 00` (web editor `selectCaptureSlot(0)`). */
+export function captureBypassFrame(): Uint8Array {
+  return new Uint8Array([0x08, 0xc0, 0x18, 0x01, 0x20, 0x00, SLOT_SELECT_TAG, 0x00, 0x00, 0x00]);
+}
+
+export const CAPTURE_SLOT_COUNT = 25;
+
+/**
+ * Select (and thereby enable) a capture slot 1..25: `08 C0 18 04 20 <slot-1> 1C 00 00 00`
+ * (web editor `setCapture`). The `18 01` selector must not be used for enabling — it leaves
+ * slots >= 16 silent (rixrix spec, hardware-observed 2026-07-16).
+ */
+export function captureSelectFrame(slot: number): Uint8Array {
+  if (!Number.isInteger(slot) || slot < 1 || slot > CAPTURE_SLOT_COUNT) throw new RangeError(`capture slot out of range: ${slot}`);
+  return new Uint8Array([0x08, 0xc0, 0x18, 0x04, 0x20, slot - 1, SLOT_SELECT_TAG, 0x00, 0x00, 0x00]);
+}
+
+export const CAB_SLOT_COUNT = 5;
+
+/** Cab/IR slot select: `08 C0 18 03 20 <slot> 1C 00 00 00`; slot 0 = bypass, 1..5 = enable that IR. */
+export function cabIrSlotFrame(slot: number): Uint8Array {
+  if (!Number.isInteger(slot) || slot < 0 || slot > CAB_SLOT_COUNT) throw new RangeError(`cab/IR slot out of range: ${slot}`);
+  return new Uint8Array([0x08, 0xc0, 0x18, 0x03, 0x20, slot, SLOT_SELECT_TAG, 0x00, 0x00, 0x00]);
+}
+
 export const PRESET_COUNT = 64;
 
 /** Preset names are at most 20 characters — confirmed in Cortex Cloud (2026-09-12). */

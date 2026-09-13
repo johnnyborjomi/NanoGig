@@ -8,6 +8,9 @@ import {
   PRESET_CHANGE_ACK,
   PRESET_NAME_MAX_LENGTH,
   bleMidiFrame,
+  cabIrSlotFrame,
+  captureBypassFrame,
+  captureSelectFrame,
   presetLabelParts,
   fxBlockBypassFrame,
   midiStrategyById,
@@ -50,6 +53,21 @@ describe('FX block bypass frames', () => {
   it('gate ON / OFF', () => {
     expect(toHex(gateBypassFrame(true))).toBe('0A C0 08 01 18 09 20 00 1F 00 00 00');
     expect(toHex(gateBypassFrame(false))).toBe('0A C0 08 01 18 09 20 01 1F 00 00 00');
+  });
+});
+
+describe('capture / cab-IR slot frames (web editor selectCaptureSlot / setCapture / selectCabIRSlot)', () => {
+  it('capture bypass and select', () => {
+    expect(toHex(captureBypassFrame())).toBe('08 C0 18 01 20 00 1C 00 00 00');
+    expect(toHex(captureSelectFrame(1))).toBe('08 C0 18 04 20 00 1C 00 00 00');
+    expect(toHex(captureSelectFrame(25))).toBe('08 C0 18 04 20 18 1C 00 00 00');
+    expect(() => captureSelectFrame(0)).toThrow(RangeError);
+    expect(() => captureSelectFrame(26)).toThrow(RangeError);
+  });
+  it('cab/IR slot: 0 bypasses, 1..5 selects', () => {
+    expect(toHex(cabIrSlotFrame(0))).toBe('08 C0 18 03 20 00 1C 00 00 00');
+    expect(toHex(cabIrSlotFrame(3))).toBe('08 C0 18 03 20 03 1C 00 00 00');
+    expect(() => cabIrSlotFrame(6)).toThrow(RangeError);
   });
 });
 

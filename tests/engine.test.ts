@@ -44,6 +44,7 @@ describe('SyncEngine with the mock transport', () => {
     expect(s.gateOn.value).toBe(true);
     expect(s.cabOn.value).toBe(false);
     expect(s.captureName.value).toBe('NoMatch Chief 1');
+    expect(s.captureOn.value).toBe(true);
     expect(s.irName.value).toBe('110 US PRN C10R');
     expect(s.firmware.value).toBe('2.2.1');
     expect(s.fxOn.provisional).toBe(true);
@@ -298,6 +299,60 @@ describe('SyncEngine writes', () => {
     expect(store.get().log.some((l) => l.dir === 'warn' && /web-midi rejected: No Nano Cortex MIDI output/.test(l.text))).toBe(true);
     expect(engine.activeMidiStrategy?.id).toBe('c303-ble-midi');
     expect(store.get().activePreset.value).toBe(2);
+    engine.dispose();
+  });
+
+  it('toggleCab bypasses with slot 0 and re-enables with the IR slot from metadata', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, initialState: { cabOn: true } });
+    const store = new Store();
+    const engine = new SyncEngine(mock, store, { writesEnabled: true, confirmDelayMs: 50 });
+    await connect(mock);
+    await flush(3500);
+    mock.pressFootswitch(4); // "Rectified": IR '412 US OS V30' = 3rd unique IR in the demo list → slot 3
+    await flush(1000);
+    expect(store.get().cabOn.value).toBe(true);
+    await engine.toggleCab();
+    expect(store.get().cabOn.value).toBe(false);
+    await flush(1000);
+    expect(store.get().cabOn.value).toBe(false); // confirmed by the dump
+    await engine.toggleCab();
+    await flush(1000);
+    expect(store.get().cabOn.value).toBe(true);
+    const tx = store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
+    expect(tx).toContain('08 C0 18 03 20 00 1C 00 00 00');
+    expect(tx).toContain('08 C0 18 03 20 03 1C 00 00 00');
+    engine.dispose();
+  });
+
+  it('toggleCapture bypasses and re-enables by the capture slot from metadata', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2 });
+    const store = new Store();
+    const engine = new SyncEngine(mock, store, { writesEnabled: true, confirmDelayMs: 50 });
+    await connect(mock);
+    await flush(3500);
+    mock.pressFootswitch(4); // capture 'Cali Recto Modern' = 3rd unique capture → slot 3 → index 2
+    await flush(1000);
+    expect(store.get().captureOn.value).toBe(true);
+    await engine.toggleCapture();
+    await flush(1000);
+    expect(store.get().captureOn.value).toBe(false);
+    await engine.toggleCapture();
+    await flush(1000);
+    expect(store.get().captureOn.value).toBe(true);
+    const tx = store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
+    expect(tx).toContain('08 C0 18 01 20 00 1C 00 00 00');
+    expect(tx).toContain('08 C0 18 04 20 02 1C 00 00 00');
+    engine.dispose();
+  });
+
+  it('refuses to re-enable when the slot cannot be determined', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, initialState: { cabOn: false } });
+    const store = new Store();
+    const engine = new SyncEngine(mock, store, { writesEnabled: true, confirmDelayMs: 50 });
+    await connect(mock);
+    await flush(3500); // real dump: IR '110 US PRN C10R' is not among the demo metadata's 5 IRs
+    expect(store.get().cabOn.value).toBe(false);
+    await expect(engine.toggleCab()).rejects.toThrow(/not in the pedal/);
     engine.dispose();
   });
 
