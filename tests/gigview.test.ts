@@ -136,6 +136,11 @@ describe('GigView preset strip', () => {
     expect(b[2]!.querySelector('.p-name')?.textContent).toBe('Preset 9'); // unnamed fallback
     expect(b[2]!.querySelector('.p-name')?.classList.contains('empty')).toBe(true);
     expect(b[3]!.querySelector<HTMLElement>('.slot-slot')?.dataset.slot).toBe('1'); // slot colour hook
+    expect(b[3]!.querySelector<HTMLElement>('.p-num')?.hidden).toBe(true); // pedal number off by default
+    store.patch({ showPresetNumber: true });
+    expect(btns()[3]!.querySelector<HTMLElement>('.p-num')?.textContent).toBe('·10');
+    expect(btns()[3]!.querySelector<HTMLElement>('.p-num')?.hidden).toBe(false);
+    store.patch({ showPresetNumber: false });
 
     b[6]!.click();
     expect(picked).toEqual([12]);
@@ -143,6 +148,25 @@ describe('GigView preset strip', () => {
     store.setField('activePreset', 0, 'event');
     expect(btns().map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['16B', '16C', '16D', '1A', '1B', '1C', '1D']); // wraps
     expect(btns()[3]!.dataset.active).toBe('true');
+
+    // Arrows page the window by 7 without selecting; a preset change re-centres.
+    const prev = root.querySelector<HTMLButtonElement>('.preset-grid .pbtn-nav:first-child')!;
+    const next = root.querySelector<HTMLButtonElement>('.preset-grid .pbtn-nav:last-child')!;
+    expect(next.hidden).toBe(false);
+    next.click();
+    expect(btns().map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['2A', '2B', '2C', '2D', '3A', '3B', '3C']);
+    expect(btns().some((x) => x.dataset.active === 'true')).toBe(false);
+    expect(picked).toEqual([12]); // nothing selected by paging
+    prev.click();
+    prev.click();
+    expect(btns().map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['14C', '14D', '15A', '15B', '15C', '15D', '16A']);
+    btns()[0]!.click();
+    expect(picked).toEqual([12, 54]);
+    store.setField('activePreset', 54, 'event');
+    expect(btns()[3]!.dataset.active).toBe('true');
+    expect(btns()[3]!.querySelector('.p-label')?.textContent).toBe('14C'); // re-centred
+    store.patch({ writesEnabled: false });
+    expect(next.hidden).toBe(true); // arrows only in control mode
   });
 });
 

@@ -7,7 +7,7 @@ import { FX_SLOTS, PRESETS_PER_BANK_CHOICES, presetLabel, presetLabelParts, type
 import type { GigState } from "../state/store";
 import type { Store } from "../state/store";
 import type { LogLine } from "../transport/types";
-import { Lock, LogOut, Maximize, Menu, Minimize, Power, RefreshCw, ScrollText, Settings, createElement as lucideElement } from "lucide";
+import { ChevronLeft, ChevronRight, Lock, LogOut, Maximize, Menu, Minimize, Power, RefreshCw, ScrollText, Settings, createElement as lucideElement } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { PRESET_COUNT } from "../protocol/frames";
 
@@ -119,7 +119,12 @@ export class GigView {
     { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement }
   >();
   private readonly presetStrip = el("div", "preset-strip");
-  private readonly presetBtns: { root: HTMLButtonElement; bank: HTMLElement; slot: HTMLElement; name: HTMLElement; index: number }[] = [];
+  /** Pages of PRESET_STRIP_COUNT the strip is shifted from the active-centred window (control mode paging). */
+  private stripPage = 0;
+  private stripCentre: number | null = null;
+  private readonly stripPrev = el("button", "pbtn-nav");
+  private readonly stripNext = el("button", "pbtn-nav");
+  private readonly presetBtns: { root: HTMLButtonElement; bank: HTMLElement; slot: HTMLElement; num: HTMLElement; name: HTMLElement; index: number }[] = [];
   private readonly toastEl = el("div", "toast");
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private lastShownError: string | null = null;
@@ -325,10 +330,11 @@ export class GigView {
       const label = el("span", "p-label");
       const bank = el("span", "p-bank");
       const slot = el("span", "slot-slot");
-      label.append(bank, slot);
+      const num = el("span", "p-num");
+      label.append(bank, slot, num);
       const name = el("span", "p-name");
       root.append(label, name);
-      const entry = { root, bank, slot, name, index: i };
+      const entry = { root, bank, slot, num, name, index: i };
       root.addEventListener("click", () => {
         const st = this.store.get();
         if (!st.writesEnabled || st.connection !== "connected") return;
@@ -337,6 +343,15 @@ export class GigView {
       this.presetBtns.push(entry);
       grid.append(root);
     }
+    // Narrow icon-only arrows page the window without selecting anything (control mode only).
+    this.stripPrev.append(lucideElement(ChevronLeft, { "stroke-width": 2.5, "aria-hidden": "true" }));
+    this.stripNext.append(lucideElement(ChevronRight, { "stroke-width": 2.5, "aria-hidden": "true" }));
+    this.stripPrev.setAttribute("aria-label", "Previous presets");
+    this.stripNext.setAttribute("aria-label", "Next presets");
+    this.stripPrev.addEventListener("click", () => this.pageStrip(-1));
+    this.stripNext.addEventListener("click", () => this.pageStrip(1));
+    grid.prepend(this.stripPrev);
+    grid.append(this.stripNext);
     this.presetStrip.append(el("div", "hsep"), grid);
     blocks.append(this.presetStrip);
 
@@ -748,18 +763,32 @@ export class GigView {
   }
 
   /** Window of PRESET_STRIP_COUNT presets centred on the active one, wrapping around the 64 slots. */
+  private pageStrip(dir: -1 | 1) {
+    const s = this.store.get();
+    if (!(s.writesEnabled && s.connection === "connected")) return;
+    this.stripPage += dir; // the preset list is circular; the index math below wraps
+    this.renderPresetStrip(s);
+  }
+
   private renderPresetStrip(s: GigState) {
     const controlling = s.writesEnabled && s.connection === "connected";
     const centre = s.activePreset.value ?? 0;
+    // A new active preset (or leaving control mode) re-centres the window.
+    if (centre !== this.stripCentre || !controlling) this.stripPage = 0;
+    this.stripCentre = centre;
+    this.stripPrev.hidden = this.stripNext.hidden = !controlling;
     const half = Math.floor(PRESET_STRIP_COUNT / 2);
     const opts = { presetsPerBank: s.presetsPerBank, style: s.labelStyle };
     this.presetBtns.forEach((b, i) => {
-      const idx = (centre - half + i + PRESET_COUNT) % PRESET_COUNT;
+      const raw = centre - half + this.stripPage * PRESET_STRIP_COUNT + i;
+      const idx = ((raw % PRESET_COUNT) + PRESET_COUNT) % PRESET_COUNT;
       b.index = idx;
       const label = presetLabelParts(idx, opts)!;
       b.bank.textContent = label.bank;
       b.slot.textContent = label.slot;
       b.slot.dataset.slot = String(label.slotIndex);
+      b.num.textContent = s.showPresetNumber ? `·${idx + 1}` : "";
+      b.num.hidden = !s.showPresetNumber;
       const name = s.presetNames.value[idx] ?? "";
       b.name.textContent = name || `Preset ${idx + 1}`;
       b.name.classList.toggle("empty", !name);

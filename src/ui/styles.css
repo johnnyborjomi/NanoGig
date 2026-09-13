@@ -691,9 +691,37 @@ button.warn {
 /* Seven equal columns; minmax(0, 1fr) lets a button shrink below its text so the row always fits. */
 .preset-grid {
   display: grid;
+  /* viewing mode: 7 equal preset columns (arrows are display:none, so they take no cell) */
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
   min-width: 0;
+}
+/* control mode: narrow arrow | 7 equal preset columns | narrow arrow */
+.preset-strip.writable .preset-grid {
+  grid-template-columns: auto repeat(7, minmax(0, 1fr)) auto;
+}
+.pbtn-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 2px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pbtn-nav svg {
+  width: 20px;
+  height: 20px;
+}
+.pbtn-nav:active {
+  transform: scale(0.96);
+}
+.pbtn-nav[hidden] {
+  display: none;
 }
 .pbtn {
   display: flex;
@@ -717,6 +745,13 @@ button.warn {
 }
 .pbtn .p-bank {
   color: var(--text);
+}
+/* Pedal preset number (1-64) next to the bank/slot label, same size, thin. */
+.pbtn .p-num {
+  font-weight: 300;
+  color: var(--muted);
+  margin-left: 0.25em;
+  letter-spacing: 0.02em;
 }
 .pbtn .p-name {
   font-size: 13px;
