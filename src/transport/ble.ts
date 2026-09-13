@@ -12,6 +12,7 @@ import { bleMidiFrame, type MidiStrategy } from '../protocol/frames';
 import { PacketDeduper } from './dedupe';
 import {
   ALL_SERVICE_UUIDS,
+  CHAR_BY_KEY,
   SERVICE_A002,
   looksLikeNano,
   charKeyOf,
@@ -65,6 +66,18 @@ function copyForWrite(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
 
 export function isWebBluetoothAvailable(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.bluetooth;
+}
+
+/** Shims (Bluefy) can reject with non-Error values; never log "undefined: undefined". */
+function errText(err: unknown): string {
+  if (err instanceof Error) return err.name && err.name !== 'Error' ? `${err.name}: ${err.message}` : err.message;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && 'message' in err) return String((err as { message: unknown }).message);
+  try {
+    return JSON.stringify(err) ?? String(err);
+  } catch {
+    return String(err);
+  }
 }
 
 export class BleTransport implements Transport {
@@ -172,7 +185,7 @@ export class BleTransport implements Transport {
       try {
         characteristics = await service.getCharacteristics();
       } catch (err) {
-        this.log('warn', `getCharacteristics failed for ${service.uuid}: ${(err as Error).message}`);
+        this.log('warn', `getCharacteristics failed for ${service.uuid}: ${errText(err)}`);
         continue;
       }
       for (const ch of characteristics) {
@@ -186,16 +199,38 @@ export class BleTransport implements Transport {
         ]
           .filter(Boolean)
           .join('/');
-        report.push(`${service.uuid.slice(4, 8)}/${ch.uuid.slice(4, 8)} [${props}]`);
-        const key = charKeyOf(ch.uuid);
+        report.push(`${(service.uuid ?? '').slice(4, 8)}/${(ch.uuid ?? '').slice(4, 8)} [${props}]`);
+        const key = charKeyOf(ch.uuid ?? '');
         if (key && !this.chars.has(key)) this.chars.set(key, ch);
       }
     }
     this.log('info', `Inspection: ${report.join(', ') || '(no characteristics)'}`);
 
+    // Some Web Bluetooth shims (Bluefy on iPadOS, 2026-09-13) enumerate characteristics with an
+    // empty `uuid`, so the scan above matches nothing. Fall back to direct lookups by UUID, which
+    // go through the standard getPrimaryService/getCharacteristic path those shims do implement.
+    if (!this.chars.has('c304') || !this.chars.has('c305')) {
+      this.log('info', 'Characteristic UUIDs not exposed by enumeration; looking them up by UUID');
+      try {
+        const service = await withTimeout(server.getPrimaryService(SERVICE_A002), DISCOVER_TIMEOUT_MS, 'service a002');
+        for (const key of Object.keys(CHAR_BY_KEY) as CharKey[]) {
+          if (this.chars.has(key)) continue;
+          try {
+            const ch = await withTimeout(service.getCharacteristic(CHAR_BY_KEY[key]), DISCOVER_TIMEOUT_MS, `characteristic ${key}`);
+            this.chars.set(key, ch);
+          } catch (err) {
+            this.log('warn', `getCharacteristic ${key} failed: ${errText(err)}`);
+          }
+        }
+        this.log('info', `Direct lookup found: ${Array.from(this.chars.keys()).join(', ') || '(none)'}`);
+      } catch (err) {
+        this.log('warn', `getPrimaryService a002 failed: ${errText(err)}`);
+      }
+    }
+
     if (!this.chars.has('c304') || !this.chars.has('c305')) {
       const missing = (['c304', 'c305'] as CharKey[]).filter((k) => !this.chars.has(k));
-      throw new Error(`Required characteristic(s) not found: ${missing.join(', ')} (services seen: ${services.map((s) => s.uuid.slice(4, 8)).join(', ')})`);
+      throw new Error(`Required characteristic(s) not found: ${missing.join(', ')} (services seen: ${services.map((s) => (s.uuid ?? '').slice(4, 8) || '?').join(', ')})`);
     }
     if (!this.chars.has('c302') && !this.chars.has('c303')) this.log('warn', 'c302/c303 (MIDI write) not found — preset switching via MIDI will be unavailable');
 
@@ -208,7 +243,7 @@ export class BleTransport implements Transport {
         this.subscribed.push(ch);
         this.log('info', `Subscribed ${key} (${ch.properties.indicate ? 'indicate' : 'notify'})`);
       } catch (err) {
-        this.log('warn', `subscribe ${key} failed: ${(err as Error).message}`);
+        this.log('warn', `subscribe ${key} failed: ${errText(err)}`);
       }
     }
     if (this.subscribed.length === 0) throw new Error('Could not subscribe to c305/c306');
@@ -219,7 +254,7 @@ export class BleTransport implements Transport {
     const view = target.value;
     if (!view) return;
     const data = new Uint8Array(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength));
-    const char = charKeyOf(target.uuid) ?? target.uuid;
+    const char = charKeyOf(target.uuid ?? '') ?? target.uuid;
     const at = Date.now();
     // c306 mirrors c305 — drop a payload identical to the last one from the other char within the window.
     if (!this.deduper.accept(char, data, at)) return;
@@ -275,7 +310,7 @@ export class BleTransport implements Transport {
     );
     device.watchAdvertisements({ signal: abort.signal }).then(
       () => this.log('info', 'Watching advertisements for the device'),
-      (err) => this.log('info', `watchAdvertisements unavailable: ${(err as Error).message}`),
+      (err) => this.log('info', `watchAdvertisements unavailable: ${errText(err)}`),
     );
   }
 
@@ -317,7 +352,7 @@ export class BleTransport implements Transport {
           this.setStatus('connected');
           return;
         } catch (err) {
-          this.log('warn', `Reconnect attempt ${attempt + 1} failed: ${(err as Error).name}: ${(err as Error).message}`);
+          this.log('warn', `Reconnect attempt ${attempt + 1} failed: ${errText(err)}`);
           try {
             this.device?.gatt?.disconnect();
           } catch {
@@ -346,7 +381,7 @@ export class BleTransport implements Transport {
     try {
       devices = await navigator.bluetooth.getDevices();
     } catch (err) {
-      this.log('info', `getDevices failed: ${(err as Error).message}`);
+      this.log('info', `getDevices failed: ${errText(err)}`);
       return false;
     }
     const remembered = rememberedDeviceId();
@@ -373,7 +408,7 @@ export class BleTransport implements Transport {
         ch.removeEventListener('characteristicvaluechanged', this.handleValueChanged);
         await withTimeout(ch.stopNotifications(), UNSUBSCRIBE_TIMEOUT_MS, 'unsubscribe');
       } catch (err) {
-        this.log('warn', `unsubscribe failed: ${(err as Error).message}`);
+        this.log('warn', `unsubscribe failed: ${errText(err)}`);
       }
     }
     this.subscribed = [];
@@ -387,7 +422,7 @@ export class BleTransport implements Transport {
 
   private enqueueWrite(label: string, run: () => Promise<void>): Promise<void> {
     const task = this.writeQueue.then(run, run);
-    this.writeQueue = task.catch((err) => this.log('error', `${label} failed: ${(err as Error).message}`));
+    this.writeQueue = task.catch((err) => this.log('error', `${label} failed: ${errText(err)}`));
     return task;
   }
 
