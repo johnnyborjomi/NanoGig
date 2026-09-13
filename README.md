@@ -63,7 +63,7 @@ URL flags:
 | Flag        | Effect                                                                 |
 | ----------- | ---------------------------------------------------------------------- |
 | `?mock=1`   | Demo mode: a fake device replays captured packets, no hardware needed. |
-| `?writes=1` | Enables tile taps (FX / gate toggle) and ◀ ▶ preset buttons. Off by default. |
+| `?writes=1` | Starts in control mode: tile taps (FX / gate), capture and cab labels, and the preset buttons write to the pedal. Off by default; the Control button toggles it too. |
 | `?debug=1`  | Opens the hex log console on load.                                     |
 | `?midi=<id>`| Pin the MIDI delivery for preset switching: `web-midi`, `c303-ble-midi`, `c302-ble-midi`, `c303-raw`, `c303-sequential`, `c302-raw`. Default: probe in that order. |
 
@@ -129,7 +129,15 @@ Protocol summary (provisional; verified on NanOS 2.2.1 hardware on 2026-09-12 un
   `{1:name, 7:captureName, 9:irShort, 10:irFull}`, field 19 IRs.
 - Current-state request `0C C0 08 03 18 01 20 01 28 01 01 00 00 00` → state message (type 2):
   **field 13 = active preset index**, field 31 = 5-byte bypass array (0 = on), field 54 =
-  gate (inverted, absent = on), field 12 present = cab on, fields 32/33 = capture / IR.
+  gate (inverted, absent = on), field 12 present = cab on, fields 32/33 = capture / IR,
+  **field 11 = capture position (0 / absent = capture bypassed)**. Field 32.1 is not the bypass
+  flag: hardware dumps show it at 1 after a bypass and at 0 with position 4 (2026-09-12/13).
+- **Capture / cab toggles (writes mode).** Bypass: capture `08 C0 18 01 20 00 1C 00 00 00`,
+  cab `08 C0 18 03 20 00 1C 00 00 00` (both confirmed 2026-09-13; the pedal acks with a
+  `… 73 00 00 00` frame). Re-enabling needs the slot index (`18 04 20 <slot-1>` / `18 03 20 <slot>`),
+  which the app can only get by matching the current name against the metadata slot lists. When
+  there is no match (library capture/IR, or no IR list in metadata) the label shows a lock and the
+  toggle is refused both ways, so you cannot bypass something the app could not bring back.
 - **Preset switching (writes mode).** MIDI Program Changes written to the proprietary
   characteristics do NOT switch presets on NanOS 2.2.1 (2026-09-12): `c302` rejects every write
   ("GATT operation failed"), `c303` accepts raw and MIDI-over-BLE framed writes but the pedal
@@ -169,7 +177,8 @@ app-initiated change is tagged **sending**.
 - [x] Power-cycle the pedal: the app reconnects without a page reload (2026-09-12, first attempt, ~13 s).
 - [x] (writes) Tapping a tile toggles the block on the pedal and the tile settles to the
       state reported by the next dump (2026-09-12).
-- [x] (writes) Prev/Next switches presets via Web MIDI over USB (2026-09-12).
+- [x] (writes) The preset buttons switch presets via Web MIDI over USB (2026-09-12, as Prev/Next then).
+- [x] (writes) Capture and cab bypass from the labels (2026-09-13). Re-enable: pending a preset whose capture/IR is in the slot list.
 
 If a step fails, open the Log, reproduce, "copy", and file the hex.
 

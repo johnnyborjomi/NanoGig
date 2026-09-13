@@ -181,6 +181,7 @@ import {
   HW_BYPASS_CHANGED,
   HW_METADATA_FIRST_BODY_PREFIX,
   HW_PRESET_CHANGED,
+  HW_STATE_AFTER_CAPTURE_BYPASS,
   HW_STATE_SEGMENTED,
   HW_STATE_SINGLE,
   HW_UNKNOWN_73,
@@ -237,6 +238,21 @@ describe('hardware 2026-09-12: state dumps', () => {
     expect(segmented.ir?.shortName).toBe("412 CA Stand OS A V30 '01");
     expect(segmented.amp.gain).toBe(159);
     expect(segmented.fxModelIds.pre1).toBe('D18C01');
+  });
+  it('2026-09-13 dump after the capture-bypass frame: position 0 = bypassed although 32.1 still says 1', () => {
+    const st = decodeCurrentState(splitTrailer(HW_STATE_AFTER_CAPTURE_BYPASS.subarray(2)).payload)!;
+    expect(st.activePreset).toBe(33);
+    expect(st.captureSlot).toBeNull(); // field 11 absent → 0 → bypassed
+    expect(st.capture?.enabled).toBe(true); // stale / different meaning — not the bypass flag
+    expect(st.capture?.name).toBe('US Prince 65 4');
+    expect(st.cabOn).toBe(false); // field 12 absent
+    expect(st.ir?.shortName).toBe('110 US PRN C10R');
+    expect(st.ir?.fullName).toBe('110 US PRN C10R/Dynamic 57/0');
+    expect(st.fxOn).toEqual({ pre1: false, pre2: false, post1: false, post2: true, post3: true });
+    expect(st.gateOn).toBe(true);
+    // the segmented 09-12 dump is the mirror case: 32.1 = 0 while position 4 → on
+    expect(segmented.capture?.enabled).toBe(false);
+    expect(segmented.captureSlot).toBe(4);
   });
   it('the metadata reply starts with the same state fields (preset 14)', () => {
     const md = decodeCurrentState(HW_METADATA_FIRST_BODY_PREFIX)!;

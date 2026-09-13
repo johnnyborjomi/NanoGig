@@ -7,7 +7,7 @@ import { FX_SLOTS, PRESETS_PER_BANK_CHOICES, presetLabel, presetLabelParts, type
 import type { GigState } from "../state/store";
 import type { Store } from "../state/store";
 import type { LogLine } from "../transport/types";
-import { LogOut, Maximize, Menu, Minimize, Power, RefreshCw, ScrollText, Settings, createElement as lucideElement } from "lucide";
+import { Lock, LogOut, Maximize, Menu, Minimize, Power, RefreshCw, ScrollText, Settings, createElement as lucideElement } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { PRESET_COUNT } from "../protocol/frames";
 
@@ -21,8 +21,7 @@ export interface GigViewActions {
   toggleGate(): Promise<void>;
   toggleCab(): Promise<void>;
   toggleCapture(): Promise<void>;
-  nextPreset(): Promise<void>;
-  prevPreset(): Promise<void>;
+  selectPreset(index: number): Promise<void>;
   simulateDrop?(): void;
   setWritesEnabled(enabled: boolean): void;
   reconnectNow(): void;
@@ -34,6 +33,9 @@ export interface GigViewOptions {
   showMockButton: boolean;
   openConsole?: boolean;
 }
+
+/** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
+export const PRESET_STRIP_COUNT = 7;
 
 const TILE_LABELS: Record<FxSlot | "gate" | "cab", string> = {
   gate: "GATE",
@@ -116,8 +118,13 @@ export class GigView {
     FxSlot | "gate" | "cab",
     { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement }
   >();
-  private readonly footerInfo = el("span", "footer-info");
-  private readonly nav = el("div", "nav");
+  private readonly presetStrip = el("div", "preset-strip");
+  private readonly presetBtns: { root: HTMLButtonElement; bank: HTMLElement; slot: HTMLElement; name: HTMLElement; index: number }[] = [];
+  private readonly toastEl = el("div", "toast");
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastShownError: string | null = null;
+  private readonly menuDevice = el("div", "menu-info-line");
+  private readonly menuSync = el("div", "menu-info-line");
   private readonly consoleEl = el("div", "console");
   private readonly consoleBody = el("div", "c-body");
   private readonly overlay = el("div", "overlay connect open");
@@ -252,8 +259,13 @@ export class GigView {
     const capLbl = el("span", "lbl", "capture");
     const irLbl = el("span", "lbl", "cab / ir");
     for (const st of [this.captureState, this.irState]) {
-      st.append(lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" }));
+      const power = lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" });
+      power.classList.add("i-power");
+      const lock = lucideElement(Lock, { "stroke-width": 2.5, "aria-hidden": "true" });
+      lock.classList.add("i-lock");
+      st.append(power, lock);
       st.dataset.on = "unknown";
+      st.dataset.locked = "false";
     }
     // The indicator lives inside the bordered label, after its text. In control mode the label is a toggle.
     capLbl.append(this.captureState);
@@ -306,20 +318,27 @@ export class GigView {
     }
     blocks.append(tiles);
 
-    // Footer ----------------------------------------------------------
-    const footer = el("div", "footer");
-    const prev = el("button", "", "◀ Prev");
-    const next = el("button", "", "Next ▶");
-    prev.addEventListener(
-      "click",
-      () => void this.actions.prevPreset().catch((e) => this.toast(e)),
-    );
-    next.addEventListener(
-      "click",
-      () => void this.actions.nextPreset().catch((e) => this.toast(e)),
-    );
-    this.nav.append(prev, next);
-    footer.append(this.nav, el("span", "spacer"), this.footerInfo);
+    // Preset strip (control mode only): separator, then a window of preset buttons centred on the active one.
+    const grid = el("div", "preset-grid");
+    for (let i = 0; i < PRESET_STRIP_COUNT; i++) {
+      const root = el("button", "pbtn");
+      const label = el("span", "p-label");
+      const bank = el("span", "p-bank");
+      const slot = el("span", "slot-slot");
+      label.append(bank, slot);
+      const name = el("span", "p-name");
+      root.append(label, name);
+      const entry = { root, bank, slot, name, index: i };
+      root.addEventListener("click", () => {
+        const st = this.store.get();
+        if (!st.writesEnabled || st.connection !== "connected") return;
+        void this.actions.selectPreset(entry.index).catch((e) => this.toast(e));
+      });
+      this.presetBtns.push(entry);
+      grid.append(root);
+    }
+    this.presetStrip.append(el("div", "hsep"), grid);
+    blocks.append(this.presetStrip);
 
     // Console --------------------------------------------------------
     const head = el("div", "c-head");
@@ -461,7 +480,9 @@ export class GigView {
     );
     this.overlay.append(card);
 
-    root.append(top, preset, blocks, footer, this.consoleEl, this.settingsOverlay, this.overlay);
+    this.menuInfo.append(this.menuDevice, this.menuSync);
+    this.toastEl.hidden = true;
+    root.append(top, preset, blocks, this.toastEl, this.consoleEl, this.settingsOverlay, this.overlay);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") void this.requestWakeLock();
     });
@@ -504,6 +525,7 @@ export class GigView {
   private onLabelTap(which: "capture" | "cab") {
     const s = this.store.get();
     if (!s.writesEnabled || s.connection !== "connected") return;
+    if ((which === "capture" ? s.captureSlotKnown.value : s.cabSlotKnown.value) === false) return; // locked
     const run = which === "capture" ? this.actions.toggleCapture() : this.actions.toggleCab();
     void run.catch((e) => this.toast(e));
   }
@@ -511,7 +533,17 @@ export class GigView {
   private toast(err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     this.store.appendLog({ at: Date.now(), dir: "error", text: msg });
-    this.footerInfo.textContent = msg;
+    this.showToast(msg);
+  }
+
+  /** Transient bottom message (errors). Replaces the old always-on footer line. */
+  private showToast(msg: string) {
+    this.toastEl.textContent = msg;
+    this.toastEl.hidden = false;
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      this.toastEl.hidden = true;
+    }, 5000);
   }
 
   private async toggleFullscreen() {
@@ -597,10 +629,18 @@ export class GigView {
           : s.connection === "reconnecting"
             ? "Reconnecting…"
             : "Disconnected";
-    this.menuInfo.textContent = [s.deviceName, s.firmware.value ? `NanOS ${s.firmware.value}` : null]
+    this.menuDevice.textContent = [s.deviceName, s.firmware.value ? `NanOS ${s.firmware.value}` : null]
       .filter(Boolean)
       .join(" · ");
-    this.menuInfo.hidden = this.menuInfo.textContent === "";
+    this.menuDevice.hidden = this.menuDevice.textContent === "";
+    {
+      const parts: string[] = [];
+      if (s.lastStateSyncAt) parts.push(`state ${fmtTime(s.lastStateSyncAt)}`);
+      if (s.lastEventAt) parts.push(`event ${fmtTime(s.lastEventAt)}`);
+      this.menuSync.textContent = parts.join(" · ");
+      this.menuSync.hidden = parts.length === 0;
+    }
+    this.menuInfo.hidden = this.menuDevice.hidden && this.menuSync.hidden;
     this.overlay.classList.toggle("open", s.connection === "disconnected");
     this.disconnectBtn.hidden = s.connection === "disconnected";
     this.refreshBtn.hidden = s.connection !== "connected";
@@ -613,10 +653,10 @@ export class GigView {
     this.exitDemoBtn.hidden = !demo;
     this.statusText.textContent = demo ? `${this.statusText.textContent} · demo` : this.statusText.textContent;
     this.reconnectBtn.hidden = s.connection !== "reconnecting";
-    this.nav.classList.toggle(
-      "visible",
-      s.writesEnabled && s.connection === "connected",
-    );
+    const controlling = s.writesEnabled && s.connection === "connected";
+    // Strip is always shown once connected; buttons only act in control mode.
+    this.presetStrip.classList.toggle("visible", s.connection !== "disconnected");
+    this.presetStrip.classList.toggle("writable", controlling);
     if (s.connection === "connected" && !this.wakeLock)
       void this.requestWakeLock();
 
@@ -653,7 +693,18 @@ export class GigView {
     this.captureEl.textContent = s.captureName.value || "—";
     this.irEl.textContent = s.irName.value || "—";
     const onAttr = (v: boolean | null) => (v === null ? "unknown" : v ? "true" : "false");
-    for (const lbl of this.subLabels) lbl.classList.toggle("writable", s.writesEnabled && s.connection === "connected");
+    // Locked = the current capture/IR is not in the pedal's slot list, so it could not be re-enabled from here.
+    const locks: [HTMLElement, HTMLElement, boolean | null, string][] = [
+      [this.subLabels[0]!, this.captureState, s.captureSlotKnown.value, "capture"],
+      [this.subLabels[1]!, this.irState, s.cabSlotKnown.value, "IR"],
+    ];
+    for (const [lbl, st, known, what] of locks) {
+      const locked = known === false;
+      lbl.classList.toggle("writable", s.writesEnabled && s.connection === "connected" && !locked);
+      lbl.classList.toggle("locked", locked);
+      st.dataset.locked = locked ? "true" : "false";
+      lbl.title = locked ? `This ${what} is not in the pedal's slot list, so it can only be switched on the pedal` : "";
+    }
     this.captureState.dataset.on = onAttr(s.captureOn.value);
     this.irState.dataset.on = onAttr(s.cabOn.value);
 
@@ -685,15 +736,40 @@ export class GigView {
       t.root.style.pointerEvents = writable ? "auto" : "none";
     }
 
-    // Footer -------------------------------------------------------
-    const parts: string[] = [];
-    if (s.lastStateSyncAt) parts.push(`state ${fmtTime(s.lastStateSyncAt)}`);
-    if (s.lastEventAt) parts.push(`event ${fmtTime(s.lastEventAt)}`);
-    if (s.lastError) parts.push(s.lastError);
-    this.footerInfo.textContent = parts.join("  ·  ");
+    // Preset strip ---------------------------------------------------
+    this.renderPresetStrip(s);
+
+    // Errors surface as a transient toast (the hex log keeps the history).
+    if (s.lastError && s.lastError !== this.lastShownError) this.showToast(s.lastError);
+    this.lastShownError = s.lastError ?? null;
 
     // Console ------------------------------------------------------
     this.renderLog(s.log);
+  }
+
+  /** Window of PRESET_STRIP_COUNT presets centred on the active one, wrapping around the 64 slots. */
+  private renderPresetStrip(s: GigState) {
+    const controlling = s.writesEnabled && s.connection === "connected";
+    const centre = s.activePreset.value ?? 0;
+    const half = Math.floor(PRESET_STRIP_COUNT / 2);
+    const opts = { presetsPerBank: s.presetsPerBank, style: s.labelStyle };
+    this.presetBtns.forEach((b, i) => {
+      const idx = (centre - half + i + PRESET_COUNT) % PRESET_COUNT;
+      b.index = idx;
+      const label = presetLabelParts(idx, opts)!;
+      b.bank.textContent = label.bank;
+      b.slot.textContent = label.slot;
+      b.slot.dataset.slot = String(label.slotIndex);
+      const name = s.presetNames.value[idx] ?? "";
+      b.name.textContent = name || `Preset ${idx + 1}`;
+      b.name.classList.toggle("empty", !name);
+      const active = s.activePreset.value === idx;
+      b.root.dataset.active = active ? "true" : "false";
+      b.root.setAttribute("aria-pressed", active ? "true" : "false");
+      b.root.setAttribute("aria-disabled", controlling ? "false" : "true");
+      b.root.style.pointerEvents = controlling ? "auto" : "none";
+      b.root.title = `${label.bank}${label.slot} · ${b.name.textContent}`;
+    });
   }
 
   private renderLog(log: LogLine[]) {

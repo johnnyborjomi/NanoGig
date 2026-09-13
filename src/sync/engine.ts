@@ -260,13 +260,16 @@ export class SyncEngine {
         this.scheduleConfirm(150);
         return;
       case 'control':
-        return; // knob / encoder / expression: nothing on screen depends on it
+        // Knobs (0x1A) and expression (0x40) change nothing on screen. The footswitch encoders
+        // (0x1C, same `18 <selector> 20 <value>` shape as our slot-select writes) scroll through
+        // captures / cabs, so the names must be re-read; debounced because a rotation is a burst.
+        if (ev.msgType === MSG.ENCODER) this.scheduleDebouncedRefresh();
+        return;
       case 'unknown':
-        this.log('info', `Unrecognised event${ev.msgType !== null ? ` type 0x${ev.msgType.toString(16)}` : ''}`, toHex(pkt.data));
-        if (this.opts.refreshOnUnknownEvent && this.store.get().syncPhase === 'ready') {
-          if (this.unknownEventTimer) clearTimeout(this.unknownEventTimer);
-          this.unknownEventTimer = setTimeout(() => void this.requestState(), this.opts.unknownEventDebounceMs);
-        }
+        // 0x73 is the pedal's generic "something changed" notice: seen after footswitch presses and
+        // as the ack to our capture/cab slot writes (2026-09-13). Undocumented, so we just re-read state.
+        this.log('info', `Undocumented event${ev.msgType !== null ? ` type 0x${ev.msgType.toString(16)}` : ''}; re-reading state shortly`, toHex(pkt.data));
+        if (this.opts.refreshOnUnknownEvent) this.scheduleDebouncedRefresh();
         return;
     }
   }
@@ -276,9 +279,12 @@ export class SyncEngine {
     const md = decodeMetadata(payload);
     if (md.presetRecordCount > 0) {
       this.log('info', `Metadata: ${md.presetRecordCount} preset records, ${md.captures.length} captures, ${md.irs.length} IRs (${payload.length} B, ${meta.packets} pkts)`);
+      if (md.irs.length) this.log('info', `IR slots: ${md.irs.map((r, i) => `${i + 1}=${r.shortName || r.fullName}`).join(' | ')}`);
+      else this.log('warn', 'Metadata carried no IR slot list (field 19); cab re-enable will not be possible until it does');
       if (md.presetRecordCount >= MIN_PRESET_RECORDS) {
         this.metadata = md;
         this.store.setField('presetNames', md.presets.map((p) => p.name), 'metadata');
+        this.updateSlotKnowledge(Date.now());
         this.store.patch({ lastMetadataAt: Date.now() });
       } else {
         this.log('warn', `Only ${md.presetRecordCount} preset records; keeping previous names`);
@@ -311,12 +317,15 @@ export class SyncEngine {
     this.store.setField('fxModels', models, 'dump', at);
     this.store.setField('gateOn', state.gateOn, 'dump', at);
     this.store.setField('cabOn', state.cabOn, 'dump', at);
-    this.store.setField('captureName', state.capture?.name ?? null, 'dump', at);
-    // Capture on/off: sub-message flag when present, else rotary position (0 = bypassed, web editor rule).
-    const captureOn = state.capture?.enabled ?? (state.captureSlot === null ? null : state.captureSlot > 0);
+    this.store.setField('captureName', state.capture?.name || null, 'dump', at); // '' (no capture) → null
+    // Capture on/off follows field 11 (rotary position, 0/absent = bypassed) as in the web editor.
+    // Field 32.1 ("enabled") is NOT used: hardware dumps show it stuck at 1 after a bypass
+    // (2026-09-13) and at 0 with position 4 (2026-09-12), so it means something else.
+    const captureOn = (state.captureSlot ?? 0) > 0;
     this.store.setField('captureOn', captureOn, 'dump', at);
-    this.store.setField('irName', state.ir?.shortName ?? null, 'dump', at);
+    this.store.setField('irName', state.ir?.shortName || null, 'dump', at);
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
+    this.updateSlotKnowledge(at);
 
     if (state.activePreset !== null) {
       this.store.setField('activePreset', state.activePreset, 'dump', at);
@@ -382,17 +391,43 @@ export class SyncEngine {
     return i >= 0 ? i + 1 : null;
   }
 
+  /**
+   * Re-enabling capture/cab needs the slot index, which only comes from matching the current
+   * name against the metadata slot lists. Publish whether that match exists so the UI can lock
+   * the toggle for library captures/IRs instead of failing on tap.
+   */
+  private updateSlotKnowledge(at: number): void {
+    if (!this.lastState) return;
+    // No name at all (preset has no capture / no IR) → nothing to re-enable → locked too.
+    const known = (name: string | null | undefined, slot: number | null): boolean | null =>
+      !name ? false : this.metadata ? slot !== null : null;
+    this.store.setField('captureSlotKnown', known(this.lastState.capture?.name, this.currentCaptureSlot()), 'dump', at);
+    this.store.setField('cabSlotKnown', known(this.lastState.ir?.shortName, this.currentCabSlot()), 'dump', at);
+  }
+
+  /** Human-readable reason why the current capture/IR could not be mapped to a slot. */
+  private slotLookupDiag(kind: 'capture' | 'ir'): string {
+    const current = kind === 'capture' ? this.lastState?.capture?.name : this.lastState?.ir?.shortName;
+    if (!this.lastState) return 'no state dump received yet';
+    if (!current) return `the pedal did not report a current ${kind} name`;
+    if (!this.metadata) return `metadata not loaded yet (current ${kind} "${current}")`;
+    const names = kind === 'capture' ? this.metadata.captures.map((c) => c.name) : this.metadata.irs.map((r) => r.shortName || r.fullName);
+    if (names.length === 0) return `metadata listed no ${kind} slots (current ${kind} "${current}")`;
+    return `"${current}" is not among the pedal's ${names.length} ${kind} slots: ${names.join(' | ')}`;
+  }
+
   /** Bypass or re-enable the capture block. Re-enabling needs the slot; refuses rather than guessing. */
   async toggleCapture(): Promise<void> {
     this.assertWrites();
     const current = this.store.get().captureOn.value;
     if (current === null) throw new Error('Capture state unknown; refusing to toggle blind');
+    // Locked both ways: bypassing a capture we could not re-enable would strand the user.
+    const slot = this.currentCaptureSlot();
+    if (slot === null) throw new Error(`Capture toggle locked: ${this.slotLookupDiag('capture')}`);
     if (current) {
       this.store.setField('captureOn', false, 'optimistic');
       await this.transport.writeCommand(captureBypassFrame());
     } else {
-      const slot = this.currentCaptureSlot();
-      if (slot === null) throw new Error('Cannot re-enable: this capture is not in the pedal\'s 25-slot list (metadata missing or a library capture)');
       this.store.setField('captureOn', true, 'optimistic');
       await this.transport.writeCommand(captureSelectFrame(slot));
     }
@@ -404,12 +439,12 @@ export class SyncEngine {
     this.assertWrites();
     const current = this.store.get().cabOn.value;
     if (current === null) throw new Error('Cab/IR state unknown; refusing to toggle blind');
+    const slot = this.currentCabSlot();
+    if (slot === null) throw new Error(`Cab toggle locked: ${this.slotLookupDiag('ir')}`);
     if (current) {
       this.store.setField('cabOn', false, 'optimistic');
       await this.transport.writeCommand(cabIrSlotFrame(0));
     } else {
-      const slot = this.currentCabSlot();
-      if (slot === null) throw new Error('Cannot re-enable: this IR is not in the pedal\'s 5-slot list (metadata missing or a library IR)');
       this.store.setField('cabOn', true, 'optimistic');
       await this.transport.writeCommand(cabIrSlotFrame(slot));
     }
@@ -424,6 +459,13 @@ export class SyncEngine {
     this.store.setField('gateOn', next, 'optimistic');
     await this.transport.writeCommand(gateBypassFrame(next));
     this.scheduleConfirm();
+  }
+
+  /** One state re-read shortly after the last of a burst of events (encoder turns, 0x73 notices). */
+  private scheduleDebouncedRefresh(): void {
+    if (this.store.get().syncPhase !== 'ready') return;
+    if (this.unknownEventTimer) clearTimeout(this.unknownEventTimer);
+    this.unknownEventTimer = setTimeout(() => void this.requestState(), this.opts.unknownEventDebounceMs);
   }
 
   private settlePresetWaiters(actual: number) {

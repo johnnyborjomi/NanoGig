@@ -33,8 +33,7 @@ describe('mock mode end-to-end', () => {
       toggleGate: () => engine.toggleGate(),
       toggleCab: () => engine.toggleCab(),
       toggleCapture: () => engine.toggleCapture(),
-      nextPreset: () => engine.nextPreset(),
-      prevPreset: () => engine.prevPreset(),
+      selectPreset: (i: number) => engine.selectPreset(i),
       setWritesEnabled: (v: boolean) => engine.setWritesEnabled(v),
       reconnectNow: () => {},
       setSettings: (patch: Partial<{ presetsPerBank: number; labelStyle: 'number-letter' | 'letter-number'; showPresetNumber: boolean }>) => store.patch(patch),
@@ -79,8 +78,10 @@ describe('mock mode end-to-end', () => {
     expect(tile('pre1')).toBe('true');
     expect(store.get().fxOn.source).toBe('dump');
 
-    // Next preset button → MIDI PC path.
-    root.querySelector<HTMLButtonElement>('.nav button:last-child')!.click();
+    // Preset strip: active preset sits in the middle (4th of 7); the 5th button is the next preset → MIDI PC path.
+    const strip = root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn');
+    expect(strip[3]!.dataset.active).toBe('true');
+    strip[4]!.click();
     await wait(500);
     expect(text('.preset-name')).toBe('Ambient Swell');
     expect(text('.capture')).toBe('Jazz 120 Clean');

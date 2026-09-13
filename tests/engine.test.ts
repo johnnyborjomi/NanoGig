@@ -3,7 +3,7 @@ import { MockTransport } from '../src/transport/mock';
 import { Store } from '../src/state/store';
 import { SyncEngine } from '../src/sync/engine';
 import { REAL_EVENTS } from '../src/fixtures/captures';
-import { HW_BYPASS_CHANGED, HW_PRESET_CHANGED, HW_STATE_SEGMENTED, HW_STATE_SINGLE, HW_UNKNOWN_73 } from '../src/fixtures/hardware-2026-09-12';
+import { HW_BYPASS_CHANGED, HW_PRESET_CHANGED, HW_STATE_EMPTY_CAPTURE_IR, HW_STATE_SEGMENTED, HW_STATE_SINGLE, HW_UNKNOWN_73 } from '../src/fixtures/hardware-2026-09-12';
 import { toHex } from '../src/protocol/hex';
 
 async function flush(ms: number) {
@@ -110,6 +110,26 @@ describe('SyncEngine with the mock transport', () => {
     expect(count()).toBe(before);
     await flush(200);
     expect(count()).toBe(before + 1);
+    engine.dispose();
+  });
+
+  it('footswitch encoder turns (capture / cab scrolling) trigger one debounced state re-read; knobs do not', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(3500);
+    const count = () => store.get().log.filter((l) => l.dir === 'tx' && l.hex === toHex(Uint8Array.from([0x0c, 0xc0, 0x08, 0x03, 0x18, 0x01, 0x20, 0x01, 0x28, 0x01, 0x01, 0, 0, 0]))).length;
+    const before = count();
+    mock.inject(REAL_EVENTS.gainKnob);
+    mock.inject(REAL_EVENTS.expressionToe);
+    await flush(600);
+    expect(count()).toBe(before); // knob / expression: ignored
+    mock.inject(REAL_EVENTS.encoderI);
+    mock.inject(REAL_EVENTS.encoderI);
+    mock.inject(REAL_EVENTS.encoderI);
+    await flush(300);
+    expect(count()).toBe(before);
+    await flush(200);
+    expect(count()).toBe(before + 1); // one re-read after the burst
     engine.dispose();
   });
 
@@ -345,14 +365,22 @@ describe('SyncEngine writes', () => {
     engine.dispose();
   });
 
-  it('refuses to re-enable when the slot cannot be determined', async () => {
+  it('locks the cab toggle (both ways) when the IR is not in the slot list, and publishes that', async () => {
     const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, initialState: { cabOn: false } });
     const store = new Store();
     const engine = new SyncEngine(mock, store, { writesEnabled: true, confirmDelayMs: 50 });
     await connect(mock);
     await flush(3500); // real dump: IR '110 US PRN C10R' is not among the demo metadata's 5 IRs
     expect(store.get().cabOn.value).toBe(false);
-    await expect(engine.toggleCab()).rejects.toThrow(/not in the pedal/);
+    expect(store.get().cabSlotKnown.value).toBe(false);
+    expect(store.get().captureSlotKnown.value).toBe(true); // demo capture is in the list
+    await expect(engine.toggleCab()).rejects.toThrow(/not among the pedal/);
+    // A preset with no capture and no IR at all (hardware 2026-09-13, preset 51): both locked.
+    mock.inject(HW_STATE_EMPTY_CAPTURE_IR);
+    await flush(0);
+    expect(store.get().captureName.value).toBe(null);
+    expect(store.get().captureSlotKnown.value).toBe(false);
+    expect(store.get().cabSlotKnown.value).toBe(false);
     engine.dispose();
   });
 

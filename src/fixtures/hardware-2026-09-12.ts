@@ -21,7 +21,7 @@ export const HW_METADATA_FIRST_BODY_PREFIX = fromHex(
 export const HW_PRESET_CHANGED = fromHex('10 C0 08 01 20 03 28 03 30 05 38 14 40 0E 1D 00 00 00');
 /** Bypass state changed (arrived right after the preset change). */
 export const HW_BYPASS_CHANGED = fromHex('06 C0 08 01 1F 00 00 00');
-/** Unknown type 0x73, arrived after the preset change. */
+/** Type 0x73: generic "changed" notice; arrives after a footswitch press and (as `08 C0 08 01 18 01 73 …`) as the ack to capture/cab slot writes. */
 export const HW_UNKNOWN_73 = fromHex('06 C0 08 01 73 00 00 00');
 
 /**
@@ -49,3 +49,24 @@ export const HW_STATE_SEGMENTED: Uint8Array[] = [
 
 /** Metadata tail: the last packet of the metadata reply (268 B, header `0A 81` = 266 + END). */
 export const HW_METADATA_LAST_HEADER = fromHex('0A 81');
+
+/**
+ * 2026-09-13, NanOS 2.2.1: state dump received ~0.5 s after the capture-bypass frame
+ * `08 C0 18 01 20 00 1C 00 00 00`. Fields 10/11/12 are absent (capture position 0 = bypassed,
+ * cab off) while the capture sub-message (32) still says enabled=1 with the same name/id —
+ * so 32.1 is not the bypass flag. Preset index 33 (shown as 34). The state's own field 19 record
+ * carries the IR with a different mic ("Ribbon 160/3") than the current IR in field 33 ("Dynamic 57/0").
+ */
+export const HW_STATE_AFTER_CAPTURE_BYPASS = fromHex(
+  'A1 C1 08 01 18 65 20 76 28 C3 01 30 B4 01 38 AD 01 48 02 68 21 70 03 78 05 C2 01 05 32 2E 32 2E 31 CA 01 08 30 35 63 33 36 36 32 31 D0 01 19 D8 01 0A E0 01 39 E8 01 27 FA 01 05 01 01 01 00 00 82 02 54 08 01 12 0E 55 53 20 50 72 69 6E 63 65 20 36 35 20 34 1A 40 31 35 37 37 33 33 62 33 34 64 61 62 66 32 34 36 65 37 36 31 66 31 34 33 34 37 32 39 65 38 38 37 32 31 38 66 30 64 31 61 35 64 65 62 63 30 39 39 65 38 61 62 34 65 62 38 30 62 31 31 37 66 38 63 8A 02 31 08 01 12 0F 31 31 30 20 55 53 20 50 52 4E 20 43 31 30 52 1A 1C 31 31 30 20 55 53 20 50 52 4E 20 43 31 30 52 2F 44 79 6E 61 6D 69 63 20 35 37 2F 30 92 02 63 0A 40 65 63 37 30 35 65 62 37 62 64 61 35 38 33 32 39 38 63 63 36 63 66 65 66 62 65 64 38 66 35 34 61 62 32 63 37 35 35 64 37 63 38 36 30 33 61 36 32 61 37 33 39 34 31 63 63 35 31 37 64 61 63 65 66 12 0E 55 53 20 50 72 69 6E 63 65 20 36 35 20 31 32 08 61 6D 70 5F 68 65 61 64 40 05 62 01 31 68 00 9A 02 31 0A 0F 31 31 30 20 55 53 20 50 52 4E 20 43 31 30 52 12 00 1A 1C 31 31 30 20 55 53 20 50 52 4E 20 43 31 30 52 2F 52 69 62 62 6F 6E 20 31 36 30 2F 33 A8 02 01 B0 02 14 B8 02 0E C0 02 04 C8 02 01 D0 02 76 E0 02 95 01 F5 02 00 00 DC 43 80 03 1B 88 03 0D 90 03 8B 7D 98 03 FA 2E A0 03 CB 3E AD 03 9A 99 99 3E C5 03 00 00 F0 42 02 00 00 00',
+);
+
+/**
+ * 2026-09-13: preset 51 (index 50) has neither a capture nor an IR: fields 32/33 present with
+ * empty strings, no field 10/11/12. Metadata on the same connection listed 5 IR slots
+ * (Tay816 M251 Pz1 | YA MES 412 TRAD Mix 10 | 412 CA Stand OS A V30 '01 | YA MRSH 412 T75 Mix YJM | YA 5153 412 VH20 Mix 02),
+ * so factory cabs like "110 US PRN C10R" are not IR slots and cannot be re-enabled by slot select.
+ */
+export const HW_STATE_EMPTY_CAPTURE_IR = fromHex(
+  '1B C1 08 01 18 7F 20 7B 28 7F 30 7F 38 7F 40 7F 48 01 68 32 70 03 78 05 C2 01 05 32 2E 32 2E 31 CA 01 08 30 35 63 33 36 36 32 31 D0 01 19 D8 01 0A E0 01 39 E8 01 27 FA 01 05 01 01 01 01 01 82 02 06 08 00 12 00 1A 00 8A 02 06 08 00 12 00 1A 00 92 02 63 0A 40 65 63 37 30 35 65 62 37 62 64 61 35 38 33 32 39 38 63 63 36 63 66 65 66 62 65 64 38 66 35 34 61 62 32 63 37 35 35 64 37 63 38 36 30 33 61 36 32 61 37 33 39 34 31 63 63 35 31 37 64 61 63 65 66 12 0E 55 53 20 50 72 69 6E 63 65 20 36 35 20 31 32 08 61 6D 70 5F 68 65 61 64 40 05 62 01 31 68 00 9A 02 24 0A 0F 54 61 79 38 31 36 20 4D 32 35 31 20 50 7A 31 12 00 1A 0F 54 61 79 38 31 36 20 4D 32 35 31 20 50 7A 31 A8 02 01 B0 02 14 B8 02 0E C0 02 04 D0 02 7B E0 02 7F F5 02 00 00 DC 43 80 03 D1 8C 01 88 03 1B 90 03 F3 36 98 03 FA 2E A0 03 CB 3E AD 03 9A 99 99 3E B0 03 01 C5 03 00 00 F0 42 02 00 00 00',
+);

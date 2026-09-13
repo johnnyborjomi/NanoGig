@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, nextPreset: p, prevPreset: p, setWritesEnabled: () => {}, reconnectNow: () => {}, setSettings: () => {} };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setWritesEnabled: () => {}, reconnectNow: () => {}, setSettings: () => {} };
 }
 
 describe('GigView', () => {
@@ -71,7 +71,18 @@ describe('GigView', () => {
     expect(root.querySelectorAll<HTMLElement>('.lbl .sub-state')[1]?.dataset.on).toBe('true'); // cab label indicator
     store.setField('captureOn', false, 'dump');
     expect(root.querySelectorAll<HTMLElement>('.lbl .sub-state')[0]?.dataset.on).toBe('false'); // capture label indicator
-    expect(root.querySelector('.nav')?.classList.contains('visible')).toBe(false);
+    // Library IR (not in the slot list): lock icon instead of power, label not tappable even in control mode.
+    store.patch({ writesEnabled: true });
+    store.setField('cabSlotKnown', false, 'dump');
+    store.setField('captureSlotKnown', true, 'dump');
+    const lbls = root.querySelectorAll<HTMLElement>('.preset-sub .lbl');
+    expect(lbls[1]?.classList.contains('locked')).toBe(true);
+    expect(lbls[1]?.classList.contains('writable')).toBe(false);
+    expect(lbls[1]?.querySelector<HTMLElement>('.sub-state')?.dataset.locked).toBe('true');
+    expect(lbls[1]?.querySelector('.sub-state .i-lock')).not.toBeNull();
+    expect(lbls[0]?.classList.contains('writable')).toBe(true);
+    expect(lbls[0]?.querySelector<HTMLElement>('.sub-state')?.dataset.locked).toBe('false');
+    expect(root.querySelector('.preset-strip')?.classList.contains('writable')).toBe(true); // control mode was switched on above
   });
 
   it('shows a prompt when connected but the active preset is unknown, and nav when writes are on', () => {
@@ -86,10 +97,52 @@ describe('GigView', () => {
     store.patch({ syncPhase: 'state' });
     expect(root.querySelector('.preset-name')?.textContent).toBe('Reading pedal…');
     store.patch({ syncPhase: 'ready' });
-    expect(root.querySelector('.nav')?.classList.contains('visible')).toBe(true);
+    expect(root.querySelector('.preset-strip')?.classList.contains('writable')).toBe(true);
     store.setField('activePreset', 3, 'inferred');
     expect(root.querySelector('.preset-name')?.textContent).toBe('Preset 4');
     expect(root.querySelector('.src')?.textContent).toBe('inferred');
+  });
+});
+
+describe('GigView preset strip', () => {
+  it('shows seven preset buttons centred on the active preset in control mode, wrapping around 64', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    const picked: number[] = [];
+    new GigView(root, store, { ...noopActions(), selectPreset: (i: number) => { picked.push(i); return Promise.resolve(); } }, { bluetoothAvailable: true, showMockButton: false });
+    const strip = () => root.querySelector<HTMLElement>('.preset-strip')!;
+    const btns = () => Array.from(root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn'));
+
+    store.patch({ connection: 'connected', syncPhase: 'ready' });
+    store.setField('presetNames', Array.from({ length: 64 }, (_, i) => (i === 9 ? 'Big Lead Tone' : '')), 'metadata');
+    store.setField('activePreset', 9, 'event');
+    expect(strip().classList.contains('visible')).toBe(true); // shown in viewing mode too
+    expect(strip().classList.contains('writable')).toBe(false); // ...but inert
+    expect(root.querySelectorAll('.preset-strip .pbtn')[0]!.getAttribute('aria-disabled')).toBe('true');
+    expect(root.querySelector('.footer')).toBeNull(); // old prev/next footer is gone
+    root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn')[6]!.click();
+    expect(picked).toEqual([]); // click ignored while control is off
+
+    store.patch({ writesEnabled: true });
+    expect(strip().classList.contains('writable')).toBe(true);
+    expect(root.querySelectorAll('.preset-strip .pbtn')[0]!.getAttribute('aria-disabled')).toBe('false');
+    expect(root.querySelector('.preset-strip > .hsep')).not.toBeNull(); // separator above the strip
+    const b = btns();
+    expect(b).toHaveLength(7);
+    expect(b.map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['2C', '2D', '3A', '3B', '3C', '3D', '4A']); // 4 per bank, 1B style
+    expect(b[3]!.dataset.active).toBe('true');
+    expect(b[3]!.querySelector('.p-name')?.textContent).toBe('Big Lead Tone');
+    expect(b[2]!.querySelector('.p-name')?.textContent).toBe('Preset 9'); // unnamed fallback
+    expect(b[2]!.querySelector('.p-name')?.classList.contains('empty')).toBe(true);
+    expect(b[3]!.querySelector<HTMLElement>('.slot-slot')?.dataset.slot).toBe('1'); // slot colour hook
+
+    b[6]!.click();
+    expect(picked).toEqual([12]);
+
+    store.setField('activePreset', 0, 'event');
+    expect(btns().map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['16B', '16C', '16D', '1A', '1B', '1C', '1D']); // wraps
+    expect(btns()[3]!.dataset.active).toBe('true');
   });
 });
 
@@ -115,7 +168,7 @@ describe('GigView writes toggle and reconnect button', () => {
     expect(control.querySelector<HTMLElement>('.btn-state')?.dataset.on).toBe('true');
     expect(control.getAttribute('aria-pressed')).toBe('true');
     expect(root.querySelector('.badge')).toBeNull(); // no separate "control on" badge
-    expect(root.querySelector('.nav')?.classList.contains('visible')).toBe(true);
+    expect(root.querySelector('.preset-strip')?.classList.contains('writable')).toBe(true);
 
     store.patch({ connection: 'reconnecting' });
     expect(btn(/Reconnect now/).hidden).toBe(false);

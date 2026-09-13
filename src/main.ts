@@ -93,15 +93,14 @@ const view = new GigView(
     toggleGate: () => requireEngine().toggleGate(),
     toggleCab: () => requireEngine().toggleCab(),
     toggleCapture: () => requireEngine().toggleCapture(),
-    nextPreset: () => requireEngine().nextPreset(),
-    prevPreset: () => requireEngine().prevPreset(),
+    selectPreset: (index) => requireEngine().selectPreset(index),
     simulateDrop: () => {
       if (transport instanceof MockTransport) transport.simulateDrop();
     },
     setWritesEnabled: (enabled) => {
       writesEnabled = enabled;
       engine?.setWritesEnabled(enabled);
-      store.appendLog({ at: Date.now(), dir: 'warn', text: enabled ? 'Control mode ON: tile taps and ◀ ▶ now change the pedal' : 'Control mode off' });
+      store.appendLog({ at: Date.now(), dir: 'warn', text: enabled ? 'Control mode ON: tile taps and preset buttons now change the pedal' : 'Control mode off' });
     },
     reconnectNow: () => transport?.reconnectNow?.(),
     setSettings: (patch) => {

@@ -41,7 +41,11 @@ export interface GigState {
   cabOn: Field<boolean | null>;
   captureName: Field<string | null>;
   captureOn: Field<boolean | null>;
+  /** Whether the current capture maps to one of the pedal's 25 slots (needed to re-enable it). null = not known yet. */
+  captureSlotKnown: Field<boolean | null>;
   irName: Field<string | null>;
+  /** Whether the current IR maps to one of the pedal's IR slots (needed to re-enable the cab). null = not known yet. */
+  cabSlotKnown: Field<boolean | null>;
   firmware: Field<string | null>;
 
   lastStateSyncAt: number | null;
@@ -75,7 +79,9 @@ export function initialState(transportName = 'none'): GigState {
     cabOn: field<boolean | null>(null),
     captureName: field<string | null>(null),
     captureOn: field<boolean | null>(null),
+    captureSlotKnown: field<boolean | null>(null),
     irName: field<string | null>(null),
+    cabSlotKnown: field<boolean | null>(null),
     firmware: field<string | null>(null),
     lastStateSyncAt: null,
     lastMetadataAt: null,
@@ -138,7 +144,9 @@ export class Store {
       cabOn: s.cabOn,
       captureName: s.captureName,
       captureOn: s.captureOn,
+      captureSlotKnown: s.captureSlotKnown,
       irName: s.irName,
+      cabSlotKnown: s.cabSlotKnown,
       syncPhase: 'idle',
     };
     this.notify();
