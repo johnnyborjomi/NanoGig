@@ -3,6 +3,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Deploy](https://github.com/johnnyborjomi/NanoGig/actions/workflows/pages.yml/badge.svg)](https://github.com/johnnyborjomi/NanoGig/actions/workflows/pages.yml)
 
+## ▶ Open the app: **[johnnyborjomi.github.io/NanoGig](https://johnnyborjomi.github.io/NanoGig/)**
+
+Works in Chrome / Edge on desktop and Android (Web Bluetooth), installable as a PWA. On iPad
+use [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) or the native
+app below. Preset switching needs the pedal on USB (Web MIDI).
+
 > **Unofficial.** NanoGig is an independent community project, not affiliated with, endorsed
 > by, or supported by Neural DSP. "Nano Cortex", "Cortex Cloud" and "Neural DSP" are
 > trademarks of Neural DSP Technologies and are used here only to describe compatibility.
