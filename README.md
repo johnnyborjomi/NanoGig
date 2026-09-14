@@ -9,8 +9,7 @@
 [![Latest release](https://img.shields.io/github/v/release/johnnyborjomi/NanoGig?include_prereleases)](https://github.com/johnnyborjomi/NanoGig/releases)
 [![Buy Me a Coffee](https://img.shields.io/badge/Sponsor-Buy%20me%20a%20coffee-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/johnnyborjomi)
 
-The Neural DSP Nano Cortex sounds huge and shows you almost nothing: a preset number on a tiny
-display and a few LEDs. NanoGig puts a phone, tablet or laptop next to the pedal and turns it
+The Neural DSP Nano Cortex sounds huge and shows you almost nothing: a few status LEDs. NanoGig puts a phone, tablet or laptop next to the pedal and turns it
 into the stage display it never had. Connect once over Bluetooth and the screen follows every
 footswitch press:
 
