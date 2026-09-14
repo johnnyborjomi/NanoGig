@@ -15,6 +15,7 @@ import {
   fieldsNumbered,
   firstBytes,
   firstField,
+  firstFixed32Float,
   firstString,
   firstVarint,
   parseFields,
@@ -174,6 +175,8 @@ export interface CurrentState {
   amp: AmpKnobs;
   captureSlot: number | null;
   captureVolumeRaw: number | null;
+  /** Preset tempo in BPM: field 56 (fixed32 float). Confirmed on hardware 2026-09-14 (follows tap tempo live). */
+  tempoBpm: number | null;
   /** FX model IDs (uppercase hex, no spaces) from fields 48-52; null per slot when absent. */
   fxModelIds: Record<FxSlot, string | null>;
   firmware: string | null;
@@ -253,6 +256,10 @@ export function decodeCurrentState(bytes: Uint8Array): CurrentState | null {
     },
     captureSlot: firstVarint(f, 11),
     captureVolumeRaw: firstVarint(f, 44),
+    tempoBpm: (() => {
+      const v = firstFixed32Float(f, 56);
+      return v !== null && Number.isFinite(v) && v >= 20 && v <= 400 ? v : null;
+    })(),
     fxModelIds: {
       pre1: modelIdHex(f, 48),
       pre2: modelIdHex(f, 49),

@@ -264,7 +264,8 @@ export class SyncEngine {
         // Knobs (0x1A) and expression (0x40) change nothing on screen. The footswitch encoders
         // (0x1C, same `18 <selector> 20 <value>` shape as our slot-select writes) scroll through
         // captures / cabs, so the names must be re-read; debounced because a rotation is a burst.
-        if (ev.msgType === MSG.ENCODER) this.scheduleDebouncedRefresh();
+        // Knob events (0x1A) may also carry tap-tempo / tempo changes, so re-read after a burst.
+        if (ev.msgType === MSG.ENCODER || ev.msgType === MSG.KNOB) this.scheduleDebouncedRefresh();
         return;
       case 'unknown':
         // 0x73 is the pedal's generic "something changed" notice: seen after footswitch presses and
@@ -327,6 +328,7 @@ export class SyncEngine {
     this.store.setField('irName', state.ir?.shortName || null, 'dump', at);
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
     if (state.footswitchAssignments) this.store.setField('footswitches', state.footswitchAssignments, 'dump', at);
+    this.store.setField('tempo', state.tempoBpm, 'dump', at);
     this.updateSlotKnowledge(at);
 
     if (state.activePreset !== null) {

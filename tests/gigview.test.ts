@@ -68,6 +68,12 @@ describe('GigView', () => {
     expect(root.querySelector('.tiles > .vsep')?.nextElementSibling?.querySelector('.tile')?.getAttribute('data-key')).toBe('post1'); // pre | post divider
     expect(root.querySelector('.capture')?.textContent).toBe('Brit 1959 Crunch');
     expect(root.querySelector('.ir')?.textContent).toBe('412 UK GRN V30');
+    expect(root.querySelector<HTMLElement>('.status .tempo')?.hidden).toBe(true);
+    store.setField('tempo', 132, 'dump');
+    expect(root.querySelector<HTMLElement>('.status .tempo')?.hidden).toBe(false);
+    expect(root.querySelector('.status .tempo-text')?.textContent).toBe('132');
+    expect(root.querySelector('.status .tempo-unit')?.textContent).toBe('BPM');
+    expect(root.querySelector('.status .tempo svg')).not.toBeNull();
     expect(root.querySelectorAll<HTMLElement>('.lbl .sub-state')[1]?.dataset.on).toBe('true'); // cab label indicator
     store.setField('captureOn', false, 'dump');
     expect(root.querySelectorAll<HTMLElement>('.lbl .sub-state')[0]?.dataset.on).toBe('false'); // capture label indicator
@@ -155,6 +161,10 @@ describe('GigView preset strip', () => {
     store.setField('presetNames', Array.from({ length: 64 }, (_, i) => (i === 9 ? 'Big Lead Tone' : '')), 'metadata');
     store.setField('activePreset', 9, 'event');
     expect(strip().classList.contains('visible')).toBe(true); // shown in viewing mode too
+    store.patch({ showPresetStrip: false }); // setting: simpler view without the list
+    expect(strip().classList.contains('visible')).toBe(false);
+    store.patch({ showPresetStrip: true });
+    expect(strip().classList.contains('visible')).toBe(true);
     expect(strip().classList.contains('writable')).toBe(false); // ...but inert
     expect(root.querySelectorAll('.preset-strip .pbtn')[0]!.getAttribute('aria-disabled')).toBe('true');
     expect(root.querySelector('.footer')).toBeNull(); // old prev/next footer is gone
@@ -276,7 +286,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(2); // preset number, footswitch labels
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(3); // preset number, footswitch labels, preset list
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);

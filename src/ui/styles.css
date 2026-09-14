@@ -115,6 +115,34 @@ button.warn {
   position: relative;
   z-index: 3; /* always on top of anything that overflows from below */
 }
+.status .tempo {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: #4cf06a;
+  margin-left: 6px;
+}
+.status .tempo[hidden] {
+  display: none;
+}
+.status .tempo svg {
+  width: 14px;
+  height: 14px;
+  align-self: center;
+  opacity: 0.85;
+}
+.status .tempo-text {
+  font-size: 1.25em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.status .tempo-unit {
+  font-size: 0.72em;
+  font-weight: 300;
+  letter-spacing: 0.06em;
+  opacity: 0.8;
+}
 .status {
   display: flex;
   align-items: center;
@@ -215,10 +243,17 @@ button.warn {
   color: var(--on-text);
 }
 .topbar .icon-btn {
-  padding: 8px 10px;
+  /* Square: as tall as the text buttons beside it, and exactly as wide. */
+  padding: 0;
+  aspect-ratio: 1 / 1;
+  align-self: stretch;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+/* The compact rule below sets padding on every action button; icon buttons stay square. */
+.topbar .actions button.icon-btn {
+  padding: 0;
 }
 .topbar .icon-btn svg {
   width: 22px;
@@ -403,7 +438,7 @@ button.warn {
 .fs-badge[data-fs='iib'] { background: #6a5cff; color: #fff; }
 /* In the preset strip the label is already small: use a fixed size. */
 .pbtn .fs-badge {
-  font-size: 10px;
+  font-size: 11px;
   margin-left: 0.5em;
   vertical-align: 0.15em;
 }
@@ -693,9 +728,9 @@ button.warn {
 }
 /* Secondary line: the model name (Mind Hall, Chief DC2W, …). */
 .tile .t-name {
-  font-size: clamp(10px, 1.2vw, 15px);
+  font-size: clamp(10px, 1.4vw, 15px);
   letter-spacing: 0.06em;
-  opacity: 0.75;
+  opacity: 0.95;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -744,6 +779,10 @@ button.warn {
   justify-content: center;
   width: 34px;
   min-width: 34px;
+  /* Never taller than the preset buttons: the global button min-height (44px) made the row
+     jump when the arrows appeared in control mode on the compact layout (34px buttons). */
+  min-height: 0;
+  align-self: stretch;
   padding: 0;
   border-radius: 10px;
   background: var(--panel-2);
@@ -767,8 +806,8 @@ button.warn {
   align-items: stretch;
   gap: 3px;
   min-width: 0;
-  padding: 7px 8px;
-  min-height: 44px;
+  padding: 9px 10px;
+  min-height: 48px;
   border-radius: 10px;
   background: var(--panel-2);
   border: 1px solid transparent;
@@ -776,7 +815,7 @@ button.warn {
   line-height: 1.15;
 }
 .pbtn .p-label {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -792,7 +831,7 @@ button.warn {
   letter-spacing: 0.02em;
 }
 .pbtn .p-name {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1094,15 +1133,15 @@ button.warn {
     gap: 6px;
   }
   .pbtn {
-    min-height: 34px;
+    min-height: 38px;
     padding: 3px 6px;
     gap: 1px;
   }
   .pbtn .p-label {
-    font-size: 12px;
+    font-size: 14px;
   }
   .pbtn .p-name {
-    font-size: 11px;
+    font-size: 13px;
   }
   .pbtn-nav {
     width: 28px;

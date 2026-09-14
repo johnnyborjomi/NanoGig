@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Download,
   Lock,
+  Metronome,
   LogOut,
   Maximize,
   Menu,
@@ -51,6 +52,7 @@ export interface GigViewActions {
     labelStyle?: PresetLabelStyle;
     showPresetNumber?: boolean;
     showFootswitches?: boolean;
+    showPresetStrip?: boolean;
   }): void;
   /** PWA: show the browser's install dialog (only offered when the store says installable). */
   installApp?(): Promise<void>;
@@ -144,6 +146,9 @@ export class GigView {
   private readonly root: HTMLElement;
   private readonly dot = el("span", "dot");
   private readonly statusText = el("span", "status-text", "Disconnected");
+  private readonly tempoEl = el("span", "tempo");
+  private readonly tempoText = el("span", "tempo-text", "");
+  private readonly tempoUnit = el("span", "tempo-unit", "BPM");
   private readonly slotEl = el("div", "preset-row");
   private readonly slotLabel = el("span", "slot-label");
   private readonly slotBank = el("span", "slot-bank", "—");
@@ -153,6 +158,7 @@ export class GigView {
   private readonly nameEl = el("div", "preset-name empty", "—");
   private readonly numberCheck = el("input", "menu-check");
   private readonly footswitchCheck = el("input", "menu-check");
+  private readonly stripCheck = el("input", "menu-check");
   private readonly slotFs = el("span", "fs-badge", "");
   private presetEl: HTMLElement | null = null;
   private fitKey = "";
@@ -243,7 +249,10 @@ export class GigView {
     // Top bar -----------------------------------------------------------
     const top = el("div", "topbar");
     const status = el("div", "status");
-    status.append(this.dot, this.statusText);
+    this.tempoEl.append(lucideElement(Metronome, { "stroke-width": 2, "aria-hidden": "true" }), this.tempoText, this.tempoUnit);
+    this.tempoEl.title = "Preset tempo reported by the pedal (provisional)";
+    this.tempoEl.hidden = true;
+    status.append(this.dot, this.statusText, this.tempoEl);
     const actions = el("div", "actions");
     this.refreshBtn.addEventListener(
       "click",
@@ -566,11 +575,19 @@ export class GigView {
       );
       fsRow.append(this.footswitchCheck);
 
+      const stripRow = el("label", "setting-row");
+      stripRow.append(el("span", "", "Show preset list under the FX tiles"));
+      this.stripCheck.type = "checkbox";
+      this.stripCheck.addEventListener("change", () =>
+        this.actions.setSettings({ showPresetStrip: this.stripCheck.checked }),
+      );
+      stripRow.append(this.stripCheck);
+
       const close = el("button", "primary", "Done");
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(bankRow, styleRow, numberRow, fsRow, this.settingsPreview, close);
+      card.append(bankRow, styleRow, numberRow, fsRow, stripRow, this.settingsPreview, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -895,12 +912,18 @@ export class GigView {
       ? `${this.statusText.textContent} · demo`
       : this.statusText.textContent;
     this.reconnectBtn.hidden = s.connection !== "reconnecting";
+    {
+      const bpm = s.connection === "connected" ? s.tempo.value : null;
+      this.tempoText.textContent = bpm === null ? "" : String(Math.round(bpm * 10) / 10);
+      this.tempoEl.hidden = bpm === null;
+    }
     const controlling = s.writesEnabled && s.connection === "connected";
     // Strip is always shown once connected; buttons only act in control mode.
     this.presetStrip.classList.toggle(
       "visible",
-      s.connection !== "disconnected",
+      s.connection !== "disconnected" && s.showPresetStrip,
     );
+    if (this.stripCheck.checked !== s.showPresetStrip) this.stripCheck.checked = s.showPresetStrip;
     this.presetStrip.classList.toggle("writable", controlling);
     if (s.connection === "connected" && !this.wakeLock)
       void this.requestWakeLock();

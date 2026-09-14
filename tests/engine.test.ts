@@ -85,15 +85,19 @@ describe('SyncEngine with the mock transport', () => {
     engine.dispose();
   });
 
-  it('knob telemetry does not trigger a state re-request', async () => {
+  it('expression telemetry does not trigger a state re-request; a knob burst triggers one', async () => {
     const { mock, store, engine } = setup();
     await connect(mock);
     await flush(3500);
     const txBefore = store.get().log.filter((l) => l.dir === 'tx').length;
-    mock.inject(REAL_EVENTS.gainKnob);
     mock.inject(REAL_EVENTS.expressionToe);
+    mock.inject(REAL_EVENTS.expressionHeel);
     await flush(1000);
     expect(store.get().log.filter((l) => l.dir === 'tx').length).toBe(txBefore);
+    mock.inject(REAL_EVENTS.gainKnob); // knobs may carry tempo changes → one debounced re-read
+    mock.inject(REAL_EVENTS.gainKnob);
+    await flush(1000);
+    expect(store.get().log.filter((l) => l.dir === 'tx').length).toBe(txBefore + 1);
     engine.dispose();
   });
 
@@ -119,10 +123,9 @@ describe('SyncEngine with the mock transport', () => {
     await flush(3500);
     const count = () => store.get().log.filter((l) => l.dir === 'tx' && l.hex === toHex(Uint8Array.from([0x0c, 0xc0, 0x08, 0x03, 0x18, 0x01, 0x20, 0x01, 0x28, 0x01, 0x01, 0, 0, 0]))).length;
     const before = count();
-    mock.inject(REAL_EVENTS.gainKnob);
     mock.inject(REAL_EVENTS.expressionToe);
     await flush(600);
-    expect(count()).toBe(before); // knob / expression: ignored
+    expect(count()).toBe(before); // expression: ignored
     mock.inject(REAL_EVENTS.encoderI);
     mock.inject(REAL_EVENTS.encoderI);
     mock.inject(REAL_EVENTS.encoderI);

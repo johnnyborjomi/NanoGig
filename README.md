@@ -17,7 +17,8 @@ footswitch press:
   MIDI controller uses (1A, 1B … or A1, A2 …), colour-coded per slot.
 - **FX blocks at a glance**: gate, pre 1, pre 2, post 1-3, each tile showing the loaded effect
   and lit in its category colour when it is on, like the pedal's LEDs but with names.
-- **Capture and cab / IR names**, updating as you scroll the pedal's encoders.
+- **Capture and cab / IR names**, updating as you scroll the pedal's encoders, and the
+  **tempo** in the top bar, following tap tempo live.
 - **Optional control mode**: tap a tile to toggle a block, tap capture or cab to bypass them,
   and pick presets from a bank strip. Off by default; the pedal stays read-only until you
   turn it on.
@@ -32,19 +33,19 @@ analytics. It is a web page.
 
 ## Screenshots
 
-GIG VIEW: 
+GIG VIEW:
 
 <img width="527" alt="Screenshot 2026-09-14 at 18 36 41" src="https://github.com/user-attachments/assets/5f4c0dac-20b8-49b8-b581-138515d70e3c" />
+
 <img width="524" alt="Screenshot 2026-09-14 at 18 36 58" src="https://github.com/user-attachments/assets/5502b3bb-52a2-45cb-bd90-4c15e55247fd" />
 
-CONTROL VIEW: 
+CONTROL VIEW:
 
 <img width="528" alt="Screenshot 2026-09-14 at 18 37 30" src="https://github.com/user-attachments/assets/7453e97b-1bcb-4415-a7ff-b56fd4450650" />
 
-SETTINGS FOR MIDI CONTROLLER: 
+SETTINGS FOR MIDI CONTROLLER:
 
 <img width="526" alt="Screenshot 2026-09-14 at 18 38 04" src="https://github.com/user-attachments/assets/683d9247-9a43-42ed-842f-f6438a874a71" />
-
 
 ## Get started
 
@@ -60,7 +61,7 @@ No pedal at hand? **Demo mode** on the connect screen runs the whole UI against 
 | Device                 | How                                                                                                                        | Live display | Control mode | Preset switching  |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------ | ------------ | ----------------- |
 | Laptop / desktop       | Chrome or Edge                                                                                                             | yes          | yes          | yes, pedal on USB |
-| Android phone / tablet | Chrome. Menu → *Add to Home screen* installs it as a fullscreen landscape app                                              | yes          | yes          | yes, pedal on USB |
+| Android phone / tablet | Chrome. Menu → _Add to Home screen_ installs it as a fullscreen landscape app                                              | yes          | yes          | yes, pedal on USB |
 | iPad / iPhone          | [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) browser (Safari has no Web Bluetooth)             | yes          | yes          | no                |
 | iPad, native app       | Build it yourself with a free Apple ID: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#ipad--iphone-app-capacitor-free-signing) | yes          | yes          | no                |
 
@@ -73,7 +74,7 @@ works over Bluetooth alone. Firefox and Safari have no Web Bluetooth and are not
 - **Top bar**: connection state, **Control** (turns control mode on and off), fullscreen, and a
   menu with Settings, Refresh, the hex Log, Disconnect, and the pedal's firmware version.
 - **Preset row**: bank/slot label and preset name, sized to always fit on one line. A small
-  tag shows *live* right after a footswitch press until the pedal confirms, or *sending* while
+  tag shows _live_ right after a footswitch press until the pedal confirms, or _sending_ while
   the app is changing the preset.
 - **Capture / cab line**: names plus an on/off indicator in each label. A lock instead of the
   indicator means that capture or cab is a factory one the app could not switch back on, so it
@@ -83,9 +84,10 @@ works over Bluetooth alone. Firefox and Safari have no Web Bluetooth and are not
   mode the arrows page through all 64 and a tap selects.
 
 **Settings** (menu): presets per bank (2-8, match your MIDI controller; 4 suits an Mvave
-Chocolate), label style *1B* or *A2*, whether to show the pedal's own preset number (1-64)
-next to the label, and whether to show the Nano's own footswitch assignments as IA / IB /
-IIA / IIB badges, for playing without a MIDI controller.
+Chocolate), label style _1B_ or _A2_, whether to show the pedal's own preset number (1-64)
+next to the label, whether to show the Nano's own footswitch assignments as IA / IB /
+IIA / IIB badges, for playing without a MIDI controller, and whether to show the preset list
+under the FX tiles at all.
 
 ## Control mode
 
@@ -100,10 +102,10 @@ so the screen shows what the pedal did, not what the app asked for.
 
 ## Caveats
 
-| Area               | Detail                                                                                                                                             |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Area               | Detail                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Firmware           | Verified on NanOS 2.2.1. Other versions may decode wrongly or not at all. If something looks off, Menu → Log → copy and open an issue with the hex. |
-| Bluetooth only     | Preset switching from the app needs the pedal on USB. Not possible from iPad / iPhone.                                                             |
+| Bluetooth only     | Preset switching from the app needs the pedal on USB. Not possible from iPad / iPhone.                                                              |
 | Factory cabs       | Can be bypassed but not re-enabled from the app, so their toggle is locked. User IR slots and captures work both ways.                              |
 | One client         | The pedal drops NanoGig when Cortex Cloud connects, and vice versa.                                                                                 |
 | Free Apple signing | The self-built iPad app expires after 7 days; Bluefy needs no build.                                                                                |

@@ -227,6 +227,7 @@ describe('hardware 2026-09-12: state dumps', () => {
     expect(single.amp.gain).toBe(154);
     expect(single.firmware).toBe('2.2.1');
     expect(single.footswitchAssignments).toEqual({ ia: 3, ib: 5, iia: 20, iib: 14 });
+    expect(single.tempoBpm).toBe(120); // field 56 fixed32 = tempo BPM (confirmed 2026-09-14)
   });
   it('two-packet dump after the footswitch: preset 3 matches the event, bypass [1,0,0,1,1]', () => {
     expect(segmented.activePreset).toBe(3);

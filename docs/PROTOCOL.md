@@ -66,8 +66,10 @@ mic and position as a path (`110 US PRN C10R/Ribbon 160/3`).
 | 31    | 5-byte bypass array `[pre1, pre2, post1, post2, post3]`, `0` = on                             |
 | 32    | Capture sub-message `{1:flag, 2:name, 3:id}`. **Flag 1 is not the bypass state** (seen 1 after a bypass and 0 with position 4) |
 | 33    | IR sub-message `{1:flag, 2:shortName, 3:fullName}`                                           |
+| 46    | Tuner reference (fixed32 float, 440.0)                                                        |
 | 48-52 | FX model IDs (raw bytes or varints) for pre1 … post3, mapped through the model catalogue      |
 | 54    | Gate: present = gate off (inverted)                                                           |
+| 56    | **Tempo in BPM, fixed32 float (new; confirmed 2026-09-14, follows tap tempo live)**           |
 
 If field 13 were ever missing, the app falls back to a unique capture + IR name match against
 the preset list, tagged **inferred** on screen.
@@ -79,7 +81,7 @@ the preset list, tagged **inferred** on screen.
 | `0x1D` | Preset changed: `10 C0 08 01 20 <preset> 28 <IA> 30 <IB> 38 <IIA> 40 <IIB> 1D 00 00 00` (new)         | update preset immediately, re-read state |
 | `0x1F` | Bypass changed                                                                                       | re-read state                          |
 | `0x1C` | Footswitch encoder turned (capture / cab scrolling), same `18 <sel> 20 <val>` shape as slot writes   | debounced re-read (~400 ms)            |
-| `0x1A` | Knob                                                                                                 | ignored                                |
+| `0x1A` | Knob (also tap tempo)                                                                                | debounced re-read (~400 ms)            |
 | `0x40` | Expression pedal (quantised heel / centre / toe)                                                     | ignored                                |
 | `0x73` | Generic "something changed" notice; also the ack to capture / cab slot writes                         | debounced re-read                      |
 

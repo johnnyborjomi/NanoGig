@@ -34,6 +34,8 @@ export interface GigState {
   showPresetNumber: boolean;
   /** User setting: show which of the Nano's own footswitches (IA, IB, IIA, IIB) a preset is assigned to. */
   showFootswitches: boolean;
+  /** User setting: show the preset strip under the FX tiles (off = simpler view; control mode still works for tiles/labels). */
+  showPresetStrip: boolean;
   /** PWA: the browser offered an install prompt and the app is not installed yet. */
   installable: boolean;
   /** PWA: a newer build's service worker is installed and waiting for a reload. */
@@ -54,6 +56,8 @@ export interface GigState {
   /** Whether the current IR maps to one of the pedal's IR slots (needed to re-enable the cab). null = not known yet. */
   cabSlotKnown: Field<boolean | null>;
   firmware: Field<string | null>;
+  /** Preset tempo in BPM (state field 56, provisional). */
+  tempo: Field<number | null>;
   /** Preset index assigned to each of the pedal's footswitches (state dump fields 14/15/38/39, event 0x1D). */
   footswitches: Field<FootswitchAssignments | null>;
 
@@ -81,6 +85,7 @@ export function initialState(transportName = 'none'): GigState {
     labelStyle: DEFAULT_LABEL_STYLE,
     showPresetNumber: false,
     showFootswitches: false,
+    showPresetStrip: true,
     installable: false,
     updateReady: false,
     presetNames: field(Array.from({ length: PRESET_COUNT }, () => '')),
@@ -95,6 +100,7 @@ export function initialState(transportName = 'none'): GigState {
     irName: field<string | null>(null),
     cabSlotKnown: field<boolean | null>(null),
     firmware: field<string | null>(null),
+    tempo: field<number | null>(null),
     footswitches: field<FootswitchAssignments | null>(null),
     lastStateSyncAt: null,
     lastMetadataAt: null,
