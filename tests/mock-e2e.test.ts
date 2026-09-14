@@ -35,7 +35,6 @@ describe('mock mode end-to-end', () => {
       toggleCapture: () => engine.toggleCapture(),
       selectPreset: (i: number) => engine.selectPreset(i),
       setWritesEnabled: (v: boolean) => engine.setWritesEnabled(v),
-      reconnectNow: () => {},
       setSettings: (patch: Partial<{ presetsPerBank: number; labelStyle: 'number-letter' | 'letter-number'; showPresetNumber: boolean }>) => store.patch(patch),
     };
     new GigView(root, store, actions, { bluetoothAvailable: false, showMockButton: true });

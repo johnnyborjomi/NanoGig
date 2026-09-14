@@ -71,8 +71,9 @@ works over Bluetooth alone. Firefox and Safari have no Web Bluetooth and are not
   mode the arrows page through all 64 and a tap selects.
 
 **Settings** (menu): presets per bank (2-8, match your MIDI controller; 4 suits an Mvave
-Chocolate), label style *1B* or *A2*, and whether to show the pedal's own preset number
-(1-64) next to the label.
+Chocolate), label style *1B* or *A2*, whether to show the pedal's own preset number (1-64)
+next to the label, and whether to show the Nano's own footswitch assignments as IA / IB /
+IIA / IIB badges, for playing without a MIDI controller.
 
 ## Control mode
 

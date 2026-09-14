@@ -252,6 +252,7 @@ export class SyncEngine {
       case 'program-change':
         this.log('info', `Preset changed → ${ev.preset + 1} (${ev.shape})`, toHex(pkt.data));
         this.store.setField('activePreset', ev.preset, 'event', pkt.at);
+        if (ev.assignments) this.store.setField('footswitches', ev.assignments, 'event', pkt.at);
         this.settlePresetWaiters(ev.preset);
         this.scheduleConfirm(150);
         return;
@@ -325,6 +326,7 @@ export class SyncEngine {
     this.store.setField('captureOn', captureOn, 'dump', at);
     this.store.setField('irName', state.ir?.shortName || null, 'dump', at);
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
+    if (state.footswitchAssignments) this.store.setField('footswitches', state.footswitchAssignments, 'dump', at);
     this.updateSlotKnowledge(at);
 
     if (state.activePreset !== null) {

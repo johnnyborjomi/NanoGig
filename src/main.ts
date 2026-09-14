@@ -20,7 +20,7 @@ const debug = flag('debug');
 const midiStrategy = params.get('midi'); // pin a MIDI delivery strategy, e.g. ?midi=c303-ble-midi
 
 const SETTINGS_KEY = 'nanogig.settings';
-type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean };
+type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean; showFootswitches: boolean };
 function loadSettings(): Partial<Settings> {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -30,15 +30,16 @@ function loadSettings(): Partial<Settings> {
     if (typeof parsed.presetsPerBank === 'number' && parsed.presetsPerBank >= 1 && parsed.presetsPerBank <= 64) out.presetsPerBank = parsed.presetsPerBank;
     if (parsed.labelStyle === 'number-letter' || parsed.labelStyle === 'letter-number') out.labelStyle = parsed.labelStyle;
     if (typeof parsed.showPresetNumber === 'boolean') out.showPresetNumber = parsed.showPresetNumber;
+    if (typeof parsed.showFootswitches === 'boolean') out.showFootswitches = parsed.showFootswitches;
     return out;
   } catch {
     return {};
   }
 }
 function saveSettings() {
-  const { presetsPerBank, labelStyle, showPresetNumber } = store.get();
+  const { presetsPerBank, labelStyle, showPresetNumber, showFootswitches } = store.get();
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber, showFootswitches }));
   } catch {
     /* storage unavailable */
   }
@@ -82,6 +83,7 @@ const view = new GigView(
   store,
   {
     async connect(acceptAll) {
+      store.patch({ lastError: null });
       if (forceMock) return this.connectMock();
       if (!isBle(transport)) attach(createBle());
       await transport!.connect({ acceptAll: !!acceptAll });
@@ -105,7 +107,6 @@ const view = new GigView(
       engine?.setWritesEnabled(enabled);
       store.appendLog({ at: Date.now(), dir: 'warn', text: enabled ? 'Control mode ON: tile taps and preset buttons now change the pedal' : 'Control mode off' });
     },
-    reconnectNow: () => transport?.reconnectNow?.(),
     setSettings: (patch) => {
       store.patch(patch);
       saveSettings();
@@ -146,7 +147,14 @@ if (forceMock) {
   const ble = createBle();
   attach(ble);
   void ble.resume().then((ok) => {
-    if (!ok) store.appendLog({ at: Date.now(), dir: 'info', text: 'Nothing to resume; use Connect' });
+    if (ok) return;
+    store.appendLog({ at: Date.now(), dir: 'info', text: 'Nothing to resume; use Connect' });
+    if (store.get().deviceName) {
+      store.patch({
+        lastError:
+          'Could not reach the last pedal. Make sure it is on and not connected to Cortex Cloud or another NanoGig, put it in pairing mode, then tap Connect.',
+      });
+    }
   });
 }
 

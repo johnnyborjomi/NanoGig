@@ -16,6 +16,7 @@ const WRITE_TIMEOUT_MS = 3000;
 const CONNECT_TIMEOUT_MS = 25000;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const RECONNECT_MAX_ATTEMPTS = 40;
+const RESUME_BUDGET_MS = 10_000;
 const LAST_DEVICE_KEY = 'nanogig.lastNativeDeviceId';
 
 interface CharRef {
@@ -44,6 +45,8 @@ export class CapacitorBleTransport implements Transport {
   private _status: TransportStatus = 'disconnected';
   private initialized = false;
   private intentionalDisconnect = false;
+  private reconnectAbort = false;
+  private loopDone: Promise<void> | null = null;
   private reconnecting = false;
   private wakeReconnect: (() => void) | null = null;
   private writeQueue: Promise<unknown> = Promise.resolve();
@@ -85,6 +88,7 @@ export class CapacitorBleTransport implements Transport {
   }
 
   async connect(opts: ConnectOptions = {}): Promise<void> {
+    await this.cancelReconnect();
     this.intentionalDisconnect = false;
     this.setStatus('connecting');
     try {
@@ -138,7 +142,7 @@ export class CapacitorBleTransport implements Transport {
       this.device = device;
       this.intentionalDisconnect = false;
       this.log('info', `Resuming ${device.name ?? '(unnamed)'} without the picker…`);
-      await this.reconnectLoop(true);
+      await this.reconnectLoop(true, RESUME_BUDGET_MS);
       return this.status === 'connected';
     } catch (err) {
       this.log('info', `Resume failed: ${(err as Error).message}`);
@@ -244,19 +248,41 @@ export class CapacitorBleTransport implements Transport {
     void this.reconnectLoop();
   }
 
-  private async reconnectLoop(immediateFirst = false): Promise<void> {
-    if (this.reconnecting) return;
+  private async cancelReconnect(): Promise<void> {
+    if (!this.reconnecting) return;
+    this.reconnectAbort = true;
+    this.wakeReconnect?.();
+    try {
+      await this.loopDone;
+    } finally {
+      this.reconnectAbort = false;
+    }
+  }
+
+  /** Retry with back-off; `budgetMs` bounds the whole loop (resume after a relaunch). */
+  private reconnectLoop(immediateFirst = false, budgetMs?: number): Promise<void> {
+    if (this.reconnecting) return this.loopDone ?? Promise.resolve();
+    this.loopDone = this.runReconnectLoop(immediateFirst, budgetMs);
+    return this.loopDone;
+  }
+
+  private async runReconnectLoop(immediateFirst: boolean, budgetMs?: number): Promise<void> {
     this.reconnecting = true;
     this.setStatus('reconnecting');
+    const deadline = budgetMs ? Date.now() + budgetMs : Infinity;
     try {
       for (let attempt = 0; attempt < RECONNECT_MAX_ATTEMPTS; attempt++) {
-        if (this.intentionalDisconnect || !this.device) break;
-        const delay = immediateFirst && attempt === 0 ? 0 : RECONNECT_BACKOFF_MS[Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)]!;
+        if (this.intentionalDisconnect || this.reconnectAbort || !this.device) break;
+        let delay = immediateFirst && attempt === 0 ? 0 : RECONNECT_BACKOFF_MS[Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)]!;
+        if (Date.now() + delay > deadline) {
+          if (Date.now() >= deadline) break;
+          delay = Math.max(0, deadline - Date.now());
+        }
         if (delay > 0) {
-          this.log('info', `Reconnect attempt ${attempt + 1} in ${delay / 1000} s`);
+          this.log('info', `Reconnect attempt ${attempt + 1} in ${Math.round(delay / 100) / 10} s`);
           await this.waitOrWake(delay);
         }
-        if (this.intentionalDisconnect) break;
+        if (this.intentionalDisconnect || this.reconnectAbort) break;
         try {
           await this.openGatt();
           this.log('info', 'Reconnected');
@@ -271,7 +297,12 @@ export class CapacitorBleTransport implements Transport {
           }
         }
       }
-      this.log('error', 'Gave up reconnecting; use Connect to start again');
+      if (this.reconnectAbort) return;
+      if (Number.isFinite(deadline) && Date.now() >= deadline) {
+        this.log('warn', `Could not reach the last pedal within ${Math.round((budgetMs ?? 0) / 1000)} s; use Connect to pick it (pairing mode)`);
+      } else {
+        this.log('error', 'Gave up reconnecting; use Connect to start again');
+      }
       this.setStatus('disconnected');
     } finally {
       this.reconnecting = false;

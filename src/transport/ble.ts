@@ -36,6 +36,8 @@ const UNSUBSCRIBE_TIMEOUT_MS = 1000;
 const DEDUPE_WINDOW_MS = 500;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const RECONNECT_MAX_ATTEMPTS = 40; // ~20 minutes at the 30 s cap
+/** After a page reload, try the remembered pedal quietly for this long, then show the connect screen. */
+export const RESUME_BUDGET_MS = 10_000;
 const LAST_DEVICE_KEY = 'nanogig.lastDeviceId';
 
 function rememberDevice(id: string) {
@@ -87,6 +89,9 @@ export class BleTransport implements Transport {
   private subscribed: BluetoothRemoteGATTCharacteristic[] = [];
   private _status: TransportStatus = 'disconnected';
   private intentionalDisconnect = false;
+  /** Set when connect() takes over from a running reconnect loop (chooser instead of retries). */
+  private reconnectAbort = false;
+  private loopDone: Promise<void> | null = null;
   private reconnecting = false;
   /** Resolves the current reconnect back-off early (advertisement seen or user tapped "Reconnect"). */
   private wakeReconnect: (() => void) | null = null;
@@ -131,6 +136,7 @@ export class BleTransport implements Transport {
     if (!isWebBluetoothAvailable()) {
       throw new Error('Web Bluetooth is not available in this browser. Use Chrome/Edge on desktop, or Bluefy on iPad.');
     }
+    await this.cancelReconnect();
     this.intentionalDisconnect = false;
     this.setStatus('connecting');
     try {
@@ -319,6 +325,18 @@ export class BleTransport implements Transport {
     this.advertisementAbort = null;
   }
 
+  /** Stop a running reconnect loop without touching the status (the caller sets it). */
+  private async cancelReconnect(): Promise<void> {
+    if (!this.reconnecting) return;
+    this.reconnectAbort = true;
+    this.wakeReconnect?.();
+    try {
+      await this.loopDone;
+    } finally {
+      this.reconnectAbort = false;
+    }
+  }
+
   /** Skip the current back-off and try to reconnect immediately (user action). */
   reconnectNow(): void {
     if (this._status === 'connected' || !this.device) return;
@@ -331,20 +349,35 @@ export class BleTransport implements Transport {
     void this.reconnectLoop();
   }
 
-  private async reconnectLoop(immediateFirst = false): Promise<void> {
-    if (this.reconnecting) return;
+  /**
+   * Retry the remembered device with back-off. `budgetMs` bounds the whole loop (used by
+   * resume(): a pedal that is off, in another app or on another NanoGig will not answer, so
+   * after the budget the connect screen comes back instead of retrying for 20 minutes).
+   */
+  private reconnectLoop(immediateFirst = false, budgetMs?: number): Promise<void> {
+    if (this.reconnecting) return this.loopDone ?? Promise.resolve();
+    this.loopDone = this.runReconnectLoop(immediateFirst, budgetMs);
+    return this.loopDone;
+  }
+
+  private async runReconnectLoop(immediateFirst: boolean, budgetMs?: number): Promise<void> {
     this.reconnecting = true;
     this.setStatus('reconnecting');
     this.startAdvertisementWatch();
+    const deadline = budgetMs ? Date.now() + budgetMs : Infinity;
     try {
       for (let attempt = 0; attempt < RECONNECT_MAX_ATTEMPTS; attempt++) {
-        if (this.intentionalDisconnect || !this.device) break;
-        const delay = immediateFirst && attempt === 0 ? 0 : RECONNECT_BACKOFF_MS[Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)]!;
+        if (this.intentionalDisconnect || this.reconnectAbort || !this.device) break;
+        let delay = immediateFirst && attempt === 0 ? 0 : RECONNECT_BACKOFF_MS[Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)]!;
+        if (Date.now() + delay > deadline) {
+          if (Date.now() >= deadline) break;
+          delay = Math.max(0, deadline - Date.now());
+        }
         if (delay > 0) {
-          this.log('info', `Reconnect attempt ${attempt + 1} in ${delay / 1000} s`);
+          this.log('info', `Reconnect attempt ${attempt + 1} in ${Math.round(delay / 100) / 10} s`);
           await this.waitOrWake(delay);
         }
-        if (this.intentionalDisconnect) break;
+        if (this.intentionalDisconnect || this.reconnectAbort) break;
         try {
           this.log('info', `Reconnect attempt ${attempt + 1}: connecting…`);
           await this.openGatt();
@@ -360,7 +393,12 @@ export class BleTransport implements Transport {
           }
         }
       }
-      this.log('error', 'Gave up reconnecting; use Connect to start again');
+      if (this.reconnectAbort) return; // connect() is taking over; it sets the status
+      if (Number.isFinite(deadline) && Date.now() >= deadline) {
+        this.log('warn', `Could not reach the last pedal within ${Math.round((budgetMs ?? 0) / 1000)} s; use Connect to pick it (pairing mode)`);
+      } else {
+        this.log('error', 'Gave up reconnecting; use Connect to start again');
+      }
       this.setStatus('disconnected');
     } finally {
       this.stopAdvertisementWatch();
@@ -394,7 +432,7 @@ export class BleTransport implements Transport {
     this.intentionalDisconnect = false;
     this.attachDevice(device);
     this.log('info', `Resuming ${device.name ?? '(unnamed)'} without the chooser…`);
-    await this.reconnectLoop(true);
+    await this.reconnectLoop(true, RESUME_BUDGET_MS);
     return this.status === 'connected';
   }
 

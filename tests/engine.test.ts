@@ -141,12 +141,14 @@ describe('SyncEngine with the mock transport', () => {
     await flush(0);
     expect(store.get().activePreset.value).toBe(14);
     expect(store.get().captureName.value).toBe("CA John's Ch1 1");
+    expect(store.get().footswitches.value).toEqual({ ia: 3, ib: 5, iia: 20, iib: 14 }); // dump fields 14/15/38/39
     mock.inject(HW_PRESET_CHANGED);
     mock.inject(HW_BYPASS_CHANGED);
     mock.inject(HW_UNKNOWN_73);
     await flush(0);
     expect(store.get().activePreset.value).toBe(3);
     expect(store.get().activePreset.source).toBe('event');
+    expect(store.get().footswitches).toMatchObject({ value: { ia: 3, ib: 5, iia: 20, iib: 14 }, source: 'event' });
     mock.inject(HW_STATE_SEGMENTED[0]!);
     mock.inject(HW_STATE_SEGMENTED[1]!);
     await flush(0);

@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setWritesEnabled: () => {}, reconnectNow: () => {}, setSettings: () => {} };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setWritesEnabled: () => {}, setSettings: () => {} };
 }
 
 describe('GigView', () => {
@@ -174,6 +174,15 @@ describe('GigView preset strip', () => {
     expect(b[2]!.querySelector('.p-name')?.classList.contains('empty')).toBe(true);
     expect(b[3]!.querySelector<HTMLElement>('.slot-slot')?.dataset.slot).toBe('1'); // slot colour hook
     expect(b[3]!.querySelector<HTMLElement>('.p-num')?.hidden).toBe(true); // pedal number off by default
+    // Nano footswitch badges: off by default, then IA/IB/IIA/IIB on the assigned presets only.
+    store.setField('footswitches', { ia: 9, ib: 12, iia: 20, iib: 6 }, 'dump');
+    expect(btns()[3]!.querySelector<HTMLElement>('.fs-badge')?.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>('.slot-label .fs-badge')?.hidden).toBe(true);
+    store.patch({ showFootswitches: true });
+    expect(root.querySelector<HTMLElement>('.slot-label .fs-badge')?.textContent).toBe('IA'); // active preset 9
+    expect(root.querySelector<HTMLElement>('.slot-label .fs-badge')?.dataset.fs).toBe('ia');
+    expect(btns().map((x) => x.querySelector<HTMLElement>('.fs-badge')!).map((e) => (e.hidden ? '' : e.textContent))).toEqual(['IIB', '', '', 'IA', '', '', 'IB']);
+    store.patch({ showFootswitches: false });
     store.patch({ showPresetNumber: true });
     expect(btns()[3]!.querySelector<HTMLElement>('.p-num')?.textContent).toBe('·10');
     expect(btns()[3]!.querySelector<HTMLElement>('.p-num')?.hidden).toBe(false);
@@ -208,12 +217,12 @@ describe('GigView preset strip', () => {
 });
 
 describe('GigView writes toggle and reconnect button', () => {
-  it('shows the Control button when connected, the Reconnect button only while reconnecting', () => {
+  it('shows the Control button when connected, the Connect… button only while reconnecting', () => {
     const root = document.createElement('div');
     document.body.append(root);
     const store = new Store();
     const calls: string[] = [];
-    const actions = { ...noopActions(), setWritesEnabled: (v: boolean) => calls.push(`writes:${v}`), reconnectNow: () => calls.push('reconnect') };
+    const actions = { ...noopActions(), setWritesEnabled: (v: boolean) => calls.push(`writes:${v}`), connect: () => { calls.push('connect'); return Promise.resolve(); } };
     new GigView(root, store, actions, { bluetoothAvailable: true, showMockButton: false });
     const btn = (label: RegExp) => Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((b) => label.test(b.textContent ?? ''))!;
 
@@ -221,7 +230,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const control = btn(/^Control$/);
     expect(control.hidden).toBe(false);
     expect(control.querySelector<HTMLElement>('.btn-state')?.dataset.on).toBe('false');
-    expect(btn(/Reconnect now/).hidden).toBe(true);
+    expect(btn(/^Connect…$/).hidden).toBe(true);
     control.click();
     expect(calls).toEqual(['writes:true']);
 
@@ -232,9 +241,9 @@ describe('GigView writes toggle and reconnect button', () => {
     expect(root.querySelector('.preset-strip')?.classList.contains('writable')).toBe(true);
 
     store.patch({ connection: 'reconnecting' });
-    expect(btn(/Reconnect now/).hidden).toBe(false);
-    btn(/Reconnect now/).click();
-    expect(calls).toEqual(['writes:true', 'reconnect']);
+    expect(btn(/^Connect…$/).hidden).toBe(false);
+    btn(/^Connect…$/).click(); // opens the chooser like the main Connect button
+    expect(calls).toEqual(['writes:true', 'connect']);
 
     // Exit-demo button appears only for the mock transport.
     const exitDemo = btn(/^Exit demo$/);
@@ -261,7 +270,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(1);
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(2); // preset number, footswitch labels
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);

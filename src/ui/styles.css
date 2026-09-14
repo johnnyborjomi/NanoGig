@@ -326,7 +326,6 @@ button.warn {
   text-align: left;
   min-height: 0;
   min-width: 0;
-  padding: 0 8px;
   gap: 8px;
 }
 /* Offscreen probe used to measure label/name widths at the reference size (see ui/fit.ts). */
@@ -347,6 +346,7 @@ button.warn {
 .preset-row {
   display: flex;
   align-items: baseline;
+  padding: 0 8px;
   gap: 0.35em;
   width: 100%;
   min-width: 0;
@@ -374,6 +374,33 @@ button.warn {
   color: var(--muted);
   letter-spacing: 0.04em;
   margin-left: 0.2em;
+}
+/* Nano footswitch badge (IA / IB / IIA / IIB), Cortex-Cloud-like colours. */
+.fs-badge {
+  display: inline-block;
+  font-size: 0.32em;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 0.28em 0.45em;
+  border-radius: 0.35em;
+  margin-left: 0.5em;
+  vertical-align: 0.55em;
+  color: #111;
+  background: var(--muted);
+}
+.fs-badge[hidden] {
+  display: none;
+}
+.fs-badge[data-fs='ia'] { background: #f5c542; color: #111; }
+.fs-badge[data-fs='ib'] { background: #6a5cff; color: #fff; }
+.fs-badge[data-fs='iia'] { background: #f5c542; color: #111; }
+.fs-badge[data-fs='iib'] { background: #6a5cff; color: #fff; }
+/* In the preset strip the label is already small: use a fixed size. */
+.pbtn .fs-badge {
+  font-size: 10px;
+  margin-left: 0.5em;
+  vertical-align: 0.15em;
 }
 .preset-name {
   font-weight: 800;

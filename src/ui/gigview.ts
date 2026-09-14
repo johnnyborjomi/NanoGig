@@ -31,6 +31,7 @@ import {
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { PRESET_COUNT } from "../protocol/frames";
+import type { FootswitchAssignments } from "../protocol/decode";
 
 export interface GigViewActions {
   connect(acceptAll?: boolean): Promise<void>;
@@ -45,11 +46,11 @@ export interface GigViewActions {
   selectPreset(index: number): Promise<void>;
   simulateDrop?(): void;
   setWritesEnabled(enabled: boolean): void;
-  reconnectNow(): void;
   setSettings(patch: {
     presetsPerBank?: number;
     labelStyle?: PresetLabelStyle;
     showPresetNumber?: boolean;
+    showFootswitches?: boolean;
   }): void;
   /** PWA: show the browser's install dialog (only offered when the store says installable). */
   installApp?(): Promise<void>;
@@ -61,6 +62,16 @@ export interface GigViewOptions {
   bluetoothAvailable: boolean;
   showMockButton: boolean;
   openConsole?: boolean;
+}
+
+/** Which of the Nano's footswitches (IA, IB, IIA, IIB) is assigned to preset `index`, if any. */
+export function footswitchFor(index: number, fs: FootswitchAssignments | null): "IA" | "IB" | "IIA" | "IIB" | null {
+  if (!fs) return null;
+  if (fs.ia === index) return "IA";
+  if (fs.ib === index) return "IB";
+  if (fs.iia === index) return "IIA";
+  if (fs.iib === index) return "IIB";
+  return null;
 }
 
 /** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
@@ -141,6 +152,8 @@ export class GigView {
   private readonly sourceTag = el("span", "src");
   private readonly nameEl = el("div", "preset-name empty", "—");
   private readonly numberCheck = el("input", "menu-check");
+  private readonly footswitchCheck = el("input", "menu-check");
+  private readonly slotFs = el("span", "fs-badge", "");
   private presetEl: HTMLElement | null = null;
   private fitKey = "";
   private readonly rowResize =
@@ -168,6 +181,7 @@ export class GigView {
     bank: HTMLElement;
     slot: HTMLElement;
     num: HTMLElement;
+    fs: HTMLElement;
     name: HTMLElement;
     index: number;
   }[] = [];
@@ -184,7 +198,7 @@ export class GigView {
   private readonly connectAllBtn = el("button", "", "Show all BT devices");
   private readonly mockBtn = el("button", "", "Demo mode (no device)");
   private readonly installBlock = el("div", "install-block");
-  private readonly installBtn = el("button", "", "");
+  private readonly installBtn = el("button", "primary", "");
   private readonly updateBar = el("div", "update-bar");
   private updateDismissed = false;
   private readonly disconnectBtn = el("button", "ghost", "Disconnect");
@@ -202,7 +216,8 @@ export class GigView {
   private readonly settingsBtn = el("button", "menu-item", "Settings");
   private readonly settingsOverlay = el("div", "overlay settings");
   private readonly settingsPreview = el("p", "hint");
-  private readonly reconnectBtn = el("button", "primary", "Reconnect now");
+  /** Shown while auto-reconnecting: opens the device chooser like the main Connect button. */
+  private readonly reconnectBtn = el("button", "primary", "Connect…");
   private renderedLogCount = 0;
   private wakeLock: WakeLockSentinel | null = null;
   private lastState: GigState | null = null;
@@ -251,9 +266,8 @@ export class GigView {
       this.actions.setWritesEnabled(!this.store.get().writesEnabled),
     );
     this.reconnectBtn.hidden = true;
-    this.reconnectBtn.addEventListener("click", () =>
-      this.actions.reconnectNow(),
-    );
+    this.reconnectBtn.title = "Stop retrying and pick the pedal from the Bluetooth chooser (put it in pairing mode first)";
+    this.reconnectBtn.addEventListener("click", () => this.doConnect(false));
 
     // Fullscreen: icon only.
     this.fullscreenBtn.title = "Fullscreen";
@@ -333,7 +347,8 @@ export class GigView {
 
     // Preset area ------------------------------------------------------
     const preset = el("div", "preset");
-    this.slotLabel.append(this.slotBank, this.slotSlot, this.slotNum);
+    this.slotLabel.append(this.slotBank, this.slotSlot, this.slotNum, this.slotFs);
+    this.slotFs.hidden = true;
     this.slotEl.append(this.slotLabel, this.nameEl, this.sourceTag);
     const capLbl = el("span", "lbl", "capture");
     const irLbl = el("span", "lbl", "cab / ir");
@@ -414,10 +429,12 @@ export class GigView {
       const bank = el("span", "p-bank");
       const slot = el("span", "slot-slot");
       const num = el("span", "p-num");
-      label.append(bank, slot, num);
+      const fs = el("span", "fs-badge");
+      fs.hidden = true;
+      label.append(bank, slot, num, fs);
       const name = el("span", "p-name");
       root.append(label, name);
-      const entry = { root, bank, slot, num, name, index: i };
+      const entry = { root, bank, slot, num, fs, name, index: i };
       root.addEventListener("click", () => {
         const st = this.store.get();
         if (!st.writesEnabled || st.connection !== "connected") return;
@@ -539,11 +556,19 @@ export class GigView {
       );
       numberRow.append(this.numberCheck);
 
+      const fsRow = el("label", "setting-row");
+      fsRow.append(el("span", "", "Show Nano footswitch labels (IA, IB, IIA, IIB)"));
+      this.footswitchCheck.type = "checkbox";
+      this.footswitchCheck.addEventListener("change", () =>
+        this.actions.setSettings({ showFootswitches: this.footswitchCheck.checked }),
+      );
+      fsRow.append(this.footswitchCheck);
+
       const close = el("button", "primary", "Done");
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(bankRow, styleRow, numberRow, this.settingsPreview, close);
+      card.append(bankRow, styleRow, numberRow, fsRow, this.settingsPreview, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -748,7 +773,7 @@ export class GigView {
     if (!(available > 0)) return;
     const maxPx = Math.max(24, Math.round(window.innerHeight * 0.12));
     const names = s.presetNames.value.filter(Boolean);
-    const key = `${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${names.join("\u0000")}`;
+    const key = `${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}|${names.join("\u0000")}`;
     if (key === this.fitKey) return;
     this.fitKey = key;
 
@@ -778,6 +803,8 @@ export class GigView {
           el("span", "slot-num", `·${i + 1}`),
         );
       }
+      // Worst case: the widest footswitch badge ("IIB") on every label.
+      if (s.showFootswitches) span.append(el("span", "fs-badge", "IIB"));
       labelSpans.push(span);
     }
     const nameCandidates = names.length
@@ -834,6 +861,8 @@ export class GigView {
     }
     this.menuInfo.hidden = false; // the version line is always there
     this.overlay.classList.toggle("open", s.connection === "disconnected");
+    // A failed silent resume leaves its reason in lastError; show it on the connect screen.
+    if (s.connection === "disconnected" && s.lastError && s.syncPhase !== "error") this.overlayErr.textContent = s.lastError;
     this.installBlock.hidden = !s.installable;
     if (!s.updateReady) this.updateDismissed = false;
     this.updateBar.hidden = !s.updateReady || this.updateDismissed;
@@ -878,6 +907,13 @@ export class GigView {
     this.slotNum.textContent =
       label && s.showPresetNumber && idx !== null ? `·${idx + 1}` : "";
     this.slotNum.hidden = this.slotNum.textContent === "";
+    {
+      const fs = idx === null || !s.showFootswitches ? null : footswitchFor(idx, s.footswitches.value);
+      this.slotFs.textContent = fs ?? "";
+      this.slotFs.dataset.fs = fs ? fs.toLowerCase() : "";
+      this.slotFs.hidden = !fs;
+    }
+    if (this.footswitchCheck.checked !== s.showFootswitches) this.footswitchCheck.checked = s.showFootswitches;
     if (this.numberCheck.checked !== s.showPresetNumber)
       this.numberCheck.checked = s.showPresetNumber;
     if (this.bankSelect.value !== String(s.presetsPerBank))
@@ -1005,6 +1041,10 @@ export class GigView {
       b.slot.dataset.slot = String(label.slotIndex);
       b.num.textContent = s.showPresetNumber ? `·${idx + 1}` : "";
       b.num.hidden = !s.showPresetNumber;
+      const fs = s.showFootswitches ? footswitchFor(idx, s.footswitches.value) : null;
+      b.fs.textContent = fs ?? "";
+      b.fs.dataset.fs = fs ? fs.toLowerCase() : "";
+      b.fs.hidden = !fs;
       const name = s.presetNames.value[idx] ?? "";
       b.name.textContent = name || `Preset ${idx + 1}`;
       b.name.classList.toggle("empty", !name);

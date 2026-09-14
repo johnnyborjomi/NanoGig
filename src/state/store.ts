@@ -6,6 +6,7 @@
 import { DEFAULT_LABEL_STYLE, DEFAULT_PRESETS_PER_BANK, PRESET_COUNT, type FxSlot, type PresetLabelStyle } from '../protocol/frames';
 import type { LogLine, TransportStatus } from '../transport/types';
 import type { FxModelsBySlot } from '../protocol/models';
+import type { FootswitchAssignments } from '../protocol/decode';
 
 export type FieldSource = 'none' | 'dump' | 'metadata' | 'event' | 'inferred' | 'optimistic';
 
@@ -31,6 +32,8 @@ export interface GigState {
   labelStyle: PresetLabelStyle;
   /** User setting: show the pedal's absolute preset number (1–64) after the bank label. */
   showPresetNumber: boolean;
+  /** User setting: show which of the Nano's own footswitches (IA, IB, IIA, IIB) a preset is assigned to. */
+  showFootswitches: boolean;
   /** PWA: the browser offered an install prompt and the app is not installed yet. */
   installable: boolean;
   /** PWA: a newer build's service worker is installed and waiting for a reload. */
@@ -51,6 +54,8 @@ export interface GigState {
   /** Whether the current IR maps to one of the pedal's IR slots (needed to re-enable the cab). null = not known yet. */
   cabSlotKnown: Field<boolean | null>;
   firmware: Field<string | null>;
+  /** Preset index assigned to each of the pedal's footswitches (state dump fields 14/15/38/39, event 0x1D). */
+  footswitches: Field<FootswitchAssignments | null>;
 
   lastStateSyncAt: number | null;
   lastMetadataAt: number | null;
@@ -75,6 +80,7 @@ export function initialState(transportName = 'none'): GigState {
     presetsPerBank: DEFAULT_PRESETS_PER_BANK,
     labelStyle: DEFAULT_LABEL_STYLE,
     showPresetNumber: false,
+    showFootswitches: false,
     installable: false,
     updateReady: false,
     presetNames: field(Array.from({ length: PRESET_COUNT }, () => '')),
@@ -89,6 +95,7 @@ export function initialState(transportName = 'none'): GigState {
     irName: field<string | null>(null),
     cabSlotKnown: field<boolean | null>(null),
     firmware: field<string | null>(null),
+    footswitches: field<FootswitchAssignments | null>(null),
     lastStateSyncAt: null,
     lastMetadataAt: null,
     lastEventAt: null,
