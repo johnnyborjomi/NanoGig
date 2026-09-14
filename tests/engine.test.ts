@@ -434,7 +434,7 @@ describe('outputs 1/2 mute', () => {
     expect(store.get().outputsMuted.value).toBe(true);
     expect(store.get().outputsMuted.source).toBe('optimistic');
     const tx = store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
-    expect(tx).toContain('08 C0 08 01 68 00 43 00 00 00'); // 0 = mute
+    expect(tx).toContain('08 C0 08 01 68 01 43 00 00 00'); // 1 = mute
     await flush(100);
     await p;
     expect(store.get().outputsMuted.value).toBe(true);
@@ -449,7 +449,7 @@ describe('outputs 1/2 mute', () => {
     const p2 = engine.setOutputsMuted(false);
     await flush(100);
     await p2;
-    expect(store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex)).toContain('08 C0 08 01 68 01 43 00 00 00'); // 1 = outputs on
+    expect(store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex)).toContain('08 C0 08 01 68 00 43 00 00 00'); // 0 = outputs on
     await flush(500);
     expect(store.get().outputsMuted.value).toBe(false);
     expect(store.get().outputsMuted.source).toBe('dump');

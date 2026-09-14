@@ -102,12 +102,13 @@ const OUTPUTS_MUTE_TAG = 0x43;
 
 /**
  * Mute / unmute outputs 1/2 (the global "Mute Outputs 1/2" switch in Cortex Cloud, used when
- * monitoring through a DAW over USB): `08 C0 08 01 68 <1 outputs on / 0 muted> 43 00 00 00`.
- * Captured byte-for-byte from Cortex Cloud 2026-09-15; the value is "outputs enabled", so
- * mute sends 0. Polarity confirmed by ear and by the settings reply (field 16) 2026-09-15.
+ * monitoring through a DAW over USB): `08 C0 08 01 68 <1 mute / 0 outputs on> 43 00 00 00`.
+ * Captured byte-for-byte from Cortex Cloud 2026-09-15. Polarity: sending 0 left the outputs
+ * audible and 1 silenced them (checked by ear on the user's pedal, 2026-09-15). The settings
+ * reply's field 16 mirrors the written value exactly, so it cannot settle the polarity alone.
  */
 export function outputsMuteFrame(muted: boolean): Uint8Array {
-  return new Uint8Array([0x08, 0xc0, 0x08, 0x01, 0x68, muted ? 0x00 : 0x01, OUTPUTS_MUTE_TAG, 0x00, 0x00, 0x00]);
+  return new Uint8Array([0x08, 0xc0, 0x08, 0x01, 0x68, muted ? 0x01 : 0x00, OUTPUTS_MUTE_TAG, 0x00, 0x00, 0x00]);
 }
 
 export const PRESET_COUNT = 64;

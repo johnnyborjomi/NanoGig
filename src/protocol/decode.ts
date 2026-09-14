@@ -325,8 +325,9 @@ export interface DeviceSettings {
   /** Field 5, "Neural DSP Nano Cortex" on 2.2.1 (the pedal's Bluetooth name). */
   deviceName: string;
   /**
-   * Outputs 1/2 muted: field 16 is `1` while the outputs are on and absent while muted
-   * (before/after pair in NanoGig's log 2026-09-15, matching what was heard).
+   * Outputs 1/2 muted: field 16 is `1` while muted and absent while the outputs are on. The
+   * field mirrors the last `68 <v>` write exactly (before/after pair in NanoGig's log
+   * 2026-09-15); which way is silent was settled by ear.
    */
   outputsMuted: boolean;
   /**
@@ -349,7 +350,7 @@ export function decodeDeviceSettings(payload: Uint8Array): DeviceSettings | null
     else if (x.wire === 5) fields[x.field] = new DataView(x.raw.buffer, x.raw.byteOffset, 4).getFloat32(0, true);
     else fields[x.field] = decodePrintable(x.raw) ?? toHex(x.raw);
   }
-  return { deviceName: firstString(f, 5), outputsMuted: firstVarint(f, 16) !== 1, fields, provisional: PROVISIONAL };
+  return { deviceName: firstString(f, 5), outputsMuted: firstVarint(f, 16) === 1, fields, provisional: PROVISIONAL };
 }
 
 /** `f1=1 f5="Neural DSP Nano Cortex" f17=-6` style summary for the hex log. */

@@ -133,10 +133,10 @@ describe('MIDI delivery strategies', () => {
 });
 
 describe('outputs 1/2 mute frame (Cortex Cloud HCI capture 2026-09-15)', () => {
-  it('mute sends 0 and unmute sends 1, byte-identical to what Cortex Cloud sent', () => {
-    expect(toHex(outputsMuteFrame(true))).toBe('08 C0 08 01 68 00 43 00 00 00');
-    expect(toHex(outputsMuteFrame(false))).toBe('08 C0 08 01 68 01 43 00 00 00');
-    expect(toHex(outputsMuteFrame(true))).toBe(toHex(HW_OUTPUTS_MUTE_WRITES[0]!)); // first tap from outputs-on = mute
-    expect(toHex(outputsMuteFrame(false))).toBe(toHex(HW_OUTPUTS_MUTE_WRITES[1]!));
+  it('mute sends 1 and unmute sends 0, byte-identical to what Cortex Cloud sent', () => {
+    expect(toHex(outputsMuteFrame(true))).toBe('08 C0 08 01 68 01 43 00 00 00');
+    expect(toHex(outputsMuteFrame(false))).toBe('08 C0 08 01 68 00 43 00 00 00');
+    expect(toHex(outputsMuteFrame(false))).toBe(toHex(HW_OUTPUTS_MUTE_WRITES[0]!)); // first tap from muted = unmute
+    expect(toHex(outputsMuteFrame(true))).toBe(toHex(HW_OUTPUTS_MUTE_WRITES[1]!));
   });
 });

@@ -31,7 +31,7 @@ import {
   type MockDeviceState,
   type MockPreset,
 } from '../fixtures/captures';
-import { HW_DEVICE_SETTINGS_REPLY, HW_DEVICE_SETTINGS_REPLY_MUTED, HW_OUTPUTS_MUTE_ACK } from '../fixtures/hardware-2026-09-15';
+import { HW_DEVICE_SETTINGS_REPLY, HW_DEVICE_SETTINGS_REPLY_UNMUTED, HW_OUTPUTS_MUTE_ACK } from '../fixtures/hardware-2026-09-15';
 import {
   Emitter,
   type ConnectOptions,
@@ -184,12 +184,12 @@ export class MockTransport implements Transport {
       return; // reply shape after an app-initiated change not captured yet
     }
     if (bytesEqual(bytes, DEVICE_SETTINGS_REQUEST)) {
-      this.schedule(() => this.emit(this.device.outputsMuted ? HW_DEVICE_SETTINGS_REPLY_MUTED : HW_DEVICE_SETTINGS_REPLY), this.opts.latencyMs);
+      this.schedule(() => this.emit(this.device.outputsMuted ? HW_DEVICE_SETTINGS_REPLY : HW_DEVICE_SETTINGS_REPLY_UNMUTED), this.opts.latencyMs);
       return;
     }
-    // Outputs 1/2: 08 C0 08 01 68 <1 on / 0 muted> 43 00 00 00 → ack 08 C0 08 01 18 01 44 00 00 00
+    // Outputs 1/2: 08 C0 08 01 68 <1 mute / 0 on> 43 00 00 00 → ack 08 C0 08 01 18 01 44 00 00 00
     if (bytes.length === 10 && bytes[0] === 0x08 && bytes[1] === 0xc0 && bytes[2] === 0x08 && bytes[4] === 0x68 && bytes[6] === 0x43) {
-      this.device.outputsMuted = bytes[5] === 0;
+      this.device.outputsMuted = bytes[5] !== 0;
       this.schedule(() => this.emit(HW_OUTPUTS_MUTE_ACK), this.opts.latencyMs);
       return;
     }

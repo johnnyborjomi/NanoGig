@@ -85,10 +85,11 @@ Seen on 2.2.1: `3A C0 08 01 18 01 2A 16 "Neural DSP Nano Cortex" 30 38 38 01 40 
 68 6B 70 01 80 01 01 8D 01 <f32 -6.0> 90 01 01 42 00 00 00` → fields 1=1, 3=1, 5=name, 6=56,
 7=1, 8=1, 11=0, 12=1, 13=107, 14=1, 16=1, 17=-6.0 (fixed32 float), 18=1.
 
-**Field 16 = outputs 1/2 enabled**: `1` while the outputs are on, absent (57-byte reply) while
-muted. Confirmed with a before/after pair in NanoGig's own log plus listening, 2026-09-15. The
-other fields are still unmapped. NanoGig re-reads the message after every mute ack to confirm
-the switch against the pedal's report.
+**Field 16 = outputs 1/2 muted**: `1` while muted, absent (57-byte reply) while the outputs
+are on. The field mirrors the last `68 <v>` write exactly (before/after pair in NanoGig's own
+log, 2026-09-15), so it confirms the write landed but cannot settle the polarity by itself;
+that was done by ear. The other fields are still unmapped. NanoGig re-reads the message after
+every mute ack to confirm the switch against the pedal's report.
 
 ## Live events (single-packet messages, by trailer type)
 
@@ -113,7 +114,7 @@ the switch against the pedal's report.
 | Capture select (re-enable) | `08 C0 18 04 20 <slot-1> 1C 00 00 00` (slot 1-25) | 2026-09-13 |
 | Cab bypass                 | `08 C0 18 03 20 00 1C 00 00 00`                  | 2026-09-13 |
 | Cab / IR slot select       | `08 C0 18 03 20 <slot 1..5> 1C 00 00 00`         | 2026-09-13 |
-| Mute outputs 1/2 (global)  | `08 C0 08 01 68 <0 mute / 1 outputs on> 43 00 00 00` | 2026-09-15 (captured from Cortex Cloud, polarity confirmed by ear) |
+| Mute outputs 1/2 (global)  | `08 C0 08 01 68 <1 mute / 0 outputs on> 43 00 00 00` | 2026-09-15 (captured from Cortex Cloud, polarity by ear) |
 
 Re-enabling a capture or cab needs its slot index, which NanoGig can only get by matching the
 current name against the metadata slot lists. When there is no match (factory cab, library
