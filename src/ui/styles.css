@@ -959,13 +959,11 @@ button.warn {
   margin-right: 8px;
 }
 
-/* ---------- connect overlay ---------- */
-.overlay.settings {
-  z-index: 30;
-}
+/* ---------- connect / settings overlays ---------- */
 .overlay {
   position: fixed;
   inset: 0;
+  z-index: 30; /* above the top bar (3), menu (20), toast (20) and update bar (21) */
   background: rgba(7, 9, 12, 0.92);
   display: none;
   align-items: center;
