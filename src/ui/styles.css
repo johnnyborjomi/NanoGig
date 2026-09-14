@@ -68,7 +68,7 @@ body {
   display: grid;
   /* minmax(0, 1fr): never let a wide row push the app past the viewport */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   gap: 12px;
 }
@@ -578,9 +578,12 @@ button.warn {
   display: grid;
   /* 2 pre tiles | divider | 3 post tiles. minmax(0, 1fr) lets a column shrink below its text. */
   grid-template-columns: repeat(2, minmax(0, 1fr)) 1px repeat(3, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
   min-width: 0;
   gap: 10px;
-  min-height: clamp(80px, 16vh, 170px);
+  /* Tile height follows the viewport: ~30% of its height, never below 80px nor above 300px. */
+  height: clamp(80px, 30vh, 300px);
+  flex: none;
 }
 .vsep {
   width: 1px;
@@ -1073,7 +1076,7 @@ button.warn {
     width: 56px;
   }
   .tiles {
-    min-height: clamp(60px, 13vh, 170px);
+    height: clamp(60px, 26vh, 200px);
     gap: 6px;
   }
   .tile {
