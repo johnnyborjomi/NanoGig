@@ -178,6 +178,17 @@ export class BleTransport implements Transport {
   private async openGatt(): Promise<void> {
     const device = this.device;
     if (!device?.gatt) throw new Error('Device has no GATT server');
+    if (device.gatt.connected) {
+      // Stale link from a previous page (reload without a clean disconnect): start fresh,
+      // otherwise service discovery on the old link tends to hang.
+      this.log('info', 'GATT link already open from a previous page; resetting it');
+      try {
+        device.gatt.disconnect();
+      } catch {
+        /* ignore */
+      }
+      await sleep(400);
+    }
     this.log('info', 'Connecting GATT…');
     const server = await withTimeout(device.gatt.connect(), CONNECT_TIMEOUT_MS, 'GATT connect');
     this.chars.clear();
@@ -434,6 +445,23 @@ export class BleTransport implements Transport {
     this.log('info', `Resuming ${device.name ?? '(unnamed)'} without the chooser…`);
     await this.reconnectLoop(true, RESUME_BUDGET_MS);
     return this.status === 'connected';
+  }
+
+  /**
+   * Synchronous teardown for `beforeunload`: the async disconnect() never gets to finish
+   * there, which leaves the OS link half-open for the next page load.
+   */
+  disconnectNow(): void {
+    this.intentionalDisconnect = true;
+    this.wakeReconnect?.();
+    this.stopAdvertisementWatch();
+    try {
+      this.device?.gatt?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    this.subscribed = [];
+    this.chars.clear();
   }
 
   async disconnect(): Promise<void> {

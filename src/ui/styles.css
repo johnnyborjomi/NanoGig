@@ -717,15 +717,18 @@ button.warn {
 }
 /* Seven equal columns; minmax(0, 1fr) lets a button shrink below its text so the row always fits. */
 .preset-grid {
-  display: grid;
-  /* viewing mode: 7 equal preset columns (arrows are display:none, so they take no cell) */
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  display: flex;
+  align-items: stretch;
   gap: 4px;
   min-width: 0;
 }
-/* control mode: narrow arrow | 7 equal preset columns | narrow arrow */
-.preset-strip.writable .preset-grid {
-  grid-template-columns: auto repeat(7, minmax(0, 1fr)) auto;
+/* Seven equal buttons; arrows and bank separators take only their own width. */
+.preset-grid .pbtn {
+  flex: 1 1 0;
+}
+.preset-grid .bank-sep {
+  flex: none;
+  margin: 0 2px;
 }
 .pbtn-nav {
   display: inline-flex;

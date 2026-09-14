@@ -168,6 +168,12 @@ describe('GigView preset strip', () => {
     const b = btns();
     expect(b).toHaveLength(7);
     expect(b.map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['2C', '2D', '3A', '3B', '3C', '3D', '4A']); // 4 per bank, 1B style
+    // Vertical separators between banks: 2C 2D | 3A 3B 3C 3D | 4A; none with footswitch labels on.
+    const kinds = () => Array.from(root.querySelectorAll<HTMLElement>('.preset-grid > *')).map((x) => (x.classList.contains('bank-sep') ? '|' : x.classList.contains('pbtn') ? x.querySelector('.p-label')!.textContent : '<>'));
+    expect(kinds()).toEqual(['<>', '2C', '2D', '|', '3A', '3B', '3C', '3D', '|', '4A', '<>']);
+    store.patch({ showFootswitches: true });
+    expect(root.querySelectorAll('.preset-grid .bank-sep').length).toBe(0);
+    store.patch({ showFootswitches: false });
     expect(b[3]!.dataset.active).toBe('true');
     expect(b[3]!.querySelector('.p-name')?.textContent).toBe('Big Lead Tone');
     expect(b[2]!.querySelector('.p-name')?.textContent).toBe('Preset 9'); // unnamed fallback

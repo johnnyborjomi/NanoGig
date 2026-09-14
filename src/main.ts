@@ -121,8 +121,11 @@ const view = new GigView(
   },
 );
 
+// On unload nothing async completes, so drop the link synchronously; a half-open link makes
+// the next page's service discovery crawl (seen as "service discovery timed out" on macOS).
 window.addEventListener('beforeunload', () => {
-  void transport?.disconnect();
+  if (transport?.disconnectNow) transport.disconnectNow();
+  else void transport?.disconnect();
 });
 
 // Expose for debugging in the devtools console.

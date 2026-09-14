@@ -171,6 +171,7 @@ export class GigView {
     { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement }
   >();
   private readonly presetStrip = el("div", "preset-strip");
+  private readonly presetGrid = el("div", "preset-grid");
   /** Pages of PRESET_STRIP_COUNT the strip is shifted from the active-centred window (control mode paging). */
   private stripPage = 0;
   private stripCentre: number | null = null;
@@ -184,6 +185,7 @@ export class GigView {
     fs: HTMLElement;
     name: HTMLElement;
     index: number;
+    bankNo: string;
   }[] = [];
   private readonly toastEl = el("div", "toast");
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -422,7 +424,7 @@ export class GigView {
     blocks.append(tiles);
 
     // Preset strip (control mode only): separator, then a window of preset buttons centred on the active one.
-    const grid = el("div", "preset-grid");
+    const grid = this.presetGrid;
     for (let i = 0; i < PRESET_STRIP_COUNT; i++) {
       const root = el("button", "pbtn");
       const label = el("span", "p-label");
@@ -434,7 +436,7 @@ export class GigView {
       label.append(bank, slot, num, fs);
       const name = el("span", "p-name");
       root.append(label, name);
-      const entry = { root, bank, slot, num, fs, name, index: i };
+      const entry = { root, bank, slot, num, fs, name, index: i, bankNo: "" };
       root.addEventListener("click", () => {
         const st = this.store.get();
         if (!st.writesEnabled || st.connection !== "connected") return;
@@ -1054,7 +1056,25 @@ export class GigView {
       b.root.setAttribute("aria-disabled", controlling ? "false" : "true");
       b.root.style.pointerEvents = controlling ? "auto" : "none";
       b.root.title = `${label.bank}${label.slot} · ${b.name.textContent}`;
+      b.bankNo = label.bank;
     });
+    this.relayoutStripSeparators(s);
+  }
+
+  /**
+   * A thin vertical rule between buttons of different banks (like the pre | post divider).
+   * Skipped when the Nano footswitch labels are on: those players have no MIDI controller,
+   * so banks mean nothing to them.
+   */
+  private relayoutStripSeparators(s: GigState) {
+    const children: HTMLElement[] = [this.stripPrev];
+    this.presetBtns.forEach((b, i) => {
+      const prev = this.presetBtns[i - 1];
+      if (prev && !s.showFootswitches && prev.bankNo !== b.bankNo) children.push(el("div", "vsep bank-sep"));
+      children.push(b.root);
+    });
+    children.push(this.stripNext);
+    this.presetGrid.replaceChildren(...children);
   }
 
   private renderLog(log: LogLine[]) {

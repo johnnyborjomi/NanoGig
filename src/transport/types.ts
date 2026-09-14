@@ -44,6 +44,8 @@ export interface Transport {
   onLog(cb: (line: LogLine) => void): Unsubscribe;
   /** Retry immediately while reconnecting (optional). */
   reconnectNow?(): void;
+  /** Synchronous best-effort teardown for page unload (no awaits possible there). */
+  disconnectNow?(): void;
 }
 
 export class Emitter<T> {
