@@ -31,12 +31,18 @@ analytics. It is a web page.
 > is reverse-engineered and every value on screen is provisional. Use at your own risk.
 
 ## Screenshots
-GIG VIEW:
+
+GIG VIEW: 
+
 <img width="527" alt="Screenshot 2026-09-14 at 18 36 41" src="https://github.com/user-attachments/assets/5f4c0dac-20b8-49b8-b581-138515d70e3c" />
 <img width="524" alt="Screenshot 2026-09-14 at 18 36 58" src="https://github.com/user-attachments/assets/5502b3bb-52a2-45cb-bd90-4c15e55247fd" />
-CONTROL VIEW:
+
+CONTROL VIEW: 
+
 <img width="528" alt="Screenshot 2026-09-14 at 18 37 30" src="https://github.com/user-attachments/assets/7453e97b-1bcb-4415-a7ff-b56fd4450650" />
+
 SETTINGS FOR MIDI CONTROLLER: 
+
 <img width="526" alt="Screenshot 2026-09-14 at 18 38 04" src="https://github.com/user-attachments/assets/683d9247-9a43-42ed-842f-f6438a874a71" />
 
 
