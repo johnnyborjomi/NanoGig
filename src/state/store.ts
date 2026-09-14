@@ -60,6 +60,12 @@ export interface GigState {
   tempo: Field<number | null>;
   /** Preset index assigned to each of the pedal's footswitches (state dump fields 14/15/38/39, event 0x1D). */
   footswitches: Field<FootswitchAssignments | null>;
+  /**
+   * Global "Mute Outputs 1/2" switch, read from the device-settings message (field 16) after
+   * connect and after every change; 'optimistic' while a write is in flight, 'event' on the
+   * pedal's ack, 'dump' once the settings re-read confirms it. null = not read yet.
+   */
+  outputsMuted: Field<boolean | null>;
 
   lastStateSyncAt: number | null;
   lastMetadataAt: number | null;
@@ -102,6 +108,7 @@ export function initialState(transportName = 'none'): GigState {
     firmware: field<string | null>(null),
     tempo: field<number | null>(null),
     footswitches: field<FootswitchAssignments | null>(null),
+    outputsMuted: field<boolean | null>(null),
     lastStateSyncAt: null,
     lastMetadataAt: null,
     lastEventAt: null,
@@ -166,6 +173,7 @@ export class Store {
       captureSlotKnown: s.captureSlotKnown,
       irName: s.irName,
       cabSlotKnown: s.cabSlotKnown,
+      outputsMuted: s.outputsMuted,
       syncPhase: 'idle',
     };
     this.notify();

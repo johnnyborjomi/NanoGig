@@ -19,12 +19,14 @@ import {
   decodeCurrentState,
   decodeEvent,
   decodeMetadata,
+  describeDeviceSettings,
   inferActivePreset,
   type CurrentState,
   type Metadata,
 } from '../protocol/decode';
 import {
   CURRENT_STATE_REQUEST,
+  DEVICE_SETTINGS_REQUEST,
   FX_SLOTS,
   METADATA_DUMP_REQUEST,
   PRESET_CHANGE_ACK,
@@ -37,6 +39,7 @@ import {
   fxBlockBypassFrame,
   gateBypassFrame,
   midiStrategyById,
+  outputsMuteFrame,
   programChange,
   type FxSlot,
   type MidiStrategy,
@@ -82,6 +85,10 @@ export class SyncEngine {
   private confirmTimer: ReturnType<typeof setTimeout> | null = null;
   private stateRequestInFlightSince = 0;
   private awaitingMetadata = false;
+  /** Device settings (outputs mute) are read once per link, after the first state dump. */
+  private settingsRequestedThisLink = false;
+  /** Pending outputs-mute write waiting for the pedal's 0x44 ack. */
+  private muteWaiter: { muted: boolean; resolve: () => void } | null = null;
   private unsubs: (() => void)[] = [];
   /** MIDI delivery that the device confirmed (or the pinned one). */
   private midiStrategy: MidiStrategy | null = null;
@@ -152,7 +159,9 @@ export class SyncEngine {
       this.assembler.cancel();
       this.awaitingMetadata = false;
       this.stateRequestInFlightSince = 0; // never coalesce the first request of a new link
+      this.settingsRequestedThisLink = false;
       this.settlePresetWaiters(-1);
+      this.settleMuteWaiter();
       if (status === 'disconnected' || status === 'reconnecting') this.store.clearDeviceState();
     }
   }
@@ -197,6 +206,16 @@ export class SyncEngine {
     this.stateRequestInFlightSince = now;
     if (this.store.get().syncPhase !== 'ready') this.store.patch({ syncPhase: 'state' });
     await this.transport.writeCommand(CURRENT_STATE_REQUEST);
+  }
+
+  /**
+   * Request the device-settings message (`06 C0 08 03 41 00 00 00`, type 0x42 reply). Cortex
+   * Cloud sends it at every connect. The reply carries the outputs 1/2 mute (field 16) and is
+   * logged in full since the other fields are still being mapped. Read-only, not gated.
+   */
+  async requestDeviceSettings(): Promise<void> {
+    if (this.transport.status !== 'connected') return;
+    await this.transport.writeCommand(DEVICE_SETTINGS_REQUEST);
   }
 
   // -------------------------------------------------------------------------
@@ -260,6 +279,19 @@ export class SyncEngine {
         this.log('info', 'Bypass changed on device; re-reading state', toHex(pkt.data));
         this.scheduleConfirm(150);
         return;
+      case 'settings':
+        this.log('info', `Device settings: outputs 1/2 ${ev.settings.outputsMuted ? 'muted' : 'on'} · ${describeDeviceSettings(ev.settings)}`, toHex(pkt.data));
+        this.store.setField('outputsMuted', ev.settings.outputsMuted, 'dump', pkt.at);
+        return;
+      case 'outputs-mute-ack': {
+        const w = this.muteWaiter;
+        this.log('info', w ? `Outputs 1/2 ${w.muted ? 'muted' : 'unmuted'}: acknowledged by the pedal` : 'Outputs-mute ack without a pending write', toHex(pkt.data));
+        if (w) this.store.setField('outputsMuted', w.muted, 'event', pkt.at);
+        this.settleMuteWaiter();
+        // Confirm against the pedal's own report (settings field 16), like every other write.
+        setTimeout(() => void this.requestDeviceSettings().catch(() => {}), this.opts.confirmDelayMs);
+        return;
+      }
       case 'control':
         // Knobs (0x1A) and expression (0x40) change nothing on screen. The footswitch encoders
         // (0x1C, same `18 <selector> 20 <value>` shape as our slot-select writes) scroll through
@@ -345,6 +377,10 @@ export class SyncEngine {
       }
     }
     this.store.patch({ lastStateSyncAt: at, syncPhase: 'ready' });
+    if (!this.settingsRequestedThisLink) {
+      this.settingsRequestedThisLink = true;
+      setTimeout(() => void this.requestDeviceSettings().catch((err) => this.log('warn', `Settings request failed: ${(err as Error).message}`)), this.opts.confirmDelayMs);
+    }
     const on = FX_SLOTS.map((s) => `${s}=${models[s]?.name ?? 'empty'}:${state.fxOn ? (state.fxOn[s] ? 'on' : 'off') : '?'}`).join(' ');
     this.log(
       'info',
@@ -453,6 +489,35 @@ export class SyncEngine {
       await this.transport.writeCommand(cabIrSlotFrame(slot));
     }
     this.scheduleConfirm();
+  }
+
+  private settleMuteWaiter() {
+    const w = this.muteWaiter;
+    this.muteWaiter = null;
+    w?.resolve();
+  }
+
+  /**
+   * Mute or unmute outputs 1/2 (Cortex Cloud's global "Mute Outputs 1/2", for monitoring
+   * through a DAW over USB). Frame captured from Cortex Cloud 2026-09-15; the pedal acks
+   * with a type 0x44 message. Resolves on the ack or after the confirm timeout.
+   * Not gated by control mode: it is a deliberate switch in Settings, touches no preset,
+   * and is the one write the user needs while the pedal is otherwise left alone.
+   */
+  async setOutputsMuted(muted: boolean): Promise<void> {
+    if (this.transport.status !== 'connected') throw new Error('Not connected');
+    this.settleMuteWaiter();
+    this.store.setField('outputsMuted', muted, 'optimistic');
+    const acked = new Promise<void>((resolve) => {
+      this.muteWaiter = { muted, resolve };
+    });
+    await this.transport.writeCommand(outputsMuteFrame(muted));
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, this.opts.presetConfirmTimeoutMs));
+    await Promise.race([acked, timeout]);
+    if (this.muteWaiter) {
+      this.settleMuteWaiter();
+      this.log('warn', `Outputs 1/2 ${muted ? 'mute' : 'unmute'} not acknowledged by the pedal`);
+    }
   }
 
   async toggleGate(): Promise<void> {

@@ -143,6 +143,27 @@ button.warn {
   letter-spacing: 0.06em;
   opacity: 0.8;
 }
+.status .mute-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: #ff7a6e;
+  background: rgba(255, 122, 110, 0.14);
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+.status .mute-badge[hidden] {
+  display: none;
+}
+.status .mute-badge svg {
+  width: 13px;
+  height: 13px;
+}
 .status {
   display: flex;
   align-items: center;
@@ -977,6 +998,14 @@ button.warn {
   margin: 0;
   font-size: 28px;
   letter-spacing: -0.01em;
+}
+.card h2 {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 .card p {
   margin: 0;

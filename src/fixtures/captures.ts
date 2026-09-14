@@ -89,6 +89,8 @@ export interface MockDeviceState {
   captureSlot: number;
   captureVolumeRaw: number;
   firmware: string;
+  /** Global "Mute Outputs 1/2" switch (not part of the state dump). */
+  outputsMuted: boolean;
 }
 
 export function defaultMockDeviceState(): MockDeviceState {
@@ -102,6 +104,7 @@ export function defaultMockDeviceState(): MockDeviceState {
     captureSlot: 2,
     captureVolumeRaw: 127,
     firmware: '2.2.1',
+    outputsMuted: false,
   };
 }
 

@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setWritesEnabled: () => {}, setSettings: () => {} };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setOutputsMuted: p, setWritesEnabled: () => {}, setSettings: () => {} };
 }
 
 describe('GigView', () => {
@@ -286,7 +286,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(3); // preset number, footswitch labels, preset list
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(4); // preset number, footswitch labels, preset list, outputs mute
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
@@ -323,5 +323,50 @@ describe('GigView tile colour category', () => {
     expect(tile('post2').dataset.cat).toBe('none');
     expect(tile('post3').dataset.cat).toBe('reverb');
     expect(tile('post3').textContent).not.toMatch(/ON|OFF/);
+  });
+});
+
+describe('GigView outputs 1/2 mute setting', () => {
+  it('shows a "1/2" muted badge after the tempo only while the pedal reports outputs muted', () => {
+    const root = document.createElement('div');
+    const store = new Store();
+    new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+    store.patch({ connection: 'connected' });
+    const badge = root.querySelector<HTMLElement>('.status .mute-badge')!;
+    expect(badge.hidden).toBe(true);
+    expect(badge.previousElementSibling?.classList.contains('tempo')).toBe(true);
+    store.setField('outputsMuted', true, 'dump');
+    expect(badge.hidden).toBe(false);
+    expect(badge.textContent).toBe('1/2');
+    expect(badge.querySelector('svg')).not.toBeNull();
+    store.setField('outputsMuted', false, 'dump');
+    expect(badge.hidden).toBe(true);
+    store.setField('outputsMuted', true, 'dump');
+    store.patch({ connection: 'disconnected' });
+    expect(badge.hidden).toBe(true);
+  });
+
+  it('is disabled until connected (no control mode needed), sends the switch, and shows the reported state', () => {
+    const root = document.createElement('div');
+    const store = new Store();
+    const sent: boolean[] = [];
+    new GigView(root, store, { ...noopActions(), setOutputsMuted: (m: boolean) => { sent.push(m); return Promise.resolve(); } }, { bluetoothAvailable: true, showMockButton: false });
+    const settings = root.querySelector('.overlay.settings')!;
+    const row = Array.from(settings.querySelectorAll('label.setting-row')).find((l) => l.textContent?.includes('Mute outputs 1/2'))!;
+    expect(row).toBeTruthy();
+    const box = row.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    store.patch({ connection: 'connected' });
+    expect(box.disabled).toBe(false); // control mode off is fine
+    expect(box.checked).toBe(false); // not read yet shows as unmuted
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    expect(sent).toEqual([true]);
+    store.setField('outputsMuted', true, 'event');
+    expect(box.checked).toBe(true);
+    const hint = row.nextElementSibling as HTMLElement;
+    expect(hint.textContent).toContain('muted');
+    store.patch({ connection: 'disconnected' });
+    expect(box.disabled).toBe(true);
   });
 });

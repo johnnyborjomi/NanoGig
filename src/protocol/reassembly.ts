@@ -84,6 +84,14 @@ export const MSG = {
   BYPASS_CHANGED: 0x1f,
   /** Expression pedal zone. */
   EXPRESSION: 0x40,
+  /** Device-settings request (we send this; Cortex Cloud does too). */
+  SETTINGS_REQUEST: 0x41,
+  /** Reply to the device-settings request (60 B on 2.2.1). */
+  SETTINGS: 0x42,
+  /** Outputs 1/2 mute write (we send this). */
+  OUTPUTS_MUTE_REQUEST: 0x43,
+  /** Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`. */
+  OUTPUTS_MUTE_ACK: 0x44,
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -43,6 +43,7 @@ are simply the length bytes of MTU-sized packets.
 | Metadata dump       | `06 C0 08 03 01 00 00 00`                    | ~17 KB message over ~6 s, type `0x02`             |
 | Current state       | `0C C0 08 03 18 01 20 01 28 01 01 00 00 00`  | ~300-500 B message, type `0x02`                   |
 | Preset-change ack   | `06 C0 20 01 1E 00 00 00`                    | sent after a MIDI Program Change                   |
+| Device settings     | `06 C0 08 03 41 00 00 00`                    | 60 B single packet, type `0x42` (new, 2026-09-15) |
 
 ## Metadata message
 
@@ -74,6 +75,21 @@ mic and position as a path (`110 US PRN C10R/Ribbon 160/3`).
 If field 13 were ever missing, the app falls back to a unique capture + IR name match against
 the preset list, tagged **inferred** on screen.
 
+## Device settings message (type `0x42`, new)
+
+Captured 2026-09-15 from an Android HCI snoop log of Cortex Cloud, which sends the request at
+connect and whenever its device-settings page opens. NanoGig requests it once per link after
+the first state dump and prints every field to the log.
+
+Seen on 2.2.1: `3A C0 08 01 18 01 2A 16 "Neural DSP Nano Cortex" 30 38 38 01 40 01 58 00 60 01
+68 6B 70 01 80 01 01 8D 01 <f32 -6.0> 90 01 01 42 00 00 00` → fields 1=1, 3=1, 5=name, 6=56,
+7=1, 8=1, 11=0, 12=1, 13=107, 14=1, 16=1, 17=-6.0 (fixed32 float), 18=1.
+
+**Field 16 = outputs 1/2 enabled**: `1` while the outputs are on, absent (57-byte reply) while
+muted. Confirmed with a before/after pair in NanoGig's own log plus listening, 2026-09-15. The
+other fields are still unmapped. NanoGig re-reads the message after every mute ack to confirm
+the switch against the pedal's report.
+
 ## Live events (single-packet messages, by trailer type)
 
 | Type   | Meaning                                                                                              | NanoGig reaction                       |
@@ -84,6 +100,8 @@ the preset list, tagged **inferred** on screen.
 | `0x1A` | Knob (also tap tempo)                                                                                | debounced re-read (~400 ms)            |
 | `0x40` | Expression pedal (quantised heel / centre / toe)                                                     | ignored                                |
 | `0x73` | Generic "something changed" notice; also the ack to capture / cab slot writes                         | debounced re-read                      |
+| `0x42` | Device-settings reply (see above)                                                                    | log the fields                         |
+| `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
 
 ## Writes (control mode, c304)
 
@@ -95,6 +113,7 @@ the preset list, tagged **inferred** on screen.
 | Capture select (re-enable) | `08 C0 18 04 20 <slot-1> 1C 00 00 00` (slot 1-25) | 2026-09-13 |
 | Cab bypass                 | `08 C0 18 03 20 00 1C 00 00 00`                  | 2026-09-13 |
 | Cab / IR slot select       | `08 C0 18 03 20 <slot 1..5> 1C 00 00 00`         | 2026-09-13 |
+| Mute outputs 1/2 (global)  | `08 C0 08 01 68 <0 mute / 1 outputs on> 43 00 00 00` | 2026-09-15 (captured from Cortex Cloud, polarity confirmed by ear) |
 
 Re-enabling a capture or cab needs its slot index, which NanoGig can only get by matching the
 current name against the metadata slot lists. When there is no match (factory cab, library

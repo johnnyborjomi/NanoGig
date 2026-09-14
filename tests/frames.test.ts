@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CURRENT_STATE_REQUEST,
+  DEVICE_SETTINGS_REQUEST,
   FX_ENABLE_SLOT,
   GATE_ENABLE_SLOT,
   METADATA_DUMP_REQUEST,
@@ -15,10 +16,12 @@ import {
   fxBlockBypassFrame,
   midiStrategyById,
   gateBypassFrame,
+  outputsMuteFrame,
   presetLabel,
   programChange,
 } from '../src/protocol/frames';
 import { toHex } from '../src/protocol/hex';
+import { HW_DEVICE_SETTINGS_REQUEST, HW_OUTPUTS_MUTE_WRITES } from '../src/fixtures/hardware-2026-09-15';
 
 describe('request frames (byte-exact against the reference tables)', () => {
   it('metadata dump request', () => {
@@ -30,8 +33,12 @@ describe('request frames (byte-exact against the reference tables)', () => {
   it('preset-change acknowledgement', () => {
     expect(toHex(PRESET_CHANGE_ACK)).toBe('06 C0 20 01 1E 00 00 00');
   });
+  it('device-settings request matches the Cortex Cloud capture', () => {
+    expect(toHex(DEVICE_SETTINGS_REQUEST)).toBe('06 C0 08 03 41 00 00 00');
+    expect(toHex(DEVICE_SETTINGS_REQUEST)).toBe(toHex(HW_DEVICE_SETTINGS_REQUEST));
+  });
   it('frames follow the length-prefix convention byte[0] = length - 2', () => {
-    for (const f of [METADATA_DUMP_REQUEST, CURRENT_STATE_REQUEST, PRESET_CHANGE_ACK]) {
+    for (const f of [METADATA_DUMP_REQUEST, CURRENT_STATE_REQUEST, PRESET_CHANGE_ACK, DEVICE_SETTINGS_REQUEST, outputsMuteFrame(true)]) {
       expect(f[0]).toBe(f.length - 2);
       expect(f[1]).toBe(0xc0);
     }
@@ -122,5 +129,14 @@ describe('MIDI delivery strategies', () => {
     expect(MIDI_STRATEGIES.map((s) => s.id)).toEqual(['web-midi', 'c303-ble-midi', 'c302-ble-midi', 'c303-raw', 'c303-sequential', 'c302-raw']);
     expect(midiStrategyById('c302-raw')).toEqual({ id: 'c302-raw', char: 'c302', framing: 'raw' });
     expect(midiStrategyById('nope')).toBeNull();
+  });
+});
+
+describe('outputs 1/2 mute frame (Cortex Cloud HCI capture 2026-09-15)', () => {
+  it('mute sends 0 and unmute sends 1, byte-identical to what Cortex Cloud sent', () => {
+    expect(toHex(outputsMuteFrame(true))).toBe('08 C0 08 01 68 00 43 00 00 00');
+    expect(toHex(outputsMuteFrame(false))).toBe('08 C0 08 01 68 01 43 00 00 00');
+    expect(toHex(outputsMuteFrame(true))).toBe(toHex(HW_OUTPUTS_MUTE_WRITES[0]!)); // first tap from outputs-on = mute
+    expect(toHex(outputsMuteFrame(false))).toBe(toHex(HW_OUTPUTS_MUTE_WRITES[1]!));
   });
 });

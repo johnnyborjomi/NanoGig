@@ -2,15 +2,17 @@
  * Byte-exact command frames for the Nano Cortex `c304` command channel and
  * MIDI bytes for `c302`.
  *
- * Every frame here is copied verbatim from the reference material:
+ * Every frame here is copied verbatim from the reference material or from a
+ * byte-exact capture of the official app talking to the pedal:
  *   - choldy/nano-cortex-web-editor (MIT) — original capture of the frames
  *   - rixrix/deskop-nano-cortex `docs/specs/110-backend-midi-ble/spec.md`
  *     ("State-dump request commands", "Write-command byte layouts")
+ *   - Bluetooth HCI snoop logs of Cortex Cloud (`src/fixtures/hardware-*.ts`)
  *
  * Frame convention (per the spec): byte[0] = payload.length - 2, byte[1] = 0xC0,
  * then a protobuf-ish body, then a `<tag> 00 00 00` footer whose tag byte is
- * command-specific. DO NOT invent new frames here — if a frame is not in the
- * reference repos it does not belong in this file.
+ * command-specific. DO NOT invent new frames here — if a frame was not seen on
+ * the wire it does not belong in this file.
  *
  * All frames are PROVISIONAL: verified against NanOS ~2.2.1, may change silently.
  */
@@ -86,6 +88,26 @@ export const CAB_SLOT_COUNT = 5;
 export function cabIrSlotFrame(slot: number): Uint8Array {
   if (!Number.isInteger(slot) || slot < 0 || slot > CAB_SLOT_COUNT) throw new RangeError(`cab/IR slot out of range: ${slot}`);
   return new Uint8Array([0x08, 0xc0, 0x18, 0x03, 0x20, slot, SLOT_SELECT_TAG, 0x00, 0x00, 0x00]);
+}
+
+/**
+ * Device-settings request: `06 C0 08 03 41 00 00 00`. Cortex Cloud sends it at connect and
+ * when its settings page opens; the pedal answers with a 60-byte type 0x42 message
+ * (HCI snoop capture 2026-09-15, NanOS 2.2.1). Read-only.
+ */
+export const DEVICE_SETTINGS_REQUEST: Uint8Array = fromHex('06 C0 08 03 41 00 00 00');
+
+/** Footer tag of the outputs-mute write; the pedal acks with `08 C0 08 01 18 01 44 00 00 00`. */
+const OUTPUTS_MUTE_TAG = 0x43;
+
+/**
+ * Mute / unmute outputs 1/2 (the global "Mute Outputs 1/2" switch in Cortex Cloud, used when
+ * monitoring through a DAW over USB): `08 C0 08 01 68 <1 outputs on / 0 muted> 43 00 00 00`.
+ * Captured byte-for-byte from Cortex Cloud 2026-09-15; the value is "outputs enabled", so
+ * mute sends 0. Polarity confirmed by ear and by the settings reply (field 16) 2026-09-15.
+ */
+export function outputsMuteFrame(muted: boolean): Uint8Array {
+  return new Uint8Array([0x08, 0xc0, 0x08, 0x01, 0x68, muted ? 0x00 : 0x01, OUTPUTS_MUTE_TAG, 0x00, 0x00, 0x00]);
 }
 
 export const PRESET_COUNT = 64;

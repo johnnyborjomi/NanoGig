@@ -267,3 +267,37 @@ describe('hardware 2026-09-12: state dumps', () => {
     expect(decodeCurrentState(REAL_STATE_DUMP_PACKET.subarray(2))!.activePreset).toBe(7);
   });
 });
+
+describe('device settings (type 0x42) and outputs-mute ack (type 0x44)', async () => {
+  const { decodeDeviceSettings, describeDeviceSettings, decodeEvent } = await import('../src/protocol/decode');
+  const { splitTrailer } = await import('../src/protocol/reassembly');
+  const { HW_DEVICE_SETTINGS_REPLY, HW_DEVICE_SETTINGS_REPLY_MUTED, HW_OUTPUTS_MUTE_ACK } = await import('../src/fixtures/hardware-2026-09-15');
+  it('decodes the settings reply fields and the device name', () => {
+    const { payload, msgType } = splitTrailer(HW_DEVICE_SETTINGS_REPLY.subarray(2));
+    expect(msgType).toBe(0x42);
+    const s = decodeDeviceSettings(payload)!;
+    expect(s.deviceName).toBe('Neural DSP Nano Cortex');
+    expect(s.fields[1]).toBe(1);
+    expect(s.fields[6]).toBe(56);
+    expect(s.fields[11]).toBe(0);
+    expect(s.fields[13]).toBe(107);
+    expect(s.fields[17]).toBe(-6);
+    expect(s.fields[16]).toBe(1);
+    expect(s.outputsMuted).toBe(false);
+    expect(describeDeviceSettings(s)).toContain('f5="Neural DSP Nano Cortex"');
+    expect(describeDeviceSettings(s)).toContain('f17=-6');
+  });
+  it('reads outputs 1/2 as muted when field 16 is absent (57 B reply after a mute)', () => {
+    const { payload } = splitTrailer(HW_DEVICE_SETTINGS_REPLY_MUTED.subarray(2));
+    const s = decodeDeviceSettings(payload)!;
+    expect(s.fields[16]).toBeUndefined();
+    expect(s.outputsMuted).toBe(true);
+    expect(s.deviceName).toBe('Neural DSP Nano Cortex');
+  });
+  it('decodeEvent classifies the settings reply and the mute ack', () => {
+    const ev = decodeEvent(HW_DEVICE_SETTINGS_REPLY);
+    expect(ev.kind).toBe('settings');
+    if (ev.kind === 'settings') expect(ev.settings.deviceName).toBe('Neural DSP Nano Cortex');
+    expect(decodeEvent(HW_OUTPUTS_MUTE_ACK).kind).toBe('outputs-mute-ack');
+  });
+});

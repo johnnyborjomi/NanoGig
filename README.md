@@ -87,13 +87,17 @@ works over Bluetooth alone. Firefox and Safari have no Web Bluetooth and are not
 Chocolate), label style _1B_ or _A2_, whether to show the pedal's own preset number (1-64)
 next to the label, whether to show the Nano's own footswitch assignments as IA / IB /
 IIA / IIB badges, for playing without a MIDI controller, and whether to show the preset list
-under the FX tiles at all.
+under the FX tiles at all. Under **Pedal**, a **Mute outputs 1/2** switch sends the same
+command Cortex Cloud's global setting does, handy when you monitor through a DAW over USB. It
+works without control mode, shows the pedal's own report of the switch, and while muted a
+small _1/2_ badge sits next to the tempo in the top bar.
 
 ## Control mode
 
 Off by default. When on, taps write to the pedal: FX and gate tiles toggle their block, the
 capture and cab labels bypass or re-enable, and the preset strip switches presets (USB
-required for that). Every change is confirmed against the pedal's own report a moment later,
+required for that). The only write that does not need it is the outputs 1/2 mute switch in
+Settings, which touches no preset. Every change is confirmed against the pedal's own report a moment later,
 so the screen shows what the pedal did, not what the app asked for.
 
 > **Back up your presets in Cortex Cloud before turning control mode on**, and try it on a

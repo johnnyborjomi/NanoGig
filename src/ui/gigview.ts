@@ -28,6 +28,7 @@ import {
   RefreshCw,
   ScrollText,
   Settings,
+  VolumeX,
   createElement as lucideElement,
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
@@ -45,6 +46,8 @@ export interface GigViewActions {
   toggleCab(): Promise<void>;
   toggleCapture(): Promise<void>;
   selectPreset(index: number): Promise<void>;
+  /** Global "Mute Outputs 1/2"; works whenever connected, control mode or not. */
+  setOutputsMuted(muted: boolean): Promise<void>;
   simulateDrop?(): void;
   setWritesEnabled(enabled: boolean): void;
   setSettings(patch: {
@@ -148,6 +151,8 @@ export class GigView {
   private readonly statusText = el("span", "status-text", "Disconnected");
   private readonly tempoEl = el("span", "tempo");
   private readonly tempoText = el("span", "tempo-text", "");
+  /** "1/2" + muted-speaker badge, shown only while the pedal reports outputs 1/2 muted. */
+  private readonly muteBadge = el("span", "mute-badge");
   private readonly tempoUnit = el("span", "tempo-unit", "BPM");
   private readonly slotEl = el("div", "preset-row");
   private readonly slotLabel = el("span", "slot-label");
@@ -224,6 +229,8 @@ export class GigView {
   private readonly settingsBtn = el("button", "menu-item", "Settings");
   private readonly settingsOverlay = el("div", "overlay settings");
   private readonly settingsPreview = el("p", "hint");
+  private readonly muteCheck = el("input", "menu-check");
+  private readonly muteHint = el("p", "hint");
   /** Shown while auto-reconnecting: opens the device chooser like the main Connect button. */
   private readonly reconnectBtn = el("button", "primary", "Connect…");
   private renderedLogCount = 0;
@@ -252,7 +259,11 @@ export class GigView {
     this.tempoEl.append(lucideElement(Metronome, { "stroke-width": 2, "aria-hidden": "true" }), this.tempoText, this.tempoUnit);
     this.tempoEl.title = "Preset tempo reported by the pedal (provisional)";
     this.tempoEl.hidden = true;
-    status.append(this.dot, this.statusText, this.tempoEl);
+    this.muteBadge.append(el("span", "", "1/2"), lucideElement(VolumeX, { "stroke-width": 2, "aria-hidden": "true" }));
+    this.muteBadge.title = "Outputs 1/2 muted (Settings → Pedal)";
+    this.muteBadge.setAttribute("aria-label", "Outputs 1/2 muted");
+    this.muteBadge.hidden = true;
+    status.append(this.dot, this.statusText, this.tempoEl, this.muteBadge);
     const actions = el("div", "actions");
     this.refreshBtn.addEventListener(
       "click",
@@ -583,11 +594,25 @@ export class GigView {
       );
       stripRow.append(this.stripCheck);
 
+      card.append(bankRow, styleRow, numberRow, fsRow, stripRow, this.settingsPreview);
+
+      card.append(el("h2", "", "Pedal"));
+      const muteRow = el("label", "setting-row");
+      muteRow.append(el("span", "", "Mute outputs 1/2"));
+      this.muteCheck.type = "checkbox";
+      this.muteCheck.addEventListener("change", () => {
+        const muted = this.muteCheck.checked;
+        void this.actions.setOutputsMuted(muted).catch((e) => {
+          this.muteCheck.checked = !muted;
+          this.toast(e);
+        });
+      });
+      muteRow.append(this.muteCheck);
       const close = el("button", "primary", "Done");
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(bankRow, styleRow, numberRow, fsRow, stripRow, this.settingsPreview, close);
+      card.append(muteRow, this.muteHint, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -916,6 +941,7 @@ export class GigView {
       const bpm = s.connection === "connected" ? s.tempo.value : null;
       this.tempoText.textContent = bpm === null ? "" : String(Math.round(bpm * 10) / 10);
       this.tempoEl.hidden = bpm === null;
+      this.muteBadge.hidden = !(s.connection === "connected" && s.outputsMuted.value === true);
     }
     const controlling = s.writesEnabled && s.connection === "connected";
     // Strip is always shown once connected; buttons only act in control mode.
@@ -959,6 +985,20 @@ export class GigView {
     {
       const opts = { presetsPerBank: s.presetsPerBank, style: s.labelStyle };
       this.settingsPreview.textContent = `Preview: preset 1 → ${presetLabel(0, opts)}, preset ${s.presetsPerBank + 2} → ${presetLabel(s.presetsPerBank + 1, opts)}, preset 64 → ${presetLabel(63, opts)}`;
+    }
+    {
+      const connected = s.connection === "connected";
+      const muted = s.outputsMuted.value;
+      this.muteCheck.disabled = !connected;
+      if (this.muteCheck.checked !== (muted === true)) this.muteCheck.checked = muted === true;
+      const what = "Silences the pedal's outputs 1/2 while you monitor through the DAW over USB.";
+      this.muteHint.textContent = !connected
+        ? `${what} Connect the pedal to change it.`
+        : muted === null
+          ? `${what} Not read from the pedal yet.`
+          : s.outputsMuted.source === "optimistic"
+            ? "Sending to the pedal…"
+            : `${what} Outputs 1/2 are ${muted ? "muted" : "on"}.`;
     }
     this.sourceTag.textContent =
       s.activePreset.source === "inferred"

@@ -100,6 +100,7 @@ const view = new GigView(
     toggleCab: () => requireEngine().toggleCab(),
     toggleCapture: () => requireEngine().toggleCapture(),
     selectPreset: (index) => requireEngine().selectPreset(index),
+    setOutputsMuted: (muted) => requireEngine().setOutputsMuted(muted),
     simulateDrop: () => {
       if (transport instanceof MockTransport) transport.simulateDrop();
     },

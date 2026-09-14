@@ -311,7 +311,53 @@ export type DeviceEvent =
   | { kind: 'bypass-changed'; provisional: typeof PROVISIONAL }
   /** Knob, encoder or expression telemetry — nothing the gig view displays. */
   | { kind: 'control'; msgType: number; hex: string; provisional: typeof PROVISIONAL }
+  /** Reply to the device-settings request (type 0x42). */
+  | { kind: 'settings'; settings: DeviceSettings; hex: string; provisional: typeof PROVISIONAL }
+  /** Ack to an outputs-mute write (type 0x44). */
+  | { kind: 'outputs-mute-ack'; hex: string; provisional: typeof PROVISIONAL }
   | { kind: 'unknown'; msgType: number | null; hex: string; provisional: typeof PROVISIONAL };
+
+// ---------------------------------------------------------------------------
+// Device settings (type 0x42 reply to `06 C0 08 03 41 00 00 00`)
+// ---------------------------------------------------------------------------
+
+export interface DeviceSettings {
+  /** Field 5, "Neural DSP Nano Cortex" on 2.2.1 (the pedal's Bluetooth name). */
+  deviceName: string;
+  /**
+   * Outputs 1/2 muted: field 16 is `1` while the outputs are on and absent while muted
+   * (before/after pair in NanoGig's log 2026-09-15, matching what was heard).
+   */
+  outputsMuted: boolean;
+  /**
+   * Every top-level field as `number → value` (varint number, fixed32 float, printable string,
+   * or hex for anything else). Kept raw because most fields are not understood yet; the log
+   * prints them so future before/after pairs can identify more.
+   */
+  fields: Record<number, number | string>;
+  provisional: typeof PROVISIONAL;
+}
+
+/** Decode the settings reply payload (trailer already split off). Null when it does not parse. */
+export function decodeDeviceSettings(payload: Uint8Array): DeviceSettings | null {
+  const f = parseFields(payload);
+  if (!f.length) return null;
+  const fields: Record<number, number | string> = {};
+  for (const x of f) {
+    if (x.field in fields) continue;
+    if (x.wire === 0) fields[x.field] = x.value ?? 0;
+    else if (x.wire === 5) fields[x.field] = new DataView(x.raw.buffer, x.raw.byteOffset, 4).getFloat32(0, true);
+    else fields[x.field] = decodePrintable(x.raw) ?? toHex(x.raw);
+  }
+  return { deviceName: firstString(f, 5), outputsMuted: firstVarint(f, 16) !== 1, fields, provisional: PROVISIONAL };
+}
+
+/** `f1=1 f5="Neural DSP Nano Cortex" f17=-6` style summary for the hex log. */
+export function describeDeviceSettings(s: DeviceSettings): string {
+  return Object.entries(s.fields)
+    .map(([n, v]) => `f${n}=${typeof v === 'string' ? JSON.stringify(v) : Math.round(v * 1000) / 1000}`)
+    .join(' ');
+}
 
 const CONTROL_TYPES = new Set<number>([MSG.KNOB, MSG.ENCODER, MSG.EXPRESSION]);
 
@@ -363,6 +409,12 @@ export function decodeEvent(data: Uint8Array): DeviceEvent {
       return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
     }
     if (msgType === MSG.BYPASS_CHANGED) return { kind: 'bypass-changed', provisional: PROVISIONAL };
+    if (msgType === MSG.SETTINGS) {
+      const settings = decodeDeviceSettings(payload);
+      if (settings) return { kind: 'settings', settings, hex, provisional: PROVISIONAL };
+      return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
+    }
+    if (msgType === MSG.OUTPUTS_MUTE_ACK) return { kind: 'outputs-mute-ack', hex, provisional: PROVISIONAL };
     if (msgType !== null && CONTROL_TYPES.has(msgType)) return { kind: 'control', msgType, hex, provisional: PROVISIONAL };
     if (msgType !== null) return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
   }

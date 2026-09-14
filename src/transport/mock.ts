@@ -8,6 +8,7 @@
  */
 import {
   CURRENT_STATE_REQUEST,
+  DEVICE_SETTINGS_REQUEST,
   FX_ENABLE_SLOT,
   FX_SLOTS,
   GATE_ENABLE_SLOT,
@@ -30,6 +31,7 @@ import {
   type MockDeviceState,
   type MockPreset,
 } from '../fixtures/captures';
+import { HW_DEVICE_SETTINGS_REPLY, HW_DEVICE_SETTINGS_REPLY_MUTED, HW_OUTPUTS_MUTE_ACK } from '../fixtures/hardware-2026-09-15';
 import {
   Emitter,
   type ConnectOptions,
@@ -180,6 +182,16 @@ export class MockTransport implements Transport {
     }
     if (bytesEqual(bytes, PRESET_CHANGE_ACK)) {
       return; // reply shape after an app-initiated change not captured yet
+    }
+    if (bytesEqual(bytes, DEVICE_SETTINGS_REQUEST)) {
+      this.schedule(() => this.emit(this.device.outputsMuted ? HW_DEVICE_SETTINGS_REPLY_MUTED : HW_DEVICE_SETTINGS_REPLY), this.opts.latencyMs);
+      return;
+    }
+    // Outputs 1/2: 08 C0 08 01 68 <1 on / 0 muted> 43 00 00 00 → ack 08 C0 08 01 18 01 44 00 00 00
+    if (bytes.length === 10 && bytes[0] === 0x08 && bytes[1] === 0xc0 && bytes[2] === 0x08 && bytes[4] === 0x68 && bytes[6] === 0x43) {
+      this.device.outputsMuted = bytes[5] === 0;
+      this.schedule(() => this.emit(HW_OUTPUTS_MUTE_ACK), this.opts.latencyMs);
+      return;
     }
     // Bypass frame: 0A C0 08 01 18 <slot> 20 <0/1> 1F 00 00 00
     if (bytes.length === 12 && bytes[0] === 0x0a && bytes[1] === 0xc0 && bytes[4] === 0x18 && bytes[6] === 0x20 && bytes[8] === 0x1f) {

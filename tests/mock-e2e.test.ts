@@ -34,6 +34,7 @@ describe('mock mode end-to-end', () => {
       toggleCab: () => engine.toggleCab(),
       toggleCapture: () => engine.toggleCapture(),
       selectPreset: (i: number) => engine.selectPreset(i),
+      setOutputsMuted: (m: boolean) => engine.setOutputsMuted(m),
       setWritesEnabled: (v: boolean) => engine.setWritesEnabled(v),
       setSettings: (patch: Partial<{ presetsPerBank: number; labelStyle: 'number-letter' | 'letter-number'; showPresetNumber: boolean }>) => store.patch(patch),
     };

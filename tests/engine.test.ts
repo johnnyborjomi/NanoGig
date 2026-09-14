@@ -405,3 +405,69 @@ describe('SyncEngine writes', () => {
     engine.dispose();
   });
 });
+
+describe('outputs 1/2 mute', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('reads the device settings once per link after the first state dump and learns the mute state', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(4000);
+    const settingsLines = store.get().log.filter((l) => l.text.startsWith('Device settings:'));
+    expect(settingsLines.length).toBe(1);
+    expect(settingsLines[0]!.text).toContain('outputs 1/2 on');
+    expect(settingsLines[0]!.text).toContain('f5="Neural DSP Nano Cortex"');
+    expect(store.get().outputsMuted.value).toBe(false);
+    expect(store.get().outputsMuted.source).toBe('dump');
+    engine.dispose();
+  });
+
+  it('works without control mode: writes the captured frame and waits for the ack', async () => {
+    const { mock, store, engine } = setup({ writes: false });
+    await connect(mock);
+    await flush(4000);
+    expect(store.get().outputsMuted.value).toBe(false); // as read from the pedal at connect
+    expect(engine.writesEnabled).toBe(false);
+    const p = engine.setOutputsMuted(true);
+    await flush(0);
+    expect(store.get().outputsMuted.value).toBe(true);
+    expect(store.get().outputsMuted.source).toBe('optimistic');
+    const tx = store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
+    expect(tx).toContain('08 C0 08 01 68 00 43 00 00 00'); // 0 = mute
+    await flush(100);
+    await p;
+    expect(store.get().outputsMuted.value).toBe(true);
+    expect(['event', 'dump']).toContain(store.get().outputsMuted.source); // ack, then the settings re-read
+    expect(store.get().log.some((l) => l.text.includes('Outputs 1/2 muted: acknowledged'))).toBe(true);
+
+    await flush(500); // the ack triggers a settings re-read that confirms the switch
+    expect(store.get().log.filter((l) => l.text.startsWith('Device settings:')).length).toBe(2);
+    expect(store.get().outputsMuted.value).toBe(true);
+    expect(store.get().outputsMuted.source).toBe('dump');
+
+    const p2 = engine.setOutputsMuted(false);
+    await flush(100);
+    await p2;
+    expect(store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex)).toContain('08 C0 08 01 68 01 43 00 00 00'); // 1 = outputs on
+    await flush(500);
+    expect(store.get().outputsMuted.value).toBe(false);
+    expect(store.get().outputsMuted.source).toBe('dump');
+    engine.dispose();
+  });
+
+  it('refuses while disconnected and forgets the switch state on disconnect', async () => {
+    const { mock, store, engine } = setup({ writes: false });
+    await expect(engine.setOutputsMuted(true)).rejects.toThrow(/Not connected/);
+    await connect(mock);
+    await flush(4000);
+    const p = engine.setOutputsMuted(true);
+    await flush(100);
+    await p;
+    expect(store.get().outputsMuted.value).toBe(true);
+    await mock.disconnect();
+    await flush(10);
+    expect(store.get().outputsMuted.value).toBeNull();
+    engine.dispose();
+  });
+});
