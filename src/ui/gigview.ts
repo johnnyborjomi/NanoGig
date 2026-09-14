@@ -738,10 +738,21 @@ export class GigView {
     }, 5000);
   }
 
-  private async toggleFullscreen() {
+  private toggleFullscreen() {
+    // Must run synchronously inside the click (user activation); no awaits before the call.
+    const root = document.documentElement;
     try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
+      const request = document.fullscreenElement
+        ? document.exitFullscreen()
+        : root.requestFullscreen({ navigationUI: "hide" });
+      request
+        .then(() => {
+          // Android: keep the stage view in landscape while fullscreen (best effort).
+          const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+          if (document.fullscreenElement && orientation?.lock) orientation.lock("landscape").catch(() => undefined);
+          this.fitPresetRow();
+        })
+        .catch((err: unknown) => this.toast(err));
     } catch (err) {
       this.toast(err);
     }

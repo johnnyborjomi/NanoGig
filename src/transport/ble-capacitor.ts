@@ -16,7 +16,7 @@ const WRITE_TIMEOUT_MS = 3000;
 const CONNECT_TIMEOUT_MS = 25000;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const RECONNECT_MAX_ATTEMPTS = 40;
-const RESUME_BUDGET_MS = 10_000;
+const RESUME_BUDGET_MS = 20_000;
 const LAST_DEVICE_KEY = 'nanogig.lastNativeDeviceId';
 
 interface CharRef {

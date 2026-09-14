@@ -36,8 +36,12 @@ const UNSUBSCRIBE_TIMEOUT_MS = 1000;
 const DEDUPE_WINDOW_MS = 500;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const RECONNECT_MAX_ATTEMPTS = 40; // ~20 minutes at the 30 s cap
-/** After a page reload, try the remembered pedal quietly for this long, then show the connect screen. */
-export const RESUME_BUDGET_MS = 10_000;
+/**
+ * After a page reload, try the remembered pedal quietly for this long, then show the connect
+ * screen. Android needs the pedal to advertise again after the unload disconnect, and a single
+ * connect attempt there can block for many seconds, so this is generous.
+ */
+export const RESUME_BUDGET_MS = 20_000;
 const LAST_DEVICE_KEY = 'nanogig.lastDeviceId';
 
 function rememberDevice(id: string) {
