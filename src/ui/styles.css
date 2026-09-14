@@ -548,7 +548,7 @@ button.warn {
   grid-template-columns: repeat(2, minmax(0, 1fr)) 1px repeat(3, minmax(0, 1fr));
   min-width: 0;
   gap: 10px;
-  min-height: clamp(90px, 16vh, 170px);
+  min-height: clamp(80px, 16vh, 170px);
 }
 .vsep {
   width: 1px;
@@ -582,7 +582,7 @@ button.warn {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 4px;
+  padding: 6px 4px;
   color: var(--off-text);
   transition:
     background 120ms ease,
@@ -872,7 +872,10 @@ button.warn {
   display: none;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  /* The card scrolls inside the overlay when it is taller than the viewport (phone landscape). */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .overlay.open {
   display: flex;
@@ -881,12 +884,17 @@ button.warn {
   background: var(--panel);
   border: 1px solid #1f2630;
   border-radius: 24px;
-  padding: 32px;
+  padding: clamp(18px, 4vh, 32px) clamp(18px, 4vw, 32px);
   max-width: 560px;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: clamp(10px, 2vh, 18px);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* keep the card from being centred off the top when it overflows */
+  margin: auto;
 }
 .card h1 {
   margin: 0;
@@ -909,6 +917,70 @@ button.warn {
   min-width: 160px;
   font-size: 16px;
 }
+.card .install-block {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid #242b35;
+}
+.card .install-block button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.card .install-block button > svg {
+  width: 18px;
+  height: 18px;
+}
+.card .install-text {
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 0;
+}
+.card .install-text strong {
+  color: var(--text);
+}
+@media (max-width: 520px) {
+  .card .install-block {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* ---------- update bar ---------- */
+.update-bar {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(92vw, 640px);
+  padding: 10px 12px 10px 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+  z-index: 21;
+}
+.update-bar button {
+  flex: none;
+  font-size: 14px;
+  padding: 8px 12px;
+}
+/* display:flex above would beat the UA [hidden] rule (same trap as the top-bar buttons). */
+.update-bar[hidden],
+.card .install-block[hidden] {
+  display: none;
+}
+
 .card .err {
   color: var(--error);
   font-size: 14px;

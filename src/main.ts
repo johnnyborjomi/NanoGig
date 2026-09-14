@@ -9,6 +9,7 @@ import type { PresetLabelStyle } from './protocol/frames';
 import { WebMidiOut } from './transport/webmidi';
 import { SyncEngine } from './sync/engine';
 import { GigView } from './ui/gigview';
+import { AppUpdater, InstallPrompt } from './pwa';
 
 const params = new URLSearchParams(location.search);
 const flag = (name: string) => params.get(name) === '1' || params.get(name) === 'true';
@@ -50,6 +51,8 @@ const createBle = (): BleLike => (isNative ? new CapacitorBleTransport() : new B
 const isBle = (t: Transport | null): t is BleLike => t instanceof BleTransport || t instanceof CapacitorBleTransport;
 
 const store = new Store(loadSettings());
+const installPrompt = new InstallPrompt(store);
+const updater = new AppUpdater(store, `${import.meta.env.BASE_URL}sw.js`);
 let transport: Transport | null = null;
 let engine: SyncEngine | null = null;
 
@@ -107,6 +110,8 @@ const view = new GigView(
       store.patch(patch);
       saveSettings();
     },
+    installApp: () => installPrompt.install(),
+    applyUpdate: () => updater.apply(),
   },
   {
     bluetoothAvailable: (isNative || isWebBluetoothAvailable()) && !forceMock,
@@ -145,9 +150,7 @@ if (forceMock) {
   });
 }
 
-// PWA: offline shell for the installed app (production builds only; dev keeps HMR simple).
-if (import.meta.env.PROD && !isNative && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((err) => console.warn('SW registration failed', err));
-  });
+// PWA: install prompt + offline shell + update detection (production builds only; dev keeps HMR simple).
+if (import.meta.env.PROD && !isNative) {
+  window.addEventListener('load', () => void updater.register());
 }

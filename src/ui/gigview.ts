@@ -3,11 +3,32 @@
  * Designed for a pedalboard-mounted tablet read from standing height:
  * contrast and size over density.
  */
-import { FX_SLOTS, PRESETS_PER_BANK_CHOICES, presetLabel, presetLabelParts, type FxSlot, type PresetLabelStyle } from "../protocol/frames";
+import {
+  FX_SLOTS,
+  PRESETS_PER_BANK_CHOICES,
+  presetLabel,
+  presetLabelParts,
+  type FxSlot,
+  type PresetLabelStyle,
+} from "../protocol/frames";
 import type { GigState } from "../state/store";
 import type { Store } from "../state/store";
 import type { LogLine } from "../transport/types";
-import { ChevronLeft, ChevronRight, Lock, LogOut, Maximize, Menu, Minimize, Power, RefreshCw, ScrollText, Settings, createElement as lucideElement } from "lucide";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Lock,
+  LogOut,
+  Maximize,
+  Menu,
+  Minimize,
+  Power,
+  RefreshCw,
+  ScrollText,
+  Settings,
+  createElement as lucideElement,
+} from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { PRESET_COUNT } from "../protocol/frames";
 
@@ -25,7 +46,15 @@ export interface GigViewActions {
   simulateDrop?(): void;
   setWritesEnabled(enabled: boolean): void;
   reconnectNow(): void;
-  setSettings(patch: { presetsPerBank?: number; labelStyle?: PresetLabelStyle; showPresetNumber?: boolean }): void;
+  setSettings(patch: {
+    presetsPerBank?: number;
+    labelStyle?: PresetLabelStyle;
+    showPresetNumber?: boolean;
+  }): void;
+  /** PWA: show the browser's install dialog (only offered when the store says installable). */
+  installApp?(): Promise<void>;
+  /** PWA: activate the waiting service worker and reload. */
+  applyUpdate?(): void;
 }
 
 export interface GigViewOptions {
@@ -48,7 +77,14 @@ const TILE_LABELS: Record<FxSlot | "gate" | "cab", string> = {
 };
 
 /** Cab/IR is shown on the capture/IR line instead of as a tile, to leave room for the FX blocks. */
-const TILE_ORDER: (FxSlot | "gate" | "cab")[] = ["gate", "pre1", "pre2", "post1", "post2", "post3"];
+const TILE_ORDER: (FxSlot | "gate" | "cab")[] = [
+  "gate",
+  "pre1",
+  "pre2",
+  "post1",
+  "post2",
+  "post3",
+];
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -107,7 +143,10 @@ export class GigView {
   private readonly numberCheck = el("input", "menu-check");
   private presetEl: HTMLElement | null = null;
   private fitKey = "";
-  private readonly rowResize = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => this.fitPresetRow()) : null;
+  private readonly rowResize =
+    typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => this.fitPresetRow())
+      : null;
   private readonly subEl = el("div", "preset-sub");
   private readonly captureEl = el("span", "capture sub-name");
   private readonly irEl = el("span", "ir sub-name");
@@ -124,7 +163,14 @@ export class GigView {
   private stripCentre: number | null = null;
   private readonly stripPrev = el("button", "pbtn-nav");
   private readonly stripNext = el("button", "pbtn-nav");
-  private readonly presetBtns: { root: HTMLButtonElement; bank: HTMLElement; slot: HTMLElement; num: HTMLElement; name: HTMLElement; index: number }[] = [];
+  private readonly presetBtns: {
+    root: HTMLButtonElement;
+    bank: HTMLElement;
+    slot: HTMLElement;
+    num: HTMLElement;
+    name: HTMLElement;
+    index: number;
+  }[] = [];
   private readonly toastEl = el("div", "toast");
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private lastShownError: string | null = null;
@@ -135,8 +181,12 @@ export class GigView {
   private readonly overlay = el("div", "overlay connect open");
   private readonly overlayErr = el("div", "err");
   private readonly connectBtn = el("button", "primary", "Connect Nano Cortex");
-  private readonly connectAllBtn = el("button", "", "Show all devices");
+  private readonly connectAllBtn = el("button", "", "Show all BT devices");
   private readonly mockBtn = el("button", "", "Demo mode (no device)");
+  private readonly installBlock = el("div", "install-block");
+  private readonly installBtn = el("button", "", "");
+  private readonly updateBar = el("div", "update-bar");
+  private updateDismissed = false;
   private readonly disconnectBtn = el("button", "ghost", "Disconnect");
   private readonly fullscreenBtn = el("button", "ghost icon-btn", "");
   private readonly consoleBtn = el("button", "ghost", "Log");
@@ -192,7 +242,9 @@ export class GigView {
     );
     this.writesBtn.title =
       "Control mode: tap tiles to toggle blocks, ◀ ▶ to switch presets. Changes go to the real pedal.";
-    this.writesState.append(lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" }));
+    this.writesState.append(
+      lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" }),
+    );
     this.writesState.dataset.on = "false";
     this.writesBtn.append(el("span", "", "Control"), this.writesState);
     this.writesBtn.addEventListener("click", () =>
@@ -206,10 +258,14 @@ export class GigView {
     // Fullscreen: icon only.
     this.fullscreenBtn.title = "Fullscreen";
     this.fullscreenBtn.setAttribute("aria-label", "Fullscreen");
-    this.fullscreenBtn.append(lucideElement(Maximize, { "aria-hidden": "true" }));
+    this.fullscreenBtn.append(
+      lucideElement(Maximize, { "aria-hidden": "true" }),
+    );
     document.addEventListener("fullscreenchange", () => {
       this.fullscreenBtn.replaceChildren(
-        lucideElement(document.fullscreenElement ? Minimize : Maximize, { "aria-hidden": "true" }),
+        lucideElement(document.fullscreenElement ? Minimize : Maximize, {
+          "aria-hidden": "true",
+        }),
       );
     });
 
@@ -231,17 +287,23 @@ export class GigView {
     ];
     items.forEach(([b, icon, label], i) => {
       b.className = "menu-item";
-      b.replaceChildren(lucideElement(icon, { "aria-hidden": "true" }), el("span", "", label));
+      b.replaceChildren(
+        lucideElement(icon, { "aria-hidden": "true" }),
+        el("span", "", label),
+      );
       b.addEventListener("click", () => this.menu.classList.remove("open"));
       if (i > 0) this.menu.append(el("div", "menu-sep"));
       this.menu.append(b);
     });
     this.disconnectBtn.classList.add("danger");
-    this.settingsBtn.addEventListener("click", () => this.settingsOverlay.classList.add("open"));
+    this.settingsBtn.addEventListener("click", () =>
+      this.settingsOverlay.classList.add("open"),
+    );
     this.menuInfo.hidden = true;
     this.menu.append(el("div", "menu-sep strong"), this.menuInfo);
     document.addEventListener("click", (e) => {
-      if (!this.menu.contains(e.target as Node)) this.menu.classList.remove("open");
+      if (!this.menu.contains(e.target as Node))
+        this.menu.classList.remove("open");
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") this.menu.classList.remove("open");
@@ -252,9 +314,21 @@ export class GigView {
     // Demo mode only: a clear way back to the connect screen (Disconnect alone reads as an error).
     this.exitDemoBtn.hidden = true;
     this.exitDemoBtn.title = "Leave demo mode and return to the connect screen";
-    this.exitDemoBtn.append(lucideElement(LogOut, { "aria-hidden": "true" }), el("span", "", "Exit demo"));
-    this.exitDemoBtn.addEventListener("click", () => void this.actions.disconnect());
-    actions.append(this.reconnectBtn, this.exitDemoBtn, this.writesBtn, this.fullscreenBtn, menuWrap);
+    this.exitDemoBtn.append(
+      lucideElement(LogOut, { "aria-hidden": "true" }),
+      el("span", "", "Exit demo"),
+    );
+    this.exitDemoBtn.addEventListener(
+      "click",
+      () => void this.actions.disconnect(),
+    );
+    actions.append(
+      this.reconnectBtn,
+      this.exitDemoBtn,
+      this.writesBtn,
+      this.fullscreenBtn,
+      menuWrap,
+    );
     top.append(status, actions);
 
     // Preset area ------------------------------------------------------
@@ -264,9 +338,15 @@ export class GigView {
     const capLbl = el("span", "lbl", "capture");
     const irLbl = el("span", "lbl", "cab / ir");
     for (const st of [this.captureState, this.irState]) {
-      const power = lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" });
+      const power = lucideElement(Power, {
+        "stroke-width": 2.5,
+        "aria-hidden": "true",
+      });
       power.classList.add("i-power");
-      const lock = lucideElement(Lock, { "stroke-width": 2.5, "aria-hidden": "true" });
+      const lock = lucideElement(Lock, {
+        "stroke-width": 2.5,
+        "aria-hidden": "true",
+      });
       lock.classList.add("i-lock");
       st.append(power, lock);
       st.dataset.on = "unknown";
@@ -305,7 +385,10 @@ export class GigView {
       if (key === "gate") {
         // Own line: "GATE" text followed by a small power button.
         tile.classList.add("gate-btn");
-        const icon = lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" });
+        const icon = lucideElement(Power, {
+          "stroke-width": 2.5,
+          "aria-hidden": "true",
+        });
         icon.classList.add("t-icon");
         tile.append(icon);
         const gateRow = el("div", "gate-row");
@@ -344,8 +427,18 @@ export class GigView {
       grid.append(root);
     }
     // Narrow icon-only arrows page the window without selecting anything (control mode only).
-    this.stripPrev.append(lucideElement(ChevronLeft, { "stroke-width": 2.5, "aria-hidden": "true" }));
-    this.stripNext.append(lucideElement(ChevronRight, { "stroke-width": 2.5, "aria-hidden": "true" }));
+    this.stripPrev.append(
+      lucideElement(ChevronLeft, {
+        "stroke-width": 2.5,
+        "aria-hidden": "true",
+      }),
+    );
+    this.stripNext.append(
+      lucideElement(ChevronRight, {
+        "stroke-width": 2.5,
+        "aria-hidden": "true",
+      }),
+    );
     this.stripPrev.setAttribute("aria-label", "Previous presets");
     this.stripNext.setAttribute("aria-label", "Next presets");
     this.stripPrev.addEventListener("click", () => this.pageStrip(-1));
@@ -412,7 +505,9 @@ export class GigView {
         this.bankSelect.append(opt);
       }
       this.bankSelect.addEventListener("change", () =>
-        this.actions.setSettings({ presetsPerBank: Number(this.bankSelect.value) }),
+        this.actions.setSettings({
+          presetsPerBank: Number(this.bankSelect.value),
+        }),
       );
       bankRow.append(this.bankSelect);
 
@@ -428,7 +523,9 @@ export class GigView {
         this.styleSelect.append(opt);
       }
       this.styleSelect.addEventListener("change", () =>
-        this.actions.setSettings({ labelStyle: this.styleSelect.value as PresetLabelStyle }),
+        this.actions.setSettings({
+          labelStyle: this.styleSelect.value as PresetLabelStyle,
+        }),
       );
       styleRow.append(this.styleSelect);
 
@@ -436,16 +533,21 @@ export class GigView {
       numberRow.append(el("span", "", "Show pedal preset number (1–64)"));
       this.numberCheck.type = "checkbox";
       this.numberCheck.addEventListener("change", () =>
-        this.actions.setSettings({ showPresetNumber: this.numberCheck.checked }),
+        this.actions.setSettings({
+          showPresetNumber: this.numberCheck.checked,
+        }),
       );
       numberRow.append(this.numberCheck);
 
       const close = el("button", "primary", "Done");
-      close.addEventListener("click", () => this.settingsOverlay.classList.remove("open"));
+      close.addEventListener("click", () =>
+        this.settingsOverlay.classList.remove("open"),
+      );
       card.append(bankRow, styleRow, numberRow, this.settingsPreview, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
-        if (e.target === this.settingsOverlay) this.settingsOverlay.classList.remove("open");
+        if (e.target === this.settingsOverlay)
+          this.settingsOverlay.classList.remove("open");
       });
     }
 
@@ -476,6 +578,25 @@ export class GigView {
     row.append(this.connectBtn, this.connectAllBtn);
     if (this.opts.showMockButton) row.append(this.mockBtn);
     card.append(row);
+
+    // Install (PWA): only shown while the browser offers a prompt and the app is not installed.
+    this.installBtn.append(lucideElement(Download, { "aria-hidden": "true" }), el("span", "", "Install app"));
+    this.installBtn.addEventListener("click", () => {
+      this.overlayErr.textContent = "";
+      void this.actions.installApp?.().catch((e) => (this.overlayErr.textContent = String((e as Error).message ?? e)));
+    });
+    const installText = el("div", "install-text");
+    installText.append(
+      el("strong", "", "Put it on your home screen."),
+      el(
+        "span",
+        "",
+        " Launches fullscreen in landscape with no browser bars, keeps working when the venue has no Wi-Fi, and reconnects to your pedal on launch.",
+      ),
+    );
+    this.installBlock.append(this.installBtn, installText);
+    this.installBlock.hidden = true;
+    card.append(this.installBlock);
     if (!this.opts.bluetoothAvailable) {
       card.append(
         el(
@@ -490,14 +611,35 @@ export class GigView {
       el(
         "p",
         "hint",
-        "Not affiliated with or endorsed by Neural DSP; \"Nano Cortex\" is their trademark. Everything shown is decoded from a reverse-engineered protocol verified on NanOS 2.2.x and may be wrong. Control mode writes to your pedal: back up your presets first. After a reload the app reconnects to the last pedal by itself.",
+        'Not affiliated with or endorsed by Neural DSP; "Nano Cortex" is their trademark. Everything shown is decoded from a reverse-engineered protocol verified on NanOS 2.2.x and may be wrong. Control mode writes to your pedal: back up your presets first. After a reload the app reconnects to the last pedal by itself.',
       ),
     );
     this.overlay.append(card);
 
-    this.menuInfo.append(this.menuDevice, this.menuSync);
+    this.menuInfo.append(this.menuDevice, this.menuSync, el("div", "menu-info-line", `NanoGig v${__APP_VERSION__} · ${__BUILD_ID__}`));
+
+    // Update bar (PWA): a newer build is waiting; reload when it suits you.
+    const updateText = el("span", "", "A NanoGig update is ready.");
+    const reloadBtn = el("button", "primary", "Reload now");
+    reloadBtn.addEventListener("click", () => this.actions.applyUpdate?.());
+    const laterBtn = el("button", "ghost", "Later");
+    laterBtn.addEventListener("click", () => {
+      this.updateDismissed = true;
+      this.updateBar.hidden = true;
+    });
+    this.updateBar.append(updateText, reloadBtn, laterBtn);
+    this.updateBar.hidden = true;
     this.toastEl.hidden = true;
-    root.append(top, preset, blocks, this.toastEl, this.consoleEl, this.settingsOverlay, this.overlay);
+    root.append(
+      top,
+      preset,
+      blocks,
+      this.toastEl,
+      this.updateBar,
+      this.consoleEl,
+      this.settingsOverlay,
+      this.overlay,
+    );
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") void this.requestWakeLock();
     });
@@ -540,8 +682,16 @@ export class GigView {
   private onLabelTap(which: "capture" | "cab") {
     const s = this.store.get();
     if (!s.writesEnabled || s.connection !== "connected") return;
-    if ((which === "capture" ? s.captureSlotKnown.value : s.cabSlotKnown.value) === false) return; // locked
-    const run = which === "capture" ? this.actions.toggleCapture() : this.actions.toggleCab();
+    if (
+      (which === "capture"
+        ? s.captureSlotKnown.value
+        : s.cabSlotKnown.value) === false
+    )
+      return; // locked
+    const run =
+      which === "capture"
+        ? this.actions.toggleCapture()
+        : this.actions.toggleCab();
     void run.catch((e) => this.toast(e));
   }
 
@@ -591,7 +741,10 @@ export class GigView {
     const container = this.presetEl;
     if (!s || !container || !container.isConnected) return;
     const cs = getComputedStyle(container);
-    const available = container.clientWidth - parseFloat(cs.paddingLeft || "0") - parseFloat(cs.paddingRight || "0");
+    const available =
+      container.clientWidth -
+      parseFloat(cs.paddingLeft || "0") -
+      parseFloat(cs.paddingRight || "0");
     if (!(available > 0)) return;
     const maxPx = Math.max(24, Math.round(window.innerHeight * 0.12));
     const names = s.presetNames.value.filter(Boolean);
@@ -609,26 +762,47 @@ export class GigView {
     };
     const labelSpans: HTMLElement[] = [];
     for (let i = 0; i < PRESET_COUNT; i++) {
-      const parts = presetLabelParts(i, { presetsPerBank: s.presetsPerBank, style: s.labelStyle });
+      const parts = presetLabelParts(i, {
+        presetsPerBank: s.presetsPerBank,
+        style: s.labelStyle,
+      });
       if (!parts) continue;
-      const span = mk(`${parts.bank}${parts.slot}${s.showPresetNumber ? `·${i + 1}` : ""}`, "slot-label");
+      const span = mk(
+        `${parts.bank}${parts.slot}${s.showPresetNumber ? `·${i + 1}` : ""}`,
+        "slot-label",
+      );
       if (s.showPresetNumber) {
         // The number is 0.4em: approximate by wrapping it in its own span with the real class.
-        span.replaceChildren(el("span", "", `${parts.bank}${parts.slot}`), el("span", "slot-num", `·${i + 1}`));
+        span.replaceChildren(
+          el("span", "", `${parts.bank}${parts.slot}`),
+          el("span", "slot-num", `·${i + 1}`),
+        );
       }
       labelSpans.push(span);
     }
-    const nameCandidates = names.length ? names : [this.nameEl.textContent ?? ""];
+    const nameCandidates = names.length
+      ? names
+      : [this.nameEl.textContent ?? ""];
     const nameSpans = nameCandidates.map((n) => mk(n, "preset-name"));
     probe.append(...labelSpans, ...nameSpans);
     container.append(probe);
-    const labelWidthRef = Math.max(0, ...labelSpans.map((e) => e.getBoundingClientRect().width));
+    const labelWidthRef = Math.max(
+      0,
+      ...labelSpans.map((e) => e.getBoundingClientRect().width),
+    );
     // preset-name is 0.8em inside the probe (probe is REFERENCE_PX): normalise back to 1em.
-    const nameWidthRef = Math.max(0, ...nameSpans.map((e) => e.getBoundingClientRect().width)) / 0.8;
+    const nameWidthRef =
+      Math.max(0, ...nameSpans.map((e) => e.getBoundingClientRect().width)) /
+      0.8;
     probe.remove();
     if (!(labelWidthRef > 0)) return; // no layout engine (tests): keep the CSS size
 
-    const px = fitPresetRowFont({ availableWidth: available, labelWidthRef, nameWidthRef, maxPx });
+    const px = fitPresetRowFont({
+      availableWidth: available,
+      labelWidthRef,
+      nameWidthRef,
+      maxPx,
+    });
     this.slotEl.style.fontSize = `${px}px`;
   }
 
@@ -644,7 +818,10 @@ export class GigView {
           : s.connection === "reconnecting"
             ? "Reconnecting…"
             : "Disconnected";
-    this.menuDevice.textContent = [s.deviceName, s.firmware.value ? `NanOS ${s.firmware.value}` : null]
+    this.menuDevice.textContent = [
+      s.deviceName,
+      s.firmware.value ? `NanOS ${s.firmware.value}` : null,
+    ]
       .filter(Boolean)
       .join(" · ");
     this.menuDevice.hidden = this.menuDevice.textContent === "";
@@ -655,37 +832,58 @@ export class GigView {
       this.menuSync.textContent = parts.join(" · ");
       this.menuSync.hidden = parts.length === 0;
     }
-    this.menuInfo.hidden = this.menuDevice.hidden && this.menuSync.hidden;
+    this.menuInfo.hidden = false; // the version line is always there
     this.overlay.classList.toggle("open", s.connection === "disconnected");
+    this.installBlock.hidden = !s.installable;
+    if (!s.updateReady) this.updateDismissed = false;
+    this.updateBar.hidden = !s.updateReady || this.updateDismissed;
     this.disconnectBtn.hidden = s.connection === "disconnected";
     this.refreshBtn.hidden = s.connection !== "connected";
     this.menuBtn.hidden = s.connection === "disconnected";
     this.writesState.dataset.on = s.writesEnabled ? "true" : "false";
     this.writesBtn.classList.toggle("warn", s.writesEnabled);
-    this.writesBtn.setAttribute("aria-pressed", s.writesEnabled ? "true" : "false");
+    this.writesBtn.setAttribute(
+      "aria-pressed",
+      s.writesEnabled ? "true" : "false",
+    );
     this.writesBtn.hidden = s.connection === "disconnected";
     const demo = s.transportName === "mock" && s.connection !== "disconnected";
     this.exitDemoBtn.hidden = !demo;
-    this.statusText.textContent = demo ? `${this.statusText.textContent} · demo` : this.statusText.textContent;
+    this.statusText.textContent = demo
+      ? `${this.statusText.textContent} · demo`
+      : this.statusText.textContent;
     this.reconnectBtn.hidden = s.connection !== "reconnecting";
     const controlling = s.writesEnabled && s.connection === "connected";
     // Strip is always shown once connected; buttons only act in control mode.
-    this.presetStrip.classList.toggle("visible", s.connection !== "disconnected");
+    this.presetStrip.classList.toggle(
+      "visible",
+      s.connection !== "disconnected",
+    );
     this.presetStrip.classList.toggle("writable", controlling);
     if (s.connection === "connected" && !this.wakeLock)
       void this.requestWakeLock();
 
     // Preset --------------------------------------------------------
     const idx = s.activePreset.value;
-    const label = idx === null ? null : presetLabelParts(idx, { presetsPerBank: s.presetsPerBank, style: s.labelStyle });
+    const label =
+      idx === null
+        ? null
+        : presetLabelParts(idx, {
+            presetsPerBank: s.presetsPerBank,
+            style: s.labelStyle,
+          });
     this.slotBank.textContent = label ? label.bank : "—";
     this.slotSlot.textContent = label ? label.slot : "";
     this.slotSlot.dataset.slot = label ? String(label.slotIndex) : "";
-    this.slotNum.textContent = label && s.showPresetNumber && idx !== null ? `·${idx + 1}` : "";
+    this.slotNum.textContent =
+      label && s.showPresetNumber && idx !== null ? `·${idx + 1}` : "";
     this.slotNum.hidden = this.slotNum.textContent === "";
-    if (this.numberCheck.checked !== s.showPresetNumber) this.numberCheck.checked = s.showPresetNumber;
-    if (this.bankSelect.value !== String(s.presetsPerBank)) this.bankSelect.value = String(s.presetsPerBank);
-    if (this.styleSelect.value !== s.labelStyle) this.styleSelect.value = s.labelStyle;
+    if (this.numberCheck.checked !== s.showPresetNumber)
+      this.numberCheck.checked = s.showPresetNumber;
+    if (this.bankSelect.value !== String(s.presetsPerBank))
+      this.bankSelect.value = String(s.presetsPerBank);
+    if (this.styleSelect.value !== s.labelStyle)
+      this.styleSelect.value = s.labelStyle;
     {
       const opts = { presetsPerBank: s.presetsPerBank, style: s.labelStyle };
       this.settingsPreview.textContent = `Preview: preset 1 → ${presetLabel(0, opts)}, preset ${s.presetsPerBank + 2} → ${presetLabel(s.presetsPerBank + 1, opts)}, preset 64 → ${presetLabel(63, opts)}`;
@@ -701,24 +899,36 @@ export class GigView {
     this.sourceTag.dataset.source = s.activePreset.source;
     this.sourceTag.hidden = this.sourceTag.textContent === "";
     const name = idx === null ? "" : (s.presetNames.value[idx] ?? "");
-    const shown = idx === null ? placeholderFor(s) : name || `Preset ${idx + 1}`;
+    const shown =
+      idx === null ? placeholderFor(s) : name || `Preset ${idx + 1}`;
     this.nameEl.classList.toggle("empty", idx === null || !name);
     if (this.nameEl.textContent !== shown) this.nameEl.textContent = shown;
     this.fitPresetRow(s);
     this.captureEl.textContent = s.captureName.value || "—";
     this.irEl.textContent = s.irName.value || "—";
-    const onAttr = (v: boolean | null) => (v === null ? "unknown" : v ? "true" : "false");
+    const onAttr = (v: boolean | null) =>
+      v === null ? "unknown" : v ? "true" : "false";
     // Locked = the current capture/IR is not in the pedal's slot list, so it could not be re-enabled from here.
     const locks: [HTMLElement, HTMLElement, boolean | null, string][] = [
-      [this.subLabels[0]!, this.captureState, s.captureSlotKnown.value, "capture"],
+      [
+        this.subLabels[0]!,
+        this.captureState,
+        s.captureSlotKnown.value,
+        "capture",
+      ],
       [this.subLabels[1]!, this.irState, s.cabSlotKnown.value, "IR"],
     ];
     for (const [lbl, st, known, what] of locks) {
       const locked = known === false;
-      lbl.classList.toggle("writable", s.writesEnabled && s.connection === "connected" && !locked);
+      lbl.classList.toggle(
+        "writable",
+        s.writesEnabled && s.connection === "connected" && !locked,
+      );
       lbl.classList.toggle("locked", locked);
       st.dataset.locked = locked ? "true" : "false";
-      lbl.title = locked ? `This ${what} is not in the pedal's slot list, so it can only be switched on the pedal` : "";
+      lbl.title = locked
+        ? `This ${what} is not in the pedal's slot list, so it can only be switched on the pedal`
+        : "";
     }
     this.captureState.dataset.on = onAttr(s.captureOn.value);
     this.irState.dataset.on = onAttr(s.cabOn.value);
@@ -735,17 +945,22 @@ export class GigView {
       t.root.dataset.on = on === null ? "unknown" : on ? "true" : "false";
       if (key !== "gate" && key !== "cab") {
         const model = s.fxModels.value[key];
-        t.name.textContent = model ? model.name : on === null ? TILE_LABELS[key] : "Empty";
+        t.name.textContent = model
+          ? model.name
+          : on === null
+            ? TILE_LABELS[key]
+            : "Empty";
         t.category.textContent = model?.known ? model.category : "";
         t.root.classList.toggle("empty", !model && on !== null);
         // Category drives the tile colour (see --fx-* in styles.css).
-        t.root.dataset.cat = model?.known ? categorySlug(model.category) : model ? "unknown" : "none";
+        t.root.dataset.cat = model?.known
+          ? categorySlug(model.category)
+          : model
+            ? "unknown"
+            : "none";
       }
       const writable =
-        s.writesEnabled &&
-        s.connection === "connected" &&
-        on !== null &&
-        true;
+        s.writesEnabled && s.connection === "connected" && on !== null && true;
       t.root.classList.toggle("writable", writable);
       t.root.setAttribute("aria-disabled", writable ? "false" : "true");
       t.root.style.pointerEvents = writable ? "auto" : "none";
@@ -755,7 +970,8 @@ export class GigView {
     this.renderPresetStrip(s);
 
     // Errors surface as a transient toast (the hex log keeps the history).
-    if (s.lastError && s.lastError !== this.lastShownError) this.showToast(s.lastError);
+    if (s.lastError && s.lastError !== this.lastShownError)
+      this.showToast(s.lastError);
     this.lastShownError = s.lastError ?? null;
 
     // Console ------------------------------------------------------

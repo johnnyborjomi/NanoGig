@@ -51,6 +51,15 @@ Every push to `main` runs the tests, builds and deploys `dist/` to GitHub Pages
 to the Android home screen as a fullscreen landscape app. The build uses relative asset paths
 (`base: './'`), so `dist/` also works from any static host or a local folder.
 
+**Install and updates** (`src/pwa.ts`): the connect screen shows an "Install app" block while
+the browser holds a deferred `beforeinstallprompt` and the app is not running standalone. The
+build stamps `sw.js` with `<version>-<git sha>` (`vite.config.ts`), so every deploy changes
+the worker file; when a new worker has installed and is waiting, the store's `updateReady`
+flips and the UI shows "A NanoGig update is ready" with Reload / Later. Reload posts
+`SKIP_WAITING` to the waiting worker and reloads on `controllerchange`. The app checks for
+updates when it returns to the foreground and hourly while open. Menu → info shows the running
+version and build.
+
 ## Releases
 
 Tag-driven (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` runs the tests, builds,

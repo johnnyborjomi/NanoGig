@@ -104,6 +104,43 @@ describe('GigView', () => {
   });
 });
 
+describe('GigView PWA install and update', () => {
+  it('offers Install only when the browser reported a prompt, and an update bar with Later', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    const calls: string[] = [];
+    const actions = { ...noopActions(), installApp: () => { calls.push('install'); return Promise.resolve(); }, applyUpdate: () => calls.push('update') };
+    new GigView(root, store, actions, { bluetoothAvailable: true, showMockButton: false });
+    const block = root.querySelector<HTMLElement>('.install-block')!;
+    expect(block.hidden).toBe(true);
+    store.patch({ installable: true });
+    expect(block.hidden).toBe(false);
+    expect(block.textContent).toContain('Install app');
+    expect(block.textContent).toContain('home screen');
+    block.querySelector('button')!.click();
+    expect(calls).toEqual(['install']);
+    store.patch({ installable: false });
+    expect(block.hidden).toBe(true);
+
+    const bar = root.querySelector<HTMLElement>('.update-bar')!;
+    expect(bar.hidden).toBe(true);
+    store.patch({ updateReady: true });
+    expect(bar.hidden).toBe(false);
+    const [reload, later] = Array.from(bar.querySelectorAll('button'));
+    later!.click();
+    expect(bar.hidden).toBe(true);
+    store.patch({ connection: 'connected' }); // unrelated re-render keeps it dismissed
+    expect(bar.hidden).toBe(true);
+    store.patch({ updateReady: false });
+    store.patch({ updateReady: true }); // a newer update shows again
+    expect(bar.hidden).toBe(false);
+    reload!.click();
+    expect(calls).toEqual(['install', 'update']);
+    expect(root.querySelector('.menu-info')?.textContent).toMatch(/NanoGig v\d+\.\d+\.\d+/);
+  });
+});
+
 describe('GigView preset strip', () => {
   it('shows seven preset buttons centred on the active preset in control mode, wrapping around 64', () => {
     const root = document.createElement('div');
