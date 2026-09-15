@@ -46,23 +46,35 @@ docs/PROTOCOL.md              What the bytes mean
 
 ## Hosting
 
-GitHub Pages carries two channels on one site (`.github/workflows/pages.yml`):
+Two channels, two GitHub Pages sites:
 
-| Channel    | URL                                              | Built from                        | Updated on                |
-| ---------- | ------------------------------------------------ | --------------------------------- | ------------------------- |
-| production | https://johnnyborjomi.github.io/NanoGig/         | the latest release tag `vX.Y.Z`   | a release (tag push)      |
-| staging    | https://johnnyborjomi.github.io/NanoGig/staging/ | the head of `main`                | every push to `main`      |
+| Channel    | URL                                              | Built from                      | Updated on             | Workflow                         |
+| ---------- | ------------------------------------------------ | ------------------------------- | ---------------------- | -------------------------------- |
+| production | https://johnnyborjomi.github.io/NanoGig/         | the release tag `vX.Y.Z`        | a release (tag push)   | `.github/workflows/pages.yml`    |
+| staging    | https://johnnyborjomi.github.io/NanoGig-staging/ | the head of `main`              | every push to `main`   | `.github/workflows/staging.yml`  |
 
-Pages replaces the whole site on every deploy, so the workflow always builds both: it checks
-out `main` for staging and the highest final release tag for production (pre-release tags
-such as `v1.2.0-rc1` are skipped; with no tag at all, production falls back to `main`). The
-production build is reproducible from its tag, so re-deploying it on a `main` push leaves
-`sw.js` byte-identical and installed apps see no update prompt until the next release.
+Production deploys from the tag itself, so installed apps see "A NanoGig update is ready" only
+when a version is released. Run the workflow by hand to redeploy the highest final release tag
+(pre-release tags such as `v1.2.0-rc1` are skipped).
 
 Staging is built with `NANOGIG_CHANNEL=staging` (`vite.config.ts`): its manifest is named
-"NanoGig β" so it installs next to the production app, the page title says "staging", and
-Menu → info shows `· staging`. Both channels share the origin, so settings, the preset-name
-cache and the remembered pedal are shared between them.
+"NanoGig β" so it installs next to the production app, the connect screen shows a _beta_ tag,
+the page title says "staging", and Menu → info shows `· staging`. It lives in its own
+repository, [NanoGig-staging](https://github.com/johnnyborjomi/NanoGig-staging), because
+Chrome treats every URL inside an installed app's scope as that app: a `/NanoGig/staging/`
+sub-path could not be installed next to the released `/NanoGig/` app. The staging workflow
+pushes `dist/` to that repo's `gh-pages` branch with a write deploy key whose private half is
+the `STAGING_DEPLOY_KEY` secret of this repo. To rotate it:
+
+```bash
+ssh-keygen -t ed25519 -N "" -C nanogig-staging-deploy -f staging_key
+gh repo deploy-key add staging_key.pub --repo johnnyborjomi/NanoGig-staging --title "NanoGig main → staging" --allow-write
+gh secret set STAGING_DEPLOY_KEY --repo johnnyborjomi/NanoGig < staging_key
+rm staging_key staging_key.pub
+```
+
+Both sites share the `johnnyborjomi.github.io` origin, so settings, the preset-name cache and
+the remembered pedal are shared between them.
 
 The site is a PWA (manifest + service worker) and installs to the Android home screen as a
 fullscreen landscape app. The build uses relative asset paths (`base: './'`), so `dist/`
@@ -81,9 +93,9 @@ version and build.
 
 Tag-driven (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` runs the tests, builds,
 zips `dist/` as `nanogig-vX.Y.Z-web.zip` and publishes a GitHub Release with auto-generated
-notes. The zip is a self-hostable copy of the web app. The same tag push also redeploys
-GitHub Pages, which puts the tagged build at the site root: that is when installed apps see
-"A NanoGig update is ready". Between releases, `main` is only visible on `/staging/`.
+notes. The zip is a self-hostable copy of the web app. The same tag push also deploys the
+production site, which is when installed apps see "A NanoGig update is ready". Between
+releases, `main` is only visible on the staging site.
 
 ```bash
 npm version minor          # bumps package.json, commits, creates the tag vX.Y.Z

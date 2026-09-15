@@ -622,7 +622,11 @@ export class GigView {
 
     // Connect overlay -----------------------------------------------
     const card = el("div", "card");
-    card.append(el("h1", "", "NanoGig"));
+    {
+      const title = el("h1", "", "NanoGig");
+      if (__CHANNEL__ === "staging") title.append(el("span", "beta-tag", "beta"));
+      card.append(title);
+    }
     card.append(
       el(
         "p",

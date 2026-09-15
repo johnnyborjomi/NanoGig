@@ -1,0 +1,44 @@
+# Staging site: https://johnnyborjomi.github.io/NanoGig-staging/
+# Every push to main builds the app with the staging channel (manifest "NanoGig β", "beta" tag
+# on the connect screen) and pushes dist/ to the gh-pages branch of the NanoGig-staging repo,
+# which serves it. A separate repo (not a sub-path of the released site) because Chrome treats
+# any URL inside an installed app's scope as that app, which blocked installing staging next
+# to the released app. Needs the STAGING_DEPLOY_KEY secret: the private half of a write
+# deploy key on NanoGig-staging (see docs/DEVELOPMENT.md).
+name: Deploy staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          NANOGIG_CHANNEL: staging
+      - name: Push dist/ to NanoGig-staging (gh-pages)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.STAGING_DEPLOY_KEY }}
+          external_repository: johnnyborjomi/NanoGig-staging
+          publish_branch: gh-pages
+          publish_dir: ./dist
+          force_orphan: true
+          commit_message: "staging: main@${{ github.sha }}"

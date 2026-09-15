@@ -963,7 +963,7 @@ button.warn {
 .overlay {
   position: fixed;
   inset: 0;
-  z-index: 30; /* above the top bar (3), menu (20), toast (20) and update bar (21) */
+  z-index: 30; /* above the top bar (3), menu (20) and toast (20); the update bar (40) stays on top */
   background: rgba(7, 9, 12, 0.92);
   display: none;
   align-items: center;
@@ -996,6 +996,19 @@ button.warn {
   margin: 0;
   font-size: 28px;
   letter-spacing: -0.01em;
+}
+.card h1 .beta-tag {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 .card h2 {
   margin: 8px 0 0;
@@ -1072,7 +1085,7 @@ button.warn {
   border: 1px solid var(--accent);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
   font-size: 14px;
-  z-index: 21;
+  z-index: 40; /* above the connect / settings overlays (30) so a reload can be taken before connecting */
 }
 .update-bar button {
   flex: none;
