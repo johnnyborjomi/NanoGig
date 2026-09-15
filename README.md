@@ -54,8 +54,10 @@ SETTINGS FOR MIDI CONTROLLER:
    browser from the table below.
 3. Tap **Connect Nano Cortex**, pick the pedal in the chooser, done. The app reconnects on
    its own after a page reload or a pedal power cycle. Preset names are remembered on the
-   device, so from the second connect on the screen is live as soon as the link is up and the
-   name list refreshes quietly in the background.
+   device, so from the second connect on the screen is live as soon as the link is up. The
+   name list is re-read once the pedal has been idle for a minute (or at once when a preset's
+   capture or cab no longer matches what was remembered), which picks up renames made in
+   Cortex Cloud; Menu → Refresh names does it on demand.
 4. Tap the fullscreen button and put the device where you can see it.
 
 No pedal at hand? **Demo mode** on the connect screen runs the whole UI against a fake pedal.
@@ -94,7 +96,10 @@ works over Bluetooth alone. Firefox and Safari have no Web Bluetooth and are not
 Chocolate), label style _1B_ or _A2_, whether to show the pedal's own preset number (1-64)
 next to the label, whether to show the Nano's own footswitch assignments as IA / IB /
 IIA / IIB badges, for playing without a MIDI controller, and whether to show the preset list
-under the FX tiles at all. Under **Pedal**, a **Mute outputs 1/2** switch sends the same
+under the FX tiles at all. Under **Pedal**, **Re-read preset names when idle** (on by default)
+can be switched off for a gig: the pedal takes about 6 s to send the list and holds footswitch
+presses back meanwhile, so the app only does it after a quiet minute and says _updating names_
+in the top bar while it runs. A **Mute outputs 1/2** switch sends the same
 command Cortex Cloud's global setting does, handy when you monitor through a DAW over USB. It
 works without control mode, shows the pedal's own report of the switch, and while muted a
 small _1/2_ badge sits next to the tempo in the top bar.

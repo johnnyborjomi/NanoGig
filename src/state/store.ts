@@ -37,6 +37,13 @@ export interface GigState {
   showFootswitches: boolean;
   /** User setting: show the preset strip under the FX tiles (off = simpler view; control mode still works for tiles/labels). */
   showPresetStrip: boolean;
+  /**
+   * User setting: re-read the preset names once per connect after the pedal has been idle for a
+   * while (cached names only). The ~6 s stream delays any footswitch press made during it.
+   */
+  autoRefreshNames: boolean;
+  /** A metadata (names) stream is in flight on a live link; footswitch events queue behind it. */
+  namesRefreshing: boolean;
   /** PWA: the browser offered an install prompt and the app is not installed yet. */
   installable: boolean;
   /** PWA: a newer build's service worker is installed and waiting for a reload. */
@@ -93,6 +100,8 @@ export function initialState(transportName = 'none'): GigState {
     showPresetNumber: false,
     showFootswitches: false,
     showPresetStrip: true,
+    autoRefreshNames: true,
+    namesRefreshing: false,
     installable: false,
     updateReady: false,
     presetNames: field(Array.from({ length: PRESET_COUNT }, () => '')),
@@ -175,6 +184,7 @@ export class Store {
       irName: s.irName,
       cabSlotKnown: s.cabSlotKnown,
       outputsMuted: s.outputsMuted,
+      namesRefreshing: false,
       syncPhase: 'idle',
     };
     this.notify();

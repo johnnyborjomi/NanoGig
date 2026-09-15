@@ -46,8 +46,13 @@ are simply the length bytes of MTU-sized packets.
 | Device settings     | `06 C0 08 03 41 00 00 00`                    | 60 B single packet, type `0x42` (new, 2026-09-15) |
 
 NanoGig streams the metadata dump only on the first ever connect. Afterwards the names come
-from a localStorage cache at connect, the small state dump makes the screen live, and the
-metadata dump is re-read in the background to refresh names and cache silently.
+from a localStorage cache at connect and the small state dump makes the screen live. The
+pedal sends notifications in order, so while it streams the ~17 KB dump every footswitch
+event queues behind it (~6 s with nothing on screen reacting); the dump is therefore re-read
+only when the state dump contradicts the cache (the active preset's capture / IR differ from
+its cached record), once per connect after the pedal has been idle for a minute (setting, on
+by default), or on Menu → Refresh names. The state embedded in a metadata reply is as old as
+the request and is ignored on a live link; a fresh state dump follows.
 
 ## Metadata message
 

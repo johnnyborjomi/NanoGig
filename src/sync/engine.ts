@@ -14,8 +14,11 @@
  *
  * Fast start: when names are already known (from earlier in the session or the
  * persistent metadata cache) the link goes straight to the small state dump and
- * is `ready` within a second; the 6 s metadata stream then runs in the
- * background and silently replaces the names and the cache if anything changed.
+ * is `ready` within a second. The 6 s metadata stream is NOT re-read by default:
+ * the pedal sends notifications in order, so while it streams the dump every
+ * footswitch event queues behind it and the screen is deaf for the duration.
+ * Names are re-read only when the state dump contradicts the cache (the active
+ * preset's capture / IR differ from its cached record) or on Refresh names.
  *
  * Writes (FX toggle, preset switch) are gated behind `writesEnabled`, off by
  * default, optimistic, and confirmed by a follow-up state dump.
@@ -79,6 +82,11 @@ export interface EngineOptions {
   midiOut?: MidiOut | null;
   /** Persistent preset/capture/IR names: applied at connect, refreshed in the background. */
   metadataCache?: MetadataCache | null;
+  /**
+   * With cached names, re-read them silently once the pedal has sent nothing for this long
+   * (ms; 0 = never). Bounded cost: a footswitch press during the ~6 s stream lags until it ends.
+   */
+  idleNamesRefreshMs?: number;
 }
 
 /** Fewer preset records than this is treated as a corrupt / partial list and not applied. */
@@ -95,8 +103,9 @@ export class SyncEngine {
   private awaitingMetadata = false;
   /** Fingerprint of the metadata last written to (or read from) the cache. */
   private cachedFingerprint: string | null = null;
-  /** Names came from memory or the cache: refresh the dump silently after the first state. */
-  private backgroundMetadataPending = false;
+  /** Check the next state dump against the cached names (set at connect and after preset changes). */
+  private validateNamesOnNextState = false;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
   /** Device settings (outputs mute) are read once per link, after the first state dump. */
   private settingsRequestedThisLink = false;
   /** Pending outputs-mute write waiting for the pedal's 0x44 ack. */
@@ -125,6 +134,7 @@ export class SyncEngine {
       presetConfirmTimeoutMs: opts.presetConfirmTimeoutMs ?? 1500,
       midiOut: opts.midiOut ?? null,
       metadataCache: opts.metadataCache ?? null,
+      idleNamesRefreshMs: opts.idleNamesRefreshMs ?? 60_000,
     };
     this.midiStrategy = midiStrategyById(this.opts.midiStrategy);
     this.midiPinned = this.midiStrategy !== null;
@@ -153,7 +163,7 @@ export class SyncEngine {
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.assembler.cancel();
-    for (const t of [this.unknownEventTimer, this.metadataTimer, this.confirmTimer]) if (t) clearTimeout(t);
+    for (const t of [this.unknownEventTimer, this.metadataTimer, this.confirmTimer, this.idleTimer]) if (t) clearTimeout(t);
   }
 
   private log(dir: 'info' | 'warn' | 'error', text: string, hex?: string) {
@@ -171,7 +181,8 @@ export class SyncEngine {
     } else {
       this.assembler.cancel();
       this.awaitingMetadata = false;
-      this.backgroundMetadataPending = false;
+      this.validateNamesOnNextState = false;
+      this.stopIdleTimer();
       this.stateRequestInFlightSince = 0; // never coalesce the first request of a new link
       this.settingsRequestedThisLink = false;
       this.settlePresetWaiters(-1);
@@ -182,8 +193,8 @@ export class SyncEngine {
 
   /**
    * Full sync. First link with nothing known: metadata (names + state), then a fresh state
-   * dump. Names already known (session or persistent cache): state dump first so the screen
-   * is live at once, metadata refreshed silently afterwards.
+   * dump. Names already known (session or persistent cache): just the state dump, so the
+   * screen is live at once; the names are checked against it (see `validateCachedNames`).
    */
   async startSync(): Promise<void> {
     if (this.transport.status !== 'connected') return;
@@ -193,8 +204,8 @@ export class SyncEngine {
       if (!this.metadata || this.opts.alwaysRefreshMetadata) {
         await this.requestMetadata();
       } else {
-        this.log('info', 'Preset names already known; reading state first, refreshing names in the background');
-        this.backgroundMetadataPending = true;
+        this.log('info', 'Preset names already known; reading state only (Menu → Refresh names re-reads them)');
+        this.validateNamesOnNextState = true;
         await this.requestState();
       }
     } catch (err) {
@@ -227,22 +238,51 @@ export class SyncEngine {
   }
 
   /**
-   * Request the metadata dump. `silent` keeps the sync phase as it is (background refresh of
-   * names that are already on screen); otherwise the UI shows "Loading presets…" and a state
-   * dump follows once the reply completes (or times out).
+   * Request the metadata dump. `silent` keeps the sync phase as it is (refresh of names that
+   * are already on screen); otherwise the UI shows "Loading presets…" and a state dump follows
+   * once the reply completes (or times out). Either way the pedal is busy streaming for ~6 s
+   * and footswitch events arrive only after it.
    */
   async requestMetadata(opts: { silent?: boolean } = {}): Promise<void> {
     if (this.transport.status !== 'connected') return;
+    this.stopIdleTimer();
     if (!opts.silent) this.store.patch({ syncPhase: 'metadata' });
+    else this.store.patch({ namesRefreshing: true });
     this.awaitingMetadata = true;
     if (this.metadataTimer) clearTimeout(this.metadataTimer);
     this.metadataTimer = setTimeout(() => {
       if (!this.awaitingMetadata) return;
       this.awaitingMetadata = false;
+      this.store.patch({ namesRefreshing: false });
       this.log('warn', opts.silent ? 'No complete metadata reply; keeping the known preset names' : 'No complete metadata reply; continuing with current-state dump');
       if (!opts.silent) void this.requestState();
     }, this.opts.metadataTimeoutMs);
     await this.transport.writeCommand(METADATA_DUMP_REQUEST);
+  }
+
+  /**
+   * Idle refresh: (re)arm after any pedal activity. Fires once the pedal has been quiet for
+   * `idleNamesRefreshMs`, only while names still come from the cache and the setting is on.
+   * Nobody is playing when the pedal has sent nothing for a minute, so the ~6 s stream, which
+   * holds back footswitch events, is least likely to be noticed then.
+   */
+  private armIdleTimer(): void {
+    this.stopIdleTimer();
+    const ms = this.opts.idleNamesRefreshMs;
+    if (!ms || this.transport.status !== 'connected') return;
+    if (this.store.get().presetNames.source !== 'cache' || this.awaitingMetadata) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      const s = this.store.get();
+      if (!s.autoRefreshNames || s.presetNames.source !== 'cache' || this.awaitingMetadata || this.transport.status !== 'connected') return;
+      this.log('info', `Pedal idle for ${Math.round(ms / 1000)} s; re-reading the preset names in the background`);
+      void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Metadata refresh failed: ${(err as Error).message}`));
+    }, ms);
+  }
+
+  private stopIdleTimer(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
   }
 
   /** Request the current-state dump. Coalesces requests issued within 250 ms. */
@@ -314,10 +354,13 @@ export class SyncEngine {
   private onEvent(pkt: NotifyPacket) {
     const ev = decodeEvent(pkt.data);
     this.store.patch({ lastEventAt: pkt.at });
+    this.armIdleTimer(); // any pedal activity restarts the idle clock
     switch (ev.kind) {
       case 'program-change':
         this.log('info', `Preset changed → ${ev.preset + 1} (${ev.shape})`, toHex(pkt.data));
         this.store.setField('activePreset', ev.preset, 'event', pkt.at);
+        // A freshly loaded preset is the one moment its capture / IR should match the cached record.
+        if (this.store.get().presetNames.source === 'cache') this.validateNamesOnNextState = true;
         if (ev.assignments) this.store.setField('footswitches', ev.assignments, 'event', pkt.at);
         this.settlePresetWaiters(ev.preset);
         this.scheduleConfirm(150);
@@ -373,6 +416,7 @@ export class SyncEngine {
       }
       if (this.awaitingMetadata) {
         this.awaitingMetadata = false;
+        this.store.patch({ namesRefreshing: false });
         if (this.metadataTimer) clearTimeout(this.metadataTimer);
         // The metadata reply already carries the state; a fresh state dump is cheap and confirms it.
         void this.requestState();
@@ -386,7 +430,39 @@ export class SyncEngine {
       }
       return;
     }
+    // The state embedded in a metadata reply is as old as the request (~6 s of streaming). On a
+    // link that is already live, applying it would flip the screen back to whatever preset was
+    // active before a footswitch press made during the stream; the fresh state dump requested
+    // above supersedes it anyway. Only the very first sync uses it, to get on screen sooner.
+    if (md.presetRecordCount > 0 && this.store.get().syncPhase === 'ready') {
+      this.log('info', 'Ignoring the state embedded in the metadata reply (a fresh state dump follows)');
+      return;
+    }
     this.applyState(state);
+  }
+
+  /**
+   * Cheap staleness check for cached names: the state dump names the active preset's capture
+   * and IR, and the cached preset record says what they should be. A mismatch right after a
+   * connect or a preset change means the pedal's presets changed since the cache was written,
+   * so the metadata dump is re-read (silently; names stay on screen meanwhile). A rename that
+   * keeps the same capture and IR is not detectable this way: Menu → Refresh names covers it.
+   */
+  private validateCachedNames(state: CurrentState): void {
+    if (!this.validateNamesOnNextState) return;
+    this.validateNamesOnNextState = false;
+    if (this.store.get().presetNames.source !== 'cache' || !this.metadata || state.activePreset === null || this.awaitingMetadata) return;
+    const rec = this.metadata.presets[state.activePreset];
+    if (!rec) return;
+    const norm = (v: string | null | undefined) => (v ?? '').trim().toLowerCase();
+    const capOk = norm(rec.captureName) === norm(state.capture?.name);
+    const irOk = norm(rec.irShortName) === norm(state.ir?.shortName);
+    if (capOk && irOk) return;
+    this.log(
+      'info',
+      `Cached names look stale (preset ${state.activePreset + 1}: capture "${state.capture?.name ?? ''}" / IR "${state.ir?.shortName ?? ''}" vs cached "${rec.captureName}" / "${rec.irShortName}"); re-reading the preset list`,
+    );
+    void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Metadata refresh failed: ${(err as Error).message}`));
   }
 
   private applyState(state: CurrentState) {
@@ -425,11 +501,8 @@ export class SyncEngine {
       }
     }
     this.store.patch({ lastStateSyncAt: at, syncPhase: 'ready' });
-    if (this.backgroundMetadataPending) {
-      // The screen is live; now refresh the names without touching the sync phase.
-      this.backgroundMetadataPending = false;
-      void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Background metadata refresh failed: ${(err as Error).message}`));
-    }
+    this.validateCachedNames(state);
+    this.armIdleTimer();
     if (!this.settingsRequestedThisLink) {
       this.settingsRequestedThisLink = true;
       setTimeout(() => void this.requestDeviceSettings().catch((err) => this.log('warn', `Settings request failed: ${(err as Error).message}`)), this.opts.confirmDelayMs);
@@ -442,6 +515,7 @@ export class SyncEngine {
   }
 
   private scheduleConfirm(delayMs = this.opts.confirmDelayMs) {
+    this.armIdleTimer(); // every app-initiated write comes through here: that is activity too
     if (this.confirmTimer) clearTimeout(this.confirmTimer);
     this.confirmTimer = setTimeout(() => void this.requestState(), delayMs);
   }

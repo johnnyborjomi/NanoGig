@@ -56,6 +56,7 @@ export interface GigViewActions {
     showPresetNumber?: boolean;
     showFootswitches?: boolean;
     showPresetStrip?: boolean;
+    autoRefreshNames?: boolean;
   }): void;
   /** PWA: show the browser's install dialog (only offered when the store says installable). */
   installApp?(): Promise<void>;
@@ -164,6 +165,7 @@ export class GigView {
   private readonly numberCheck = el("input", "menu-check");
   private readonly footswitchCheck = el("input", "menu-check");
   private readonly stripCheck = el("input", "menu-check");
+  private readonly autoNamesCheck = el("input", "menu-check");
   private readonly slotFs = el("span", "fs-badge", "");
   private presetEl: HTMLElement | null = null;
   private fitKey = "";
@@ -597,6 +599,18 @@ export class GigView {
       card.append(bankRow, styleRow, numberRow, fsRow, stripRow, this.settingsPreview);
 
       card.append(el("h2", "", "Pedal"));
+      const autoNamesRow = el("label", "setting-row");
+      autoNamesRow.append(el("span", "", "Re-read preset names when the pedal has been idle for a minute"));
+      this.autoNamesCheck.type = "checkbox";
+      this.autoNamesCheck.addEventListener("change", () =>
+        this.actions.setSettings({ autoRefreshNames: this.autoNamesCheck.checked }),
+      );
+      autoNamesRow.append(this.autoNamesCheck);
+      const autoNamesHint = el(
+        "p",
+        "hint",
+        "Picks up presets renamed in Cortex Cloud. The pedal takes about 6 seconds to send the list and holds footswitch presses back meanwhile, so this waits for a quiet moment; turn it off for a gig and use Menu → Refresh names instead.",
+      );
       const muteRow = el("label", "setting-row");
       muteRow.append(el("span", "", "Mute outputs 1/2"));
       this.muteCheck.type = "checkbox";
@@ -612,7 +626,7 @@ export class GigView {
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(muteRow, this.muteHint, close);
+      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -944,6 +958,7 @@ export class GigView {
     this.statusText.textContent = demo
       ? `${this.statusText.textContent} · demo`
       : this.statusText.textContent;
+    if (s.namesRefreshing && s.connection === "connected") this.statusText.textContent += " · updating names…";
     this.reconnectBtn.hidden = s.connection !== "reconnecting";
     {
       const bpm = s.connection === "connected" ? s.tempo.value : null;
@@ -958,6 +973,7 @@ export class GigView {
       s.connection !== "disconnected" && s.showPresetStrip,
     );
     if (this.stripCheck.checked !== s.showPresetStrip) this.stripCheck.checked = s.showPresetStrip;
+    if (this.autoNamesCheck.checked !== s.autoRefreshNames) this.autoNamesCheck.checked = s.autoRefreshNames;
     this.presetStrip.classList.toggle("writable", controlling);
     if (s.connection === "connected" && !this.wakeLock)
       void this.requestWakeLock();

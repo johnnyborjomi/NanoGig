@@ -20,10 +20,10 @@ async function connect(mock: MockTransport) {
   await p;
 }
 
-function setup(opts: { writes?: boolean; shape?: 'single' | 'segmented' | 'alternate'; cache?: MetadataCache } = {}) {
-  const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, stateReplyShape: opts.shape ?? 'alternate' });
+function setup(opts: { writes?: boolean; shape?: 'single' | 'segmented' | 'alternate'; cache?: MetadataCache; packetGapMs?: number; idleMs?: number } = {}) {
+  const mock = new MockTransport({ latencyMs: 10, packetGapMs: opts.packetGapMs ?? 2, stateReplyShape: opts.shape ?? 'alternate' });
   const store = new Store();
-  const engine = new SyncEngine(mock, store, { writesEnabled: opts.writes ?? false, confirmDelayMs: 50, metadataCache: opts.cache ?? null });
+  const engine = new SyncEngine(mock, store, { writesEnabled: opts.writes ?? false, confirmDelayMs: 50, metadataCache: opts.cache ?? null, idleNamesRefreshMs: opts.idleMs ?? 0 });
   return { mock, store, engine };
 }
 
@@ -42,13 +42,19 @@ function memCache(initial: ReturnType<typeof decodeMetadata> | null = null) {
   return cache;
 }
 
-/** Metadata as the demo pedal reports it, optionally with preset `i` renamed. */
-function demoMetadata(rename?: { index: number; name: string }) {
+/** Metadata as the demo pedal reports it, optionally with one preset's fields changed. */
+function demoMetadata(change?: { index: number; name?: string; captureName?: string }) {
   const presets = DEMO_PRESETS.map((p) => ({ ...p }));
-  if (rename) presets[rename.index] = { ...presets[rename.index]!, name: rename.name };
+  if (change) {
+    const p = presets[change.index]!;
+    presets[change.index] = { ...p, ...(change.name !== undefined ? { name: change.name } : {}), ...(change.captureName !== undefined ? { captureName: change.captureName } : {}) };
+  }
   const body = buildMetadataBody(presets);
   return decodeMetadata(body.subarray(0, body.length - 4));
 }
+
+const METADATA_REQUEST_HEX = '06 C0 08 03 01 00 00 00';
+const metadataRequests = (store: Store) => store.get().log.filter((l) => l.dir === 'tx' && l.hex === METADATA_REQUEST_HEX).length;
 
 describe('SyncEngine with the mock transport', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -205,7 +211,7 @@ describe('SyncEngine with the mock transport', () => {
     engine.dispose();
   });
 
-  it('clears device state on disconnect and re-syncs on reconnect state-first, refreshing metadata in the background', async () => {
+  it('clears device state on disconnect and re-syncs on reconnect with a state dump only', async () => {
     const { mock, store, engine } = setup();
     await connect(mock);
     await flush(3500);
@@ -218,9 +224,10 @@ describe('SyncEngine with the mock transport', () => {
     expect(store.get().connection).toBe('connected');
     expect(store.get().syncPhase).toBe('ready');
     expect(store.get().fxOn.value.post1).toBe(true);
-    // The reconnect reads state first (names were kept), then refreshes metadata in the background.
+    // The reconnect reads state only: names were kept, and re-streaming them would leave the
+    // screen deaf to footswitch presses for the duration.
     const metadataRequests = store.get().log.filter((l) => l.dir === 'tx' && l.hex === '06 C0 08 03 01 00 00 00').length;
-    expect(metadataRequests).toBe(2);
+    expect(metadataRequests).toBe(1);
     engine.dispose();
   });
 });
@@ -520,10 +527,9 @@ describe('metadata cache (fast start)', () => {
     engine.dispose();
   });
 
-  it('with a warm cache the names are on screen at connect, the link is ready after the state dump, and metadata refreshes silently', async () => {
+  it('with a warm cache the names are on screen at connect and the link is live after one state dump, with no metadata stream', async () => {
     const cache = memCache(demoMetadata({ index: 7, name: 'Old Name' }));
     const { mock, store, engine } = setup({ cache });
-    // Record every distinct (phase, names source, preset 8 name) the UI would have seen, in order.
     const seen: string[] = [];
     store.subscribe((s) => {
       const key = `${s.syncPhase}|${s.presetNames.source}|${s.presetNames.value[7]}`;
@@ -536,27 +542,52 @@ describe('metadata cache (fast start)', () => {
       'idle|cache|Old Name', // names on screen before the pedal has replied to anything
       'state|cache|Old Name', // one small state dump…
       'ready|cache|Old Name', // …and the link is live: no "Loading presets…" phase at all
-      'ready|metadata|Clean Chief', // background stream corrected the stale name, silently
     ]);
+    // A plain rename keeps the same capture / IR, so nothing flags the cache as stale: the pedal
+    // is never asked to stream the names (that would leave the screen deaf for ~6 s).
+    expect(metadataRequests(store)).toBe(0);
     expect(store.get().presetNames.value[0]).toBe('Fuzz Face Melter');
     expect(store.get().activePreset.value).toBe(7);
-    expect(cache.saves.length).toBe(1);
-    expect(cache.saves[0]!.presets[7]!.name).toBe('Clean Chief');
-    engine.dispose();
-  });
-
-  it('does not rewrite the cache when the pedal reports the same names', async () => {
-    const cache = memCache(demoMetadata());
-    const { mock, store, engine } = setup({ cache });
-    await connect(mock);
-    await flush(4000);
-    expect(store.get().presetNames.source).toBe('metadata');
     expect(cache.saves.length).toBe(0);
-    expect(store.get().log.some((l) => l.text.includes('restored from the cache'))).toBe(true);
     engine.dispose();
   });
 
-  it('a reconnect within the session also goes state-first with a silent refresh', async () => {
+  it('re-reads the names silently when the state dump contradicts the cached record of the active preset', async () => {
+    const cache = memCache(demoMetadata({ index: 7, name: 'Old Name', captureName: 'Some Other Capture' }));
+    const { mock, store, engine } = setup({ cache });
+    const phases: string[] = [];
+    store.subscribe((s) => {
+      if (phases[phases.length - 1] !== s.syncPhase) phases.push(s.syncPhase);
+    });
+    await connect(mock);
+    await flush(3500);
+    expect(phases).not.toContain('metadata'); // silent: the stale names stayed on screen meanwhile
+    expect(metadataRequests(store)).toBe(1);
+    expect(store.get().log.some((l) => l.text.includes('Cached names look stale'))).toBe(true);
+    expect(store.get().presetNames.value[7]).toBe('Clean Chief');
+    expect(store.get().presetNames.source).toBe('metadata');
+    expect(cache.saves.length).toBe(1);
+    engine.dispose();
+  });
+
+  it('a footswitch press during a metadata stream wins over the stale state embedded in the reply', async () => {
+    const cache = memCache(demoMetadata({ index: 7, captureName: 'Some Other Capture' }));
+    const { mock, store, engine } = setup({ cache, shape: 'single', packetGapMs: 50 });
+    await connect(mock); // state dump → ready → silent metadata refresh starts streaming
+    expect(store.get().syncPhase).toBe('ready');
+    expect(metadataRequests(store)).toBe(1);
+    mock.pressFootswitch(2); // while the stream is still in flight
+    await flush(0);
+    expect(store.get().activePreset.value).toBe(2);
+    await flush(2000); // stream completes, its embedded state says preset 7
+    expect(store.get().log.some((l) => l.text.includes('Ignoring the state embedded'))).toBe(true);
+    expect(store.get().activePreset.value).toBe(2);
+    expect(store.get().activePreset.source).toBe('dump'); // confirmed by the follow-up state dump
+    expect(store.get().presetNames.value[7]).toBe('Clean Chief');
+    engine.dispose();
+  });
+
+  it('a reconnect within the session also goes state-only', async () => {
     const { mock, store, engine } = setup();
     await connect(mock);
     await flush(4000);
@@ -572,6 +603,53 @@ describe('metadata cache (fast start)', () => {
     expect(store.get().syncPhase).toBe('ready');
     expect(phases).not.toContain('metadata');
     expect(store.get().presetNames.value[7]).toBe('Clean Chief');
+    expect(metadataRequests(store)).toBe(1);
+    engine.dispose();
+  });
+});
+
+describe('idle names refresh', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('re-reads cached names once the pedal has been quiet, silently, and shows the indicator meanwhile', async () => {
+    const cache = memCache(demoMetadata({ index: 7, name: 'Old Name' }));
+    const { mock, store, engine } = setup({ cache, idleMs: 5000, packetGapMs: 50 });
+    const phases: string[] = [];
+    store.subscribe((s) => {
+      if (phases[phases.length - 1] !== s.syncPhase) phases.push(s.syncPhase);
+    });
+    await connect(mock);
+    await flush(2000);
+    expect(store.get().presetNames.value[7]).toBe('Old Name');
+    expect(metadataRequests(store)).toBe(0);
+    await flush(3100); // just past 5 s since the last pedal activity (the settings reply after connect)
+    expect(metadataRequests(store)).toBe(1);
+    expect(store.get().namesRefreshing).toBe(true); // stream in flight
+    expect(store.get().log.some((l) => l.text.includes('Pedal idle for 5 s'))).toBe(true);
+    await flush(2000);
+    expect(store.get().namesRefreshing).toBe(false);
+    expect(store.get().presetNames.value[7]).toBe('Clean Chief');
+    expect(store.get().presetNames.source).toBe('metadata');
+    expect(phases).not.toContain('metadata');
+    await flush(10000);
+    expect(metadataRequests(store)).toBe(1); // once per connect: names are no longer from the cache
+    engine.dispose();
+  });
+
+  it('keeps postponing while the pedal is active, and never fires when the setting is off', async () => {
+    const cache = memCache(demoMetadata());
+    const { mock, store, engine } = setup({ cache, idleMs: 5000 });
+    await connect(mock);
+    await flush(2000);
+    for (let i = 0; i < 4; i++) {
+      mock.pressFootswitch(i); // every 3 s: never 5 s of quiet
+      await flush(3000);
+    }
+    expect(metadataRequests(store)).toBe(0);
+    store.patch({ autoRefreshNames: false });
+    await flush(20000);
+    expect(metadataRequests(store)).toBe(0);
     engine.dispose();
   });
 });

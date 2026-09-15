@@ -286,7 +286,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(4); // preset number, footswitch labels, preset list, outputs mute
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(5); // preset number, footswitch labels, preset list, auto names, outputs mute
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
@@ -368,5 +368,20 @@ describe('GigView outputs 1/2 mute setting', () => {
     expect(hint.textContent).toContain('muted');
     store.patch({ connection: 'disconnected' });
     expect(box.disabled).toBe(true);
+  });
+});
+
+describe('GigView names refresh indicator', () => {
+  it('appends "updating names…" to the connection status while a silent names stream is in flight', () => {
+    const root = document.createElement('div');
+    const store = new Store();
+    new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+    store.patch({ connection: 'connected' });
+    const status = root.querySelector('.status')!;
+    expect(status.textContent).not.toContain('updating names');
+    store.patch({ namesRefreshing: true });
+    expect(status.textContent).toContain('updating names…');
+    store.patch({ namesRefreshing: false });
+    expect(status.textContent).not.toContain('updating names');
   });
 });

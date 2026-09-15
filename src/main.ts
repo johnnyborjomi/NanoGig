@@ -21,7 +21,7 @@ const debug = flag('debug');
 const midiStrategy = params.get('midi'); // pin a MIDI delivery strategy, e.g. ?midi=c303-ble-midi
 
 const SETTINGS_KEY = 'nanogig.settings';
-type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean; showFootswitches: boolean; showPresetStrip: boolean };
+type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean; showFootswitches: boolean; showPresetStrip: boolean; autoRefreshNames: boolean };
 function loadSettings(): Partial<Settings> {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -33,15 +33,16 @@ function loadSettings(): Partial<Settings> {
     if (typeof parsed.showPresetNumber === 'boolean') out.showPresetNumber = parsed.showPresetNumber;
     if (typeof parsed.showFootswitches === 'boolean') out.showFootswitches = parsed.showFootswitches;
     if (typeof parsed.showPresetStrip === 'boolean') out.showPresetStrip = parsed.showPresetStrip;
+    if (typeof parsed.autoRefreshNames === 'boolean') out.autoRefreshNames = parsed.autoRefreshNames;
     return out;
   } catch {
     return {};
   }
 }
 function saveSettings() {
-  const { presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip } = store.get();
+  const { presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames } = store.get();
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames }));
   } catch {
     /* storage unavailable */
   }
