@@ -552,6 +552,31 @@ describe('metadata cache (fast start)', () => {
     engine.dispose();
   });
 
+  it('Menu → Refresh re-reads the names without the loading phase, then a fresh state dump', async () => {
+    const cache = memCache(demoMetadata({ index: 7, name: 'Old Name' }));
+    const { mock, store, engine } = setup({ cache });
+    await connect(mock);
+    await flush(3500);
+    expect(store.get().presetNames.value[7]).toBe('Old Name');
+    const phases: string[] = [];
+    let sawRefreshing = false;
+    store.subscribe((s) => {
+      if (phases[phases.length - 1] !== s.syncPhase) phases.push(s.syncPhase);
+      if (s.namesRefreshing) sawRefreshing = true;
+    });
+    const p = engine.refresh();
+    await flush(3500);
+    await p;
+    expect(sawRefreshing).toBe(true); // "updating names…" in the status line meanwhile
+    expect(phases).not.toContain('metadata'); // names stayed on screen while the pedal streamed
+    expect(metadataRequests(store)).toBe(1);
+    expect(store.get().presetNames.value[7]).toBe('Clean Chief');
+    expect(store.get().presetNames.source).toBe('metadata');
+    expect(store.get().namesRefreshing).toBe(false);
+    expect(store.get().syncPhase).toBe('ready');
+    engine.dispose();
+  });
+
   it('re-reads the names silently when the state dump contradicts the cached record of the active preset', async () => {
     const cache = memCache(demoMetadata({ index: 7, name: 'Old Name', captureName: 'Some Other Capture' }));
     const { mock, store, engine } = setup({ cache });
@@ -634,6 +659,33 @@ describe('idle names refresh', () => {
     expect(phases).not.toContain('metadata');
     await flush(10000);
     expect(metadataRequests(store)).toBe(1); // once per connect: names are no longer from the cache
+    engine.dispose();
+  });
+
+  it('applies to a reconnect within the session too: names from the previous link are re-read once idle', async () => {
+    const { mock, store, engine } = setup({ idleMs: 5000, packetGapMs: 50 });
+    await connect(mock);
+    await flush(4000);
+    expect(store.get().presetNames.source).toBe('metadata');
+    expect(metadataRequests(store)).toBe(1);
+    await flush(20000);
+    expect(metadataRequests(store)).toBe(1); // fresh from this link: nothing to re-read
+    // Renamed in Cortex Cloud while the app was disconnected (same capture / IR, so only a
+    // re-read can notice), then the app reconnects on its own.
+    await mock.disconnect();
+    await flush(10);
+    mock.presets[7] = { ...mock.presets[7]!, name: 'Renamed Chief' };
+    await connect(mock);
+    await flush(2000);
+    expect(store.get().syncPhase).toBe('ready');
+    expect(store.get().presetNames.source).toBe('cache'); // known, but from the previous link
+    expect(store.get().presetNames.value[7]).toBe('Clean Chief');
+    expect(metadataRequests(store)).toBe(1);
+    await flush(3100);
+    expect(metadataRequests(store)).toBe(2);
+    await flush(2000);
+    expect(store.get().presetNames.value[7]).toBe('Renamed Chief');
+    expect(store.get().presetNames.source).toBe('metadata');
     engine.dispose();
   });
 

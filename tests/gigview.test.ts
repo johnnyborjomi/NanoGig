@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, refreshNames: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setOutputsMuted: p, setWritesEnabled: () => {}, setSettings: () => {} };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setOutputsMuted: p, setWritesEnabled: () => {}, setSettings: () => {} };
 }
 
 describe('GigView', () => {

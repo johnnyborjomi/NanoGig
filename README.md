@@ -57,7 +57,7 @@ SETTINGS FOR MIDI CONTROLLER:
    device, so from the second connect on the screen is live as soon as the link is up. The
    name list is re-read once the pedal has been idle for a minute (or at once when a preset's
    capture or cab no longer matches what was remembered), which picks up renames made in
-   Cortex Cloud; Menu → Refresh names does it on demand.
+   Cortex Cloud; Menu → Refresh does it on demand.
 4. Tap the fullscreen button and put the device where you can see it.
 
 No pedal at hand? **Demo mode** on the connect screen runs the whole UI against a fake pedal.
@@ -81,7 +81,7 @@ works over Bluetooth alone. Firefox and Safari have no Web Bluetooth and are not
 ## What's on the screen
 
 - **Top bar**: connection state, **Control** (turns control mode on and off), fullscreen, and a
-  menu with Settings, Refresh, the hex Log, Disconnect, and the pedal's firmware version.
+  menu with Settings, Refresh (re-reads the preset names and the state), the hex Log, Disconnect, and the pedal's firmware version.
 - **Preset row**: bank/slot label and preset name, sized to always fit on one line. A small
   tag shows _live_ right after a footswitch press until the pedal confirms, or _sending_ while
   the app is changing the preset.

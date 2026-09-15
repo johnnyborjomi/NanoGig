@@ -18,7 +18,7 @@
  * the pedal sends notifications in order, so while it streams the dump every
  * footswitch event queues behind it and the screen is deaf for the duration.
  * Names are re-read only when the state dump contradicts the cache (the active
- * preset's capture / IR differ from its cached record) or on Refresh names.
+ * preset's capture / IR differ from its cached record) or on Menu → Refresh.
  *
  * Writes (FX toggle, preset switch) are gated behind `writesEnabled`, off by
  * default, optimistic, and confirmed by a follow-up state dump.
@@ -204,7 +204,11 @@ export class SyncEngine {
       if (!this.metadata || this.opts.alwaysRefreshMetadata) {
         await this.requestMetadata();
       } else {
-        this.log('info', 'Preset names already known; reading state only (Menu → Refresh names re-reads them)');
+        // Names carried over from an earlier link (or the persistent cache) may have been renamed
+        // in Cortex Cloud meanwhile: treat them as provisional so the staleness check and the
+        // idle refresh apply to this link too, not only to the first one after a page load.
+        this.store.setField('presetNames', this.metadata.presets.map((p) => p.name), 'cache');
+        this.log('info', 'Preset names already known; reading state only (Menu → Refresh re-reads them)');
         this.validateNamesOnNextState = true;
         await this.requestState();
       }
@@ -258,6 +262,16 @@ export class SyncEngine {
       if (!opts.silent) void this.requestState();
     }, this.opts.metadataTimeoutMs);
     await this.transport.writeCommand(METADATA_DUMP_REQUEST);
+  }
+
+  /**
+   * Menu → Refresh: re-read the preset names and then the state. Names that are already on
+   * screen stay while the pedal streams (silent mode); only a screen without names shows the
+   * "Loading presets…" phase. A fresh state dump follows the metadata reply either way.
+   */
+  async refresh(): Promise<void> {
+    const silent = this.store.get().presetNames.source !== 'none';
+    await this.requestMetadata({ silent });
   }
 
   /**
@@ -446,7 +460,7 @@ export class SyncEngine {
    * and IR, and the cached preset record says what they should be. A mismatch right after a
    * connect or a preset change means the pedal's presets changed since the cache was written,
    * so the metadata dump is re-read (silently; names stay on screen meanwhile). A rename that
-   * keeps the same capture and IR is not detectable this way: Menu → Refresh names covers it.
+   * keeps the same capture and IR is not detectable this way: Menu → Refresh covers it.
    */
   private validateCachedNames(state: CurrentState): void {
     if (!this.validateNamesOnNextState) return;

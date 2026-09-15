@@ -51,7 +51,7 @@ pedal sends notifications in order, so while it streams the ~17 KB dump every fo
 event queues behind it (~6 s with nothing on screen reacting); the dump is therefore re-read
 only when the state dump contradicts the cache (the active preset's capture / IR differ from
 its cached record), once per connect after the pedal has been idle for a minute (setting, on
-by default), or on Menu → Refresh names. The state embedded in a metadata reply is as old as
+by default), or on Menu → Refresh. The state embedded in a metadata reply is as old as
 the request and is ignored on a live link; a fresh state dump follows.
 
 ## Metadata message

@@ -96,8 +96,7 @@ const view = new GigView(
     async disconnect() {
       await transport?.disconnect();
     },
-    refresh: () => requireEngine().requestState(),
-    refreshNames: () => requireEngine().requestMetadata(),
+    refresh: () => requireEngine().refresh(), // names, then state
     toggleFx: (slot) => requireEngine().toggleFx(slot),
     toggleGate: () => requireEngine().toggleGate(),
     toggleCab: () => requireEngine().toggleCab(),

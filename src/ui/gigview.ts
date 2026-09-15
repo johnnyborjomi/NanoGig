@@ -39,8 +39,8 @@ export interface GigViewActions {
   connect(acceptAll?: boolean): Promise<void>;
   connectMock(): Promise<void>;
   disconnect(): Promise<void>;
+  /** Re-read the preset names, then the state. */
   refresh(): Promise<void>;
-  refreshNames(): Promise<void>;
   toggleFx(slot: FxSlot): Promise<void>;
   toggleGate(): Promise<void>;
   toggleCab(): Promise<void>;
@@ -509,10 +509,10 @@ export class GigView {
         .join("\n");
       void navigator.clipboard?.writeText(text);
     });
-    const names = el("button", "", "reload names");
+    const names = el("button", "", "refresh");
     names.addEventListener(
       "click",
-      () => void this.actions.refreshNames().catch((e) => this.toast(e)),
+      () => void this.actions.refresh().catch((e) => this.toast(e)),
     );
     const close = el("button", "", "close");
     close.addEventListener("click", () =>
@@ -609,7 +609,7 @@ export class GigView {
       const autoNamesHint = el(
         "p",
         "hint",
-        "Picks up presets renamed in Cortex Cloud. The pedal takes about 6 seconds to send the list and holds footswitch presses back meanwhile, so this waits for a quiet moment; turn it off for a gig and use Menu → Refresh names instead.",
+        "Picks up presets renamed in Cortex Cloud. The pedal takes about 6 seconds to send the list and holds footswitch presses back meanwhile, so this waits for a quiet moment; turn it off for a gig and use Menu → Refresh instead.",
       );
       const muteRow = el("label", "setting-row");
       muteRow.append(el("span", "", "Mute outputs 1/2"));
