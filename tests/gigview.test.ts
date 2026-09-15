@@ -378,7 +378,13 @@ describe('GigView connect screen: resume tip', () => {
     new GigView(root, store, noopActions(), { bluetoothAvailable: true, resumeAvailable: false, showMockButton: false });
     const tip = root.querySelector('.overlay.connect .resume-tip') as HTMLElement;
     expect(tip.hidden).toBe(false);
-    expect(tip.textContent).toContain('chrome://flags/#enable-web-bluetooth-new-permissions-backend');
+    expect(tip.querySelector('code')!.textContent).toBe('chrome://flags/#enable-web-bluetooth-new-permissions-backend');
+    // Chrome will not open chrome:// from a page, so the address is copyable rather than a link.
+    expect(tip.querySelector('a')).toBeNull();
+    const copied: string[] = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (t: string) => { copied.push(t); return Promise.resolve(); } } });
+    (tip.querySelector('button.copy-flag') as HTMLButtonElement).click();
+    expect(copied).toEqual(['chrome://flags/#enable-web-bluetooth-new-permissions-backend']);
     expect(root.querySelector('.overlay.connect .card')!.textContent).not.toContain('reconnects to the last pedal by itself');
   });
 

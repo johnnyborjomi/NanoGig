@@ -79,13 +79,14 @@ and installs as a separate "NanoGig β" app.
 go out as MIDI over the USB cable while Bluetooth keeps feeding the display. Everything else
 works over Bluetooth alone. Firefox and Safari have no Web Bluetooth and are not supported.
 
-**Chooser on every launch?** Stock Chrome keeps Bluetooth permissions in memory only, so an
-installed app that was closed (or killed in the background, which Android does freely) has
-to go through the chooser again. Chrome's persistent-permissions backend fixes that but is
-still behind a flag: open `chrome://flags/#enable-web-bluetooth-new-permissions-backend` in
-Chrome, set it to Enabled, relaunch Chrome and pair once more. From then on the app
-reconnects on launch, and again whenever it returns to the foreground while disconnected.
-The connect screen shows this tip when Chrome lacks the API or has dropped a remembered pedal.
+**Picking the pedal on every launch?** Stock Chrome keeps Bluetooth permissions in memory
+only, so an installed app that was closed (or killed in the background, which Android does
+freely) asks for the pedal again. Chrome's persistent-permissions backend fixes that but is
+still behind a flag: open `chrome://flags/#enable-web-bluetooth-new-permissions-backend` in the
+Chrome browser, set it to Enabled, tap Relaunch and pick the pedal once more. From then on
+the app reconnects on launch, and again whenever it returns to the foreground while
+disconnected. The connect screen shows these steps when Chrome lacks the API or has dropped
+a remembered pedal.
 
 ## What's on the screen
 

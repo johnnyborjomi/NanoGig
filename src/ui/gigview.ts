@@ -17,6 +17,7 @@ import type { LogLine } from "../transport/types";
 import {
   ChevronLeft,
   ChevronRight,
+  Copy,
   Download,
   Lock,
   Metronome,
@@ -211,7 +212,7 @@ export class GigView {
   private readonly consoleBody = el("div", "c-body");
   private readonly overlay = el("div", "overlay connect open");
   private readonly overlayErr = el("div", "err");
-  private readonly resumeTip = el("p", "hint resume-tip");
+  private readonly resumeTip = el("div", "hint resume-tip");
   private readonly connectBtn = el("button", "primary", "Connect Nano Cortex");
   private readonly connectAllBtn = el("button", "", "Show all BT devices");
   private readonly mockBtn = el("button", "", "Demo mode (no device)");
@@ -702,11 +703,33 @@ export class GigView {
       // closed (or killed in the background) has to go through the chooser on every launch.
       // Shown when Chrome lacks getDevices() altogether, or when a resume found the remembered
       // pedal gone from Chrome's list (render() keeps it in sync).
+      // Chrome refuses to open chrome:// URLs from a page, so a link is no use: copy button instead.
+      const FLAG_URL = "chrome://flags/#enable-web-bluetooth-new-permissions-backend";
+      const flagBox = el("span", "flag-url");
+      const copyBtn = el("button", "copy-flag");
+      copyBtn.type = "button";
+      copyBtn.title = "Copy";
+      copyBtn.setAttribute("aria-label", "Copy the flag address");
+      copyBtn.append(lucideElement(Copy, { "stroke-width": 2, "aria-hidden": "true" }));
+      copyBtn.addEventListener("click", () => {
+        const done = () => this.showToast("Copied. Paste it into Chrome's address bar.");
+        const clip = navigator.clipboard?.writeText(FLAG_URL);
+        if (clip) clip.then(done, () => this.showToast("Could not copy; select the address by hand"));
+        else this.showToast("Could not copy; select the address by hand");
+      });
+      flagBox.append(el("code", "", FLAG_URL), copyBtn);
+      const steps = el("ol");
+      const step1 = el("li", "", "Copy this address and open it in the Chrome browser (the installed app has no address bar):");
+      step1.append(flagBox);
+      steps.append(
+        step1,
+        el("li", "", "Set the switch to Enabled and tap Relaunch."),
+        el("li", "", "Come back here and pick the pedal one last time. From then on NanoGig connects to it by itself."),
+      );
       this.resumeTip.append(
-        el("strong", "", "Chooser on every launch? "),
-        "This Chrome forgets the pedal once the app is closed. To reconnect on launch, open ",
-        el("code", "", "chrome://flags/#enable-web-bluetooth-new-permissions-backend"),
-        " in Chrome, set it to Enabled, relaunch Chrome and pair once more.",
+        el("strong", "", "Tired of picking the pedal on every launch?"),
+        el("p", "", "Chrome forgets the pedal as soon as the app is closed, so every launch asks you to pick it again. A hidden Chrome setting keeps it remembered:"),
+        steps,
       );
       this.resumeTip.hidden = !(this.opts.bluetoothAvailable && this.opts.resumeAvailable === false);
       card.append(this.resumeTip);
