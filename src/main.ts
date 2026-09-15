@@ -59,6 +59,8 @@ const installPrompt = new InstallPrompt(store);
 const updater = new AppUpdater(store, `${import.meta.env.BASE_URL}sw.js`);
 let transport: Transport | null = null;
 let engine: SyncEngine | null = null;
+/** Set by Menu → Disconnect: no silent reconnect until the user taps Connect again. */
+let userDisconnected = false;
 
 function attach(t: Transport) {
   engine?.dispose();
@@ -87,6 +89,7 @@ const view = new GigView(
   store,
   {
     async connect(acceptAll) {
+      userDisconnected = false;
       store.patch({ lastError: null });
       if (forceMock) return this.connectMock();
       if (!isBle(transport)) attach(createBle());
@@ -94,6 +97,7 @@ const view = new GigView(
     },
     connectMock: startMock,
     async disconnect() {
+      userDisconnected = true;
       await transport?.disconnect();
     },
     refresh: () => requireEngine().refresh(), // names, then state
@@ -120,6 +124,7 @@ const view = new GigView(
   },
   {
     bluetoothAvailable: (isNative || isWebBluetoothAvailable()) && !forceMock,
+    resumeAvailable: isNative || canResumePermittedDevices(),
     showMockButton: true,
     openConsole: debug,
   },
@@ -151,10 +156,31 @@ if (forceMock) {
   void startMock();
 } else if (isNative || canResumePermittedDevices()) {
   // After a reload / relaunch reconnect to the remembered pedal without the chooser.
-  const ble = createBle();
-  attach(ble);
+  tryResume();
+  // …and again whenever the app comes back to the foreground while disconnected: the pedal may
+  // have been off at launch, or a reconnect loop may have given up while the app was in the
+  // background. Menu → Disconnect opts out until the next Connect.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || userDisconnected) return;
+    if (transport && !isBle(transport)) return;
+    if (transport?.status && transport.status !== 'disconnected') return;
+    store.appendLog({ at: Date.now(), dir: 'info', text: 'App in the foreground; trying the last pedal again' });
+    tryResume();
+  });
+} else if (isWebBluetoothAvailable()) {
+  store.appendLog({
+    at: Date.now(),
+    dir: 'info',
+    text: 'This Chrome cannot hand back the last pedal without the chooser (navigator.bluetooth.getDevices is missing; it comes with chrome://flags/#enable-web-bluetooth-new-permissions-backend)',
+  });
+}
+
+function tryResume(): void {
+  const ble = isBle(transport) ? transport : createBle();
+  if (transport !== ble) attach(ble);
   void ble.resume().then((ok) => {
     if (ok) return;
+    if (ble instanceof BleTransport && ble.rememberedPedalForgotten) store.patch({ chromeForgotPedal: true });
     store.appendLog({ at: Date.now(), dir: 'info', text: 'Nothing to resume; use Connect' });
     if (store.get().deviceName) {
       store.patch({

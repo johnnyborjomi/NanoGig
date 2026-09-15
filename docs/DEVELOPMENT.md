@@ -133,7 +133,9 @@ available in the iOS app (no MIDI path).
 - [x] Preset name follows footswitch presses.
 - [x] Tile states match the pedal's LEDs (gate, pre/post blocks).
 - [x] Power-cycle the pedal: the app reconnects without a reload (~13 s while the pedal boots).
-- [x] Reload the page: reconnects to the last pedal without the chooser.
+- [x] Reload the page: reconnects to the last pedal without the chooser (needs `getDevices()`, i.e. the
+      `enable-web-bluetooth-new-permissions-backend` flag; stock Chrome, and every PWA launch on Android,
+      goes through the chooser).
 - [x] Control: FX and gate tile taps.
 - [x] Control: preset buttons via Web MIDI over USB.
 - [x] Control: capture and cab bypass / re-enable from the labels.

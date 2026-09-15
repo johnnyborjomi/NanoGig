@@ -66,6 +66,8 @@ export interface GigViewActions {
 
 export interface GigViewOptions {
   bluetoothAvailable: boolean;
+  /** Chrome can hand back the last pedal without the chooser (getDevices, or the native shell). */
+  resumeAvailable?: boolean;
   showMockButton: boolean;
   openConsole?: boolean;
 }
@@ -209,6 +211,7 @@ export class GigView {
   private readonly consoleBody = el("div", "c-body");
   private readonly overlay = el("div", "overlay connect open");
   private readonly overlayErr = el("div", "err");
+  private readonly resumeTip = el("p", "hint resume-tip");
   private readonly connectBtn = el("button", "primary", "Connect Nano Cortex");
   private readonly connectAllBtn = el("button", "", "Show all BT devices");
   private readonly mockBtn = el("button", "", "Demo mode (no device)");
@@ -694,11 +697,25 @@ export class GigView {
       );
     }
     card.append(this.overlayErr);
+    {
+      // Stock Chrome keeps Bluetooth permissions in memory only, so an installed app that was
+      // closed (or killed in the background) has to go through the chooser on every launch.
+      // Shown when Chrome lacks getDevices() altogether, or when a resume found the remembered
+      // pedal gone from Chrome's list (render() keeps it in sync).
+      this.resumeTip.append(
+        el("strong", "", "Chooser on every launch? "),
+        "This Chrome forgets the pedal once the app is closed. To reconnect on launch, open ",
+        el("code", "", "chrome://flags/#enable-web-bluetooth-new-permissions-backend"),
+        " in Chrome, set it to Enabled, relaunch Chrome and pair once more.",
+      );
+      this.resumeTip.hidden = !(this.opts.bluetoothAvailable && this.opts.resumeAvailable === false);
+      card.append(this.resumeTip);
+    }
     card.append(
       el(
         "p",
         "hint",
-        'Not affiliated with or endorsed by Neural DSP; "Nano Cortex" is their trademark. Everything shown is decoded from a reverse-engineered protocol verified on NanOS 2.2.x and may be wrong. Control mode writes to your pedal: back up your presets first. After a reload the app reconnects to the last pedal by itself.',
+        `Not affiliated with or endorsed by Neural DSP; "Nano Cortex" is their trademark. Everything shown is decoded from a reverse-engineered protocol verified on NanOS 2.2.x and may be wrong. Control mode writes to your pedal: back up your presets first.${this.opts.resumeAvailable === false ? "" : " The app reconnects to the last pedal by itself on launch."}`,
       ),
     );
     this.overlay.append(card);
@@ -938,6 +955,7 @@ export class GigView {
     }
     this.menuInfo.hidden = false; // the version line is always there
     this.overlay.classList.toggle("open", s.connection === "disconnected");
+    this.resumeTip.hidden = !(this.opts.bluetoothAvailable && (this.opts.resumeAvailable === false || s.chromeForgotPedal));
     // A failed silent resume leaves its reason in lastError; show it on the connect screen.
     if (s.connection === "disconnected" && s.lastError && s.syncPhase !== "error") this.overlayErr.textContent = s.lastError;
     this.installBlock.hidden = !s.installable;

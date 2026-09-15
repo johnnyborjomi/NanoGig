@@ -100,6 +100,8 @@ export class BleTransport implements Transport {
   /** Resolves the current reconnect back-off early (advertisement seen or user tapped "Reconnect"). */
   private wakeReconnect: (() => void) | null = null;
   private advertisementAbort: AbortController | null = null;
+  /** resume() found a remembered pedal id but Chrome no longer lists that device. */
+  rememberedPedalForgotten = false;
   private writeQueue: Promise<unknown> = Promise.resolve();
   private readonly deduper = new PacketDeduper(DEDUPE_WINDOW_MS);
   private readonly packets = new Emitter<NotifyPacket>();
@@ -441,9 +443,17 @@ export class BleTransport implements Transport {
     const device =
       devices.find((d) => d.id === remembered) ?? devices.find((d) => looksLikeNano(d.name)) ?? devices[0] ?? null;
     if (!device) {
-      this.log('info', 'No previously permitted device to resume');
+      if (remembered) {
+        // Without the new-permissions-backend flag Chrome keeps the permission in memory only,
+        // so a relaunched (or background-killed) app has lost it.
+        this.rememberedPedalForgotten = true;
+        this.log('info', 'Chrome no longer lists the remembered pedal (Bluetooth permissions are not persisted; see the connect screen)');
+      } else {
+        this.log('info', 'No previously permitted device to resume');
+      }
       return false;
     }
+    this.rememberedPedalForgotten = false;
     this.intentionalDisconnect = false;
     this.attachDevice(device);
     this.log('info', `Resuming ${device.name ?? '(unnamed)'} without the chooser…`);

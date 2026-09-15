@@ -53,7 +53,8 @@ SETTINGS FOR MIDI CONTROLLER:
 2. Open **[johnnyborjomi.github.io/NanoGig](https://johnnyborjomi.github.io/NanoGig/)** in a
    browser from the table below.
 3. Tap **Connect Nano Cortex**, pick the pedal in the chooser, done. The app reconnects on
-   its own after a page reload or a pedal power cycle. Preset names are remembered on the
+   its own after a pedal power cycle, and on launch where Chrome remembers the pedal (see
+   the note under the table). Preset names are remembered on the
    device, so from the second connect on the screen is live as soon as the link is up. The
    name list is re-read once the pedal has been idle for a minute (or at once when a preset's
    capture or cab no longer matches what was remembered), which picks up renames made in
@@ -77,6 +78,14 @@ and installs as a separate "NanoGig β" app.
 **Why USB for presets?** The pedal ignores MIDI sent over its Bluetooth link, so preset changes
 go out as MIDI over the USB cable while Bluetooth keeps feeding the display. Everything else
 works over Bluetooth alone. Firefox and Safari have no Web Bluetooth and are not supported.
+
+**Chooser on every launch?** Stock Chrome keeps Bluetooth permissions in memory only, so an
+installed app that was closed (or killed in the background, which Android does freely) has
+to go through the chooser again. Chrome's persistent-permissions backend fixes that but is
+still behind a flag: open `chrome://flags/#enable-web-bluetooth-new-permissions-backend` in
+Chrome, set it to Enabled, relaunch Chrome and pair once more. From then on the app
+reconnects on launch, and again whenever it returns to the foreground while disconnected.
+The connect screen shows this tip when Chrome lacks the API or has dropped a remembered pedal.
 
 ## What's on the screen
 

@@ -371,6 +371,30 @@ describe('GigView outputs 1/2 mute setting', () => {
   });
 });
 
+describe('GigView connect screen: resume tip', () => {
+  it('explains the chooser-on-every-launch and where the flag is when Chrome cannot resume', () => {
+    const root = document.createElement('div');
+    const store = new Store();
+    new GigView(root, store, noopActions(), { bluetoothAvailable: true, resumeAvailable: false, showMockButton: false });
+    const tip = root.querySelector('.overlay.connect .resume-tip') as HTMLElement;
+    expect(tip.hidden).toBe(false);
+    expect(tip.textContent).toContain('chrome://flags/#enable-web-bluetooth-new-permissions-backend');
+    expect(root.querySelector('.overlay.connect .card')!.textContent).not.toContain('reconnects to the last pedal by itself');
+  });
+
+  it('shows no tip when the pedal can be resumed', () => {
+    const root = document.createElement('div');
+    const store = new Store();
+    new GigView(root, store, noopActions(), { bluetoothAvailable: true, resumeAvailable: true, showMockButton: false });
+    const tip = root.querySelector('.overlay.connect .resume-tip') as HTMLElement;
+    expect(tip.hidden).toBe(true);
+    expect(root.querySelector('.overlay.connect .card')!.textContent).toContain('reconnects to the last pedal by itself on launch');
+    // …until a resume finds that Chrome dropped the remembered pedal (permission not persisted).
+    store.patch({ chromeForgotPedal: true });
+    expect(tip.hidden).toBe(false);
+  });
+});
+
 describe('GigView names refresh indicator', () => {
   it('appends "updating names…" to the connection status while a silent names stream is in flight', () => {
     const root = document.createElement('div');

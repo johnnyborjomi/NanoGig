@@ -443,7 +443,7 @@ button.warn {
   font-weight: 800;
   letter-spacing: 0.04em;
   line-height: 1;
-  padding: 0.28em 0.45em;
+  padding: 0.20em 0.45em;
   border-radius: 0.35em;
   margin-left: 0.5em;
   vertical-align: 0.55em;
@@ -749,7 +749,7 @@ button.warn {
 }
 /* Secondary line: the model name (Mind Hall, Chief DC2W, …). */
 .tile .t-name {
-  font-size: clamp(10px, 1.4vw, 15px);
+  font-size: clamp(12px, 1.5vw, 15px);
   letter-spacing: 0.06em;
   opacity: 0.95;
   max-width: 100%;
@@ -1106,6 +1106,10 @@ button.warn {
 .card .hint {
   font-size: 13px;
   color: var(--dim);
+}
+.card .resume-tip code {
+  font-size: 12px;
+  word-break: break-all;
 }
 
 @media (max-width: 700px) {
