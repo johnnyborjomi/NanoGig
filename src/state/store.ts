@@ -46,8 +46,6 @@ export interface GigState {
   namesRefreshing: boolean;
   /** PWA: the browser offered an install prompt and the app is not installed yet. */
   installable: boolean;
-  /** A pedal was remembered, but Chrome no longer lists it (permission not persisted): show the flag tip. */
-  chromeForgotPedal: boolean;
   /** PWA: a newer build's service worker is installed and waiting for a reload. */
   updateReady: boolean;
 
@@ -105,7 +103,6 @@ export function initialState(transportName = 'none'): GigState {
     autoRefreshNames: true,
     namesRefreshing: false,
     installable: false,
-    chromeForgotPedal: false,
     updateReady: false,
     presetNames: field(Array.from({ length: PRESET_COUNT }, () => '')),
     activePreset: field<number | null>(null),

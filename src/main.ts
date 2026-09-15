@@ -180,7 +180,6 @@ function tryResume(): void {
   if (transport !== ble) attach(ble);
   void ble.resume().then((ok) => {
     if (ok) return;
-    if (ble instanceof BleTransport && ble.rememberedPedalForgotten) store.patch({ chromeForgotPedal: true });
     store.appendLog({ at: Date.now(), dir: 'info', text: 'Nothing to resume; use Connect' });
     if (store.get().deviceName) {
       store.patch({

@@ -701,8 +701,9 @@ export class GigView {
     {
       // Stock Chrome keeps Bluetooth permissions in memory only, so an installed app that was
       // closed (or killed in the background) has to go through the chooser on every launch.
-      // Shown when Chrome lacks getDevices() altogether, or when a resume found the remembered
-      // pedal gone from Chrome's list (render() keeps it in sync).
+      // Shown only when Chrome lacks getDevices(): Chromium exposes it together with the
+      // persistent-permissions backend, so where it exists the flag is already on and a missing
+      // permission has another cause (cleared site data, paired before the flag was enabled).
       // Chrome refuses to open chrome:// URLs from a page, so a link is no use: copy button instead.
       const FLAG_URL = "chrome://flags/#enable-web-bluetooth-new-permissions-backend";
       const flagBox = el("span", "flag-url");
@@ -978,7 +979,6 @@ export class GigView {
     }
     this.menuInfo.hidden = false; // the version line is always there
     this.overlay.classList.toggle("open", s.connection === "disconnected");
-    this.resumeTip.hidden = !(this.opts.bluetoothAvailable && (this.opts.resumeAvailable === false || s.chromeForgotPedal));
     // A failed silent resume leaves its reason in lastError; show it on the connect screen.
     if (s.connection === "disconnected" && s.lastError && s.syncPhase !== "error") this.overlayErr.textContent = s.lastError;
     this.installBlock.hidden = !s.installable;

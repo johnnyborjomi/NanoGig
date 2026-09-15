@@ -85,8 +85,7 @@ freely) asks for the pedal again. Chrome's persistent-permissions backend fixes 
 still behind a flag: open `chrome://flags/#enable-web-bluetooth-new-permissions-backend` in the
 Chrome browser, set it to Enabled, tap Relaunch and pick the pedal once more. From then on
 the app reconnects on launch, and again whenever it returns to the foreground while
-disconnected. The connect screen shows these steps when Chrome lacks the API or has dropped
-a remembered pedal.
+disconnected. The connect screen shows these steps only on a Chrome without the flag.
 
 ## What's on the screen
 

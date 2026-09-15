@@ -395,9 +395,6 @@ describe('GigView connect screen: resume tip', () => {
     const tip = root.querySelector('.overlay.connect .resume-tip') as HTMLElement;
     expect(tip.hidden).toBe(true);
     expect(root.querySelector('.overlay.connect .card')!.textContent).toContain('reconnects to the last pedal by itself on launch');
-    // …until a resume finds that Chrome dropped the remembered pedal (permission not persisted).
-    store.patch({ chromeForgotPedal: true });
-    expect(tip.hidden).toBe(false);
   });
 });
 
