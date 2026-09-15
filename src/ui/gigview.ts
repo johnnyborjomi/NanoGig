@@ -685,7 +685,11 @@ export class GigView {
     );
     this.overlay.append(card);
 
-    this.menuInfo.append(this.menuDevice, this.menuSync, el("div", "menu-info-line", `NanoGig v${__APP_VERSION__} · ${__BUILD_ID__}`));
+    this.menuInfo.append(
+      this.menuDevice,
+      this.menuSync,
+      el("div", "menu-info-line", `NanoGig v${__APP_VERSION__} · ${__BUILD_ID__}${__CHANNEL__ === "staging" ? " · staging" : ""}`),
+    );
 
     // Update bar (PWA): a newer build is waiting; reload when it suits you.
     const updateText = el("span", "", "A NanoGig update is ready.");

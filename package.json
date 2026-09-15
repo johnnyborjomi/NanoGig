@@ -1,7 +1,7 @@
 {
   "name": "nanogig",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "NanoGig: unofficial stage gig view for the Neural DSP Nano Cortex over Web Bluetooth",
   "license": "MIT",

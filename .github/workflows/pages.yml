@@ -1,8 +1,15 @@
+# GitHub Pages carries two builds of the app on one site:
+#   /          production — the latest release tag (vX.Y.Z); users only see an update on a release
+#   /staging/  staging    — the head of main; updated on every push
+# Pages replaces the whole site on each deploy, so both are built every time. The production
+# build is reproducible from its tag (same sources, lockfile and git sha), so re-deploying it
+# on a main push leaves sw.js byte-identical and installed apps see no update.
 name: Deploy to GitHub Pages
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -18,20 +25,79 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out main (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0 # tags are needed to find the production release
+          path: staging
+
+      - name: Pick the production tag
+        id: prod
+        working-directory: staging
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            # Highest final release tag by semver (pre-releases such as v1.2.0-rc1 are skipped).
+            TAG="$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+          fi
+          if [[ -z "$TAG" ]]; then
+            echo "No release tag yet; production falls back to main"
+            TAG="main"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Production = $TAG"
+
+      - name: Check out the production tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.prod.outputs.tag }}
+          path: production
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+          cache-dependency-path: |
+            staging/package-lock.json
+            production/package-lock.json
+
+      - name: Build staging (main)
+        working-directory: staging
+        env:
+          NANOGIG_CHANNEL: staging
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Build production (${{ steps.prod.outputs.tag }})
+        working-directory: production
+        env:
+          NANOGIG_CHANNEL: production
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp -r production/dist/. site/
+          mkdir -p site/staging
+          cp -r staging/dist/. site/staging/
+          echo "production: ${{ steps.prod.outputs.tag }}" > site/CHANNELS.txt
+          echo "staging: main@$(git -C staging rev-parse --short HEAD)" >> site/CHANNELS.txt
+          cat site/CHANNELS.txt
+
       - uses: actions/configure-pages@v5
         with:
           enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: site
+
   deploy:
     needs: build
     runs-on: ubuntu-latest

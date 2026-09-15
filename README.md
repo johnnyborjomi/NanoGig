@@ -60,6 +60,11 @@ SETTINGS FOR MIDI CONTROLLER:
 
 No pedal at hand? **Demo mode** on the connect screen runs the whole UI against a fake pedal.
 
+The link above is the released app; it only updates when a version is tagged. The bleeding
+edge from every push lives at
+[johnnyborjomi.github.io/NanoGig/staging](https://johnnyborjomi.github.io/NanoGig/staging/)
+and installs as a separate "NanoGig β" app.
+
 | Device                 | How                                                                                                                        | Live display | Control mode | Preset switching  |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------ | ------------ | ----------------- |
 | Laptop / desktop       | Chrome or Edge                                                                                                             | yes          | yes          | yes, pedal on USB |

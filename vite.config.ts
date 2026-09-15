@@ -16,14 +16,22 @@ function buildId(): string {
 const BUILD_ID = buildId();
 
 /**
+ * Release channel: `production` (default; the site root, built from the latest release tag)
+ * or `staging` (every push to main, served under /staging/). Set by the Pages workflow via
+ * NANOGIG_CHANNEL. Staging gets its own app name so both PWAs can be installed side by side.
+ */
+const CHANNEL = process.env.NANOGIG_CHANNEL === 'staging' ? 'staging' : 'production';
+
+/**
  * Stamp the service worker with the build id so every deploy ships a byte-different sw.js.
  * Browsers only install a new worker when the file changes; that is what triggers the
- * "Update ready" bar in the running app.
+ * "Update ready" bar in the running app. Staging builds also get their own manifest name
+ * and page title.
  */
-function stampServiceWorker(): Plugin {
+function stampBuild(): Plugin {
   let outDir = 'dist';
   return {
-    name: 'nanogig-stamp-sw',
+    name: 'nanogig-stamp-build',
     apply: 'build',
     configResolved(cfg) {
       outDir = cfg.build.outDir;
@@ -32,7 +40,16 @@ function stampServiceWorker(): Plugin {
       const file = resolve(outDir, 'sw.js');
       const src = readFileSync(file, 'utf8');
       if (!src.includes('__BUILD__')) throw new Error('sw.js has no __BUILD__ placeholder');
-      writeFileSync(file, src.replace(/__BUILD__/g, `${pkg.version}-${BUILD_ID}`));
+      writeFileSync(file, src.replace(/__BUILD__/g, `${pkg.version}-${BUILD_ID}-${CHANNEL}`));
+      if (CHANNEL === 'staging') {
+        const manifestFile = resolve(outDir, 'manifest.webmanifest');
+        const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
+        manifest.name = 'NanoGig staging (unofficial gig view for Nano Cortex)';
+        manifest.short_name = 'NanoGig β';
+        writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + '\n');
+        const htmlFile = resolve(outDir, 'index.html');
+        writeFileSync(htmlFile, readFileSync(htmlFile, 'utf8').replace('<title>NanoGig</title>', '<title>NanoGig staging</title>'));
+      }
     },
   };
 }
@@ -43,8 +60,9 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __BUILD_ID__: JSON.stringify(BUILD_ID),
+    __CHANNEL__: JSON.stringify(CHANNEL),
   },
-  plugins: [stampServiceWorker()],
+  plugins: [stampBuild()],
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],

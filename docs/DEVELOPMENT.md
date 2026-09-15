@@ -46,10 +46,27 @@ docs/PROTOCOL.md              What the bytes mean
 
 ## Hosting
 
-Every push to `main` runs the tests, builds and deploys `dist/` to GitHub Pages
-(`.github/workflows/pages.yml`). The site is a PWA (manifest + service worker) and installs
-to the Android home screen as a fullscreen landscape app. The build uses relative asset paths
-(`base: './'`), so `dist/` also works from any static host or a local folder.
+GitHub Pages carries two channels on one site (`.github/workflows/pages.yml`):
+
+| Channel    | URL                                              | Built from                        | Updated on                |
+| ---------- | ------------------------------------------------ | --------------------------------- | ------------------------- |
+| production | https://johnnyborjomi.github.io/NanoGig/         | the latest release tag `vX.Y.Z`   | a release (tag push)      |
+| staging    | https://johnnyborjomi.github.io/NanoGig/staging/ | the head of `main`                | every push to `main`      |
+
+Pages replaces the whole site on every deploy, so the workflow always builds both: it checks
+out `main` for staging and the highest final release tag for production (pre-release tags
+such as `v1.2.0-rc1` are skipped; with no tag at all, production falls back to `main`). The
+production build is reproducible from its tag, so re-deploying it on a `main` push leaves
+`sw.js` byte-identical and installed apps see no update prompt until the next release.
+
+Staging is built with `NANOGIG_CHANNEL=staging` (`vite.config.ts`): its manifest is named
+"NanoGig β" so it installs next to the production app, the page title says "staging", and
+Menu → info shows `· staging`. Both channels share the origin, so settings, the preset-name
+cache and the remembered pedal are shared between them.
+
+The site is a PWA (manifest + service worker) and installs to the Android home screen as a
+fullscreen landscape app. The build uses relative asset paths (`base: './'`), so `dist/`
+also works from any static host or a local folder.
 
 **Install and updates** (`src/pwa.ts`): the connect screen shows an "Install app" block while
 the browser holds a deferred `beforeinstallprompt` and the app is not running standalone. The
@@ -64,8 +81,9 @@ version and build.
 
 Tag-driven (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` runs the tests, builds,
 zips `dist/` as `nanogig-vX.Y.Z-web.zip` and publishes a GitHub Release with auto-generated
-notes. The zip is a self-hostable copy of the web app; the live site on GitHub Pages is
-always the latest `main`.
+notes. The zip is a self-hostable copy of the web app. The same tag push also redeploys
+GitHub Pages, which puts the tagged build at the site root: that is when installed apps see
+"A NanoGig update is ready". Between releases, `main` is only visible on `/staging/`.
 
 ```bash
 npm version minor          # bumps package.json, commits, creates the tag vX.Y.Z
