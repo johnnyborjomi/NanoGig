@@ -103,7 +103,10 @@ git push --follow-tags     # the tag triggers the release workflow
 ```
 
 A release can also be started by hand from Actions → Release → Run workflow, giving a tag
-that already exists.
+that already exists, or by creating the release in the GitHub UI. Both workflows set the
+package version from the tag before building, so the app reports the tag's version even when
+`package.json` in the repo was not bumped. Bumping it anyway (`npm version`) keeps dev and
+staging builds honest about what they are ahead of.
 
 ## iPad / iPhone app (Capacitor, free signing)
 

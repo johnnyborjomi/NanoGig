@@ -27,6 +27,13 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - name: Version from the tag
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          V="${TAG#v}"
+          [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$ ]] || { echo "Tag '$TAG' is not vX.Y.Z"; exit 1; }
+          # The build reads package.json, so a release cut from the GitHub UI still reports its tag.
+          npm version "$V" --no-git-tag-version --allow-same-version
       - run: npm ci
       - run: npm test
       - run: npm run build
