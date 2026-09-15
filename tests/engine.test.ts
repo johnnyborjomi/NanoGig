@@ -5,6 +5,9 @@ import { SyncEngine } from '../src/sync/engine';
 import { REAL_EVENTS } from '../src/fixtures/captures';
 import { HW_BYPASS_CHANGED, HW_PRESET_CHANGED, HW_STATE_EMPTY_CAPTURE_IR, HW_STATE_SEGMENTED, HW_STATE_SINGLE, HW_UNKNOWN_73 } from '../src/fixtures/hardware-2026-09-12';
 import { toHex } from '../src/protocol/hex';
+import { decodeMetadata } from '../src/protocol/decode';
+import { buildMetadataBody, DEMO_PRESETS } from '../src/fixtures/captures';
+import type { MetadataCache } from '../src/sync/metadata-cache';
 
 async function flush(ms: number) {
   await vi.advanceTimersByTimeAsync(ms);
@@ -17,11 +20,34 @@ async function connect(mock: MockTransport) {
   await p;
 }
 
-function setup(opts: { writes?: boolean; shape?: 'single' | 'segmented' | 'alternate' } = {}) {
+function setup(opts: { writes?: boolean; shape?: 'single' | 'segmented' | 'alternate'; cache?: MetadataCache } = {}) {
   const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, stateReplyShape: opts.shape ?? 'alternate' });
   const store = new Store();
-  const engine = new SyncEngine(mock, store, { writesEnabled: opts.writes ?? false, confirmDelayMs: 50 });
+  const engine = new SyncEngine(mock, store, { writesEnabled: opts.writes ?? false, confirmDelayMs: 50, metadataCache: opts.cache ?? null });
   return { mock, store, engine };
+}
+
+/** In-memory MetadataCache that records every save. */
+function memCache(initial: ReturnType<typeof decodeMetadata> | null = null) {
+  const saves: ReturnType<typeof decodeMetadata>[] = [];
+  let current = initial;
+  const cache: MetadataCache & { saves: typeof saves } = {
+    saves,
+    load: () => current,
+    save: (md) => {
+      saves.push(md);
+      current = md;
+    },
+  };
+  return cache;
+}
+
+/** Metadata as the demo pedal reports it, optionally with preset `i` renamed. */
+function demoMetadata(rename?: { index: number; name: string }) {
+  const presets = DEMO_PRESETS.map((p) => ({ ...p }));
+  if (rename) presets[rename.index] = { ...presets[rename.index]!, name: rename.name };
+  const body = buildMetadataBody(presets);
+  return decodeMetadata(body.subarray(0, body.length - 4));
 }
 
 describe('SyncEngine with the mock transport', () => {
@@ -179,7 +205,7 @@ describe('SyncEngine with the mock transport', () => {
     engine.dispose();
   });
 
-  it('clears device state on disconnect and re-syncs on reconnect without re-requesting metadata', async () => {
+  it('clears device state on disconnect and re-syncs on reconnect state-first, refreshing metadata in the background', async () => {
     const { mock, store, engine } = setup();
     await connect(mock);
     await flush(3500);
@@ -192,8 +218,9 @@ describe('SyncEngine with the mock transport', () => {
     expect(store.get().connection).toBe('connected');
     expect(store.get().syncPhase).toBe('ready');
     expect(store.get().fxOn.value.post1).toBe(true);
+    // The reconnect reads state first (names were kept), then refreshes metadata in the background.
     const metadataRequests = store.get().log.filter((l) => l.dir === 'tx' && l.hex === '06 C0 08 03 01 00 00 00').length;
-    expect(metadataRequests).toBe(1);
+    expect(metadataRequests).toBe(2);
     engine.dispose();
   });
 });
@@ -468,6 +495,83 @@ describe('outputs 1/2 mute', () => {
     await mock.disconnect();
     await flush(10);
     expect(store.get().outputsMuted.value).toBeNull();
+    engine.dispose();
+  });
+});
+
+describe('metadata cache (fast start)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('first connect with an empty cache streams metadata as before and then saves it', async () => {
+    const cache = memCache();
+    const { mock, store, engine } = setup({ cache });
+    const phases: string[] = [];
+    store.subscribe((s) => {
+      if (phases[phases.length - 1] !== s.syncPhase) phases.push(s.syncPhase);
+    });
+    await connect(mock);
+    await flush(3500);
+    expect(phases).toEqual(['idle', 'metadata', 'state', 'ready']);
+    expect(store.get().syncPhase).toBe('ready');
+    expect(store.get().presetNames.source).toBe('metadata');
+    expect(cache.saves.length).toBe(1);
+    expect(cache.saves[0]!.presets[7]!.name).toBe('Clean Chief');
+    engine.dispose();
+  });
+
+  it('with a warm cache the names are on screen at connect, the link is ready after the state dump, and metadata refreshes silently', async () => {
+    const cache = memCache(demoMetadata({ index: 7, name: 'Old Name' }));
+    const { mock, store, engine } = setup({ cache });
+    // Record every distinct (phase, names source, preset 8 name) the UI would have seen, in order.
+    const seen: string[] = [];
+    store.subscribe((s) => {
+      const key = `${s.syncPhase}|${s.presetNames.source}|${s.presetNames.value[7]}`;
+      if (seen[seen.length - 1] !== key) seen.push(key);
+    });
+    await connect(mock);
+    await flush(3500);
+    expect(seen).toEqual([
+      'idle|none|',
+      'idle|cache|Old Name', // names on screen before the pedal has replied to anything
+      'state|cache|Old Name', // one small state dump…
+      'ready|cache|Old Name', // …and the link is live: no "Loading presets…" phase at all
+      'ready|metadata|Clean Chief', // background stream corrected the stale name, silently
+    ]);
+    expect(store.get().presetNames.value[0]).toBe('Fuzz Face Melter');
+    expect(store.get().activePreset.value).toBe(7);
+    expect(cache.saves.length).toBe(1);
+    expect(cache.saves[0]!.presets[7]!.name).toBe('Clean Chief');
+    engine.dispose();
+  });
+
+  it('does not rewrite the cache when the pedal reports the same names', async () => {
+    const cache = memCache(demoMetadata());
+    const { mock, store, engine } = setup({ cache });
+    await connect(mock);
+    await flush(4000);
+    expect(store.get().presetNames.source).toBe('metadata');
+    expect(cache.saves.length).toBe(0);
+    expect(store.get().log.some((l) => l.text.includes('restored from the cache'))).toBe(true);
+    engine.dispose();
+  });
+
+  it('a reconnect within the session also goes state-first with a silent refresh', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(4000);
+    expect(store.get().syncPhase).toBe('ready');
+    await mock.disconnect();
+    await flush(10);
+    const phases: string[] = [];
+    store.subscribe((s) => {
+      if (phases[phases.length - 1] !== s.syncPhase) phases.push(s.syncPhase);
+    });
+    await connect(mock);
+    await flush(300);
+    expect(store.get().syncPhase).toBe('ready');
+    expect(phases).not.toContain('metadata');
+    expect(store.get().presetNames.value[7]).toBe('Clean Chief');
     engine.dispose();
   });
 });

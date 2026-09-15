@@ -8,6 +8,7 @@ import { Store } from './state/store';
 import type { PresetLabelStyle } from './protocol/frames';
 import { WebMidiOut } from './transport/webmidi';
 import { SyncEngine } from './sync/engine';
+import { localMetadataCache } from './sync/metadata-cache';
 import { GigView } from './ui/gigview';
 import { AppUpdater, InstallPrompt } from './pwa';
 
@@ -65,6 +66,7 @@ function attach(t: Transport) {
     writesEnabled,
     midiStrategy,
     midiOut: t instanceof BleTransport ? new WebMidiOut() : null, // no Web MIDI inside native web views
+    metadataCache: localMetadataCache(t.name), // names at once on connect; refreshed in the background
   });
 }
 

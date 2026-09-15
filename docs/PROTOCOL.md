@@ -45,6 +45,10 @@ are simply the length bytes of MTU-sized packets.
 | Preset-change ack   | `06 C0 20 01 1E 00 00 00`                    | sent after a MIDI Program Change                   |
 | Device settings     | `06 C0 08 03 41 00 00 00`                    | 60 B single packet, type `0x42` (new, 2026-09-15) |
 
+NanoGig streams the metadata dump only on the first ever connect. Afterwards the names come
+from a localStorage cache at connect, the small state dump makes the screen live, and the
+metadata dump is re-read in the background to refresh names and cache silently.
+
 ## Metadata message
 
 The full state message plus: field 17 = captures (25), field 18 = 64 preset records

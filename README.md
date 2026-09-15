@@ -53,7 +53,9 @@ SETTINGS FOR MIDI CONTROLLER:
 2. Open **[johnnyborjomi.github.io/NanoGig](https://johnnyborjomi.github.io/NanoGig/)** in a
    browser from the table below.
 3. Tap **Connect Nano Cortex**, pick the pedal in the chooser, done. The app reconnects on
-   its own after a page reload or a pedal power cycle.
+   its own after a page reload or a pedal power cycle. Preset names are remembered on the
+   device, so from the second connect on the screen is live as soon as the link is up and the
+   name list refreshes quietly in the background.
 4. Tap the fullscreen button and put the device where you can see it.
 
 No pedal at hand? **Demo mode** on the connect screen runs the whole UI against a fake pedal.

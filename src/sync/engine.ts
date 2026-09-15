@@ -12,6 +12,11 @@
  * through the same handler: apply names if preset records are present, apply
  * state if state fields are present.
  *
+ * Fast start: when names are already known (from earlier in the session or the
+ * persistent metadata cache) the link goes straight to the small state dump and
+ * is `ready` within a second; the 6 s metadata stream then runs in the
+ * background and silently replaces the names and the cache if anything changed.
+ *
  * Writes (FX toggle, preset switch) are gated behind `writesEnabled`, off by
  * default, optimistic, and confirmed by a follow-up state dump.
  */
@@ -50,6 +55,7 @@ import type { Store } from '../state/store';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
 import type { NotifyPacket, Transport } from '../transport/types';
 import type { MidiOut } from '../transport/webmidi';
+import { metadataFingerprint, type MetadataCache } from './metadata-cache';
 
 export interface EngineOptions {
   writesEnabled?: boolean;
@@ -71,6 +77,8 @@ export interface EngineOptions {
   presetConfirmTimeoutMs?: number;
   /** OS-level MIDI output (Web MIDI). Tried first for preset switching when supported. */
   midiOut?: MidiOut | null;
+  /** Persistent preset/capture/IR names: applied at connect, refreshed in the background. */
+  metadataCache?: MetadataCache | null;
 }
 
 /** Fewer preset records than this is treated as a corrupt / partial list and not applied. */
@@ -85,6 +93,10 @@ export class SyncEngine {
   private confirmTimer: ReturnType<typeof setTimeout> | null = null;
   private stateRequestInFlightSince = 0;
   private awaitingMetadata = false;
+  /** Fingerprint of the metadata last written to (or read from) the cache. */
+  private cachedFingerprint: string | null = null;
+  /** Names came from memory or the cache: refresh the dump silently after the first state. */
+  private backgroundMetadataPending = false;
   /** Device settings (outputs mute) are read once per link, after the first state dump. */
   private settingsRequestedThisLink = false;
   /** Pending outputs-mute write waiting for the pedal's 0x44 ack. */
@@ -112,6 +124,7 @@ export class SyncEngine {
       midiStrategy: opts.midiStrategy ?? null,
       presetConfirmTimeoutMs: opts.presetConfirmTimeoutMs ?? 1500,
       midiOut: opts.midiOut ?? null,
+      metadataCache: opts.metadataCache ?? null,
     };
     this.midiStrategy = midiStrategyById(this.opts.midiStrategy);
     this.midiPinned = this.midiStrategy !== null;
@@ -158,6 +171,7 @@ export class SyncEngine {
     } else {
       this.assembler.cancel();
       this.awaitingMetadata = false;
+      this.backgroundMetadataPending = false;
       this.stateRequestInFlightSince = 0; // never coalesce the first request of a new link
       this.settingsRequestedThisLink = false;
       this.settlePresetWaiters(-1);
@@ -166,15 +180,21 @@ export class SyncEngine {
     }
   }
 
-  /** Full sync: metadata (names + state) then a fresh state dump. Safe to call repeatedly. */
+  /**
+   * Full sync. First link with nothing known: metadata (names + state), then a fresh state
+   * dump. Names already known (session or persistent cache): state dump first so the screen
+   * is live at once, metadata refreshed silently afterwards.
+   */
   async startSync(): Promise<void> {
     if (this.transport.status !== 'connected') return;
     this.store.patch({ lastError: null });
     try {
+      if (!this.metadata && !this.opts.alwaysRefreshMetadata) this.restoreCachedMetadata();
       if (!this.metadata || this.opts.alwaysRefreshMetadata) {
         await this.requestMetadata();
       } else {
-        this.log('info', 'Metadata cached from earlier in this session; skipping metadata dump');
+        this.log('info', 'Preset names already known; reading state first, refreshing names in the background');
+        this.backgroundMetadataPending = true;
         await this.requestState();
       }
     } catch (err) {
@@ -183,17 +203,44 @@ export class SyncEngine {
     }
   }
 
-  /** Request the metadata dump; a state dump follows once it completes (or times out). */
-  async requestMetadata(): Promise<void> {
+  /** Apply the persistent cache (if any) as provisional names, before the pedal has said anything. */
+  private restoreCachedMetadata(): void {
+    const cache = this.opts.metadataCache;
+    if (!cache) return;
+    const md = cache.load();
+    if (!md || md.presetRecordCount < MIN_PRESET_RECORDS) return;
+    this.metadata = md;
+    this.cachedFingerprint = metadataFingerprint(md);
+    this.store.setField('presetNames', md.presets.map((p) => p.name), 'cache');
+    this.log('info', `Preset names restored from the cache (${md.presetRecordCount} presets, ${md.captures.length} captures, ${md.irs.length} IRs)`);
+  }
+
+  /** Write the metadata to the persistent cache when it differs from what is stored. */
+  private persistMetadata(md: Metadata): void {
+    const cache = this.opts.metadataCache;
+    if (!cache) return;
+    const fp = metadataFingerprint(md);
+    if (fp === this.cachedFingerprint) return;
+    cache.save(md);
+    this.cachedFingerprint = fp;
+    this.log('info', 'Preset names changed on the pedal; cache updated');
+  }
+
+  /**
+   * Request the metadata dump. `silent` keeps the sync phase as it is (background refresh of
+   * names that are already on screen); otherwise the UI shows "Loading presets…" and a state
+   * dump follows once the reply completes (or times out).
+   */
+  async requestMetadata(opts: { silent?: boolean } = {}): Promise<void> {
     if (this.transport.status !== 'connected') return;
-    this.store.patch({ syncPhase: 'metadata' });
+    if (!opts.silent) this.store.patch({ syncPhase: 'metadata' });
     this.awaitingMetadata = true;
     if (this.metadataTimer) clearTimeout(this.metadataTimer);
     this.metadataTimer = setTimeout(() => {
       if (!this.awaitingMetadata) return;
       this.awaitingMetadata = false;
-      this.log('warn', 'No complete metadata reply; continuing with current-state dump');
-      void this.requestState();
+      this.log('warn', opts.silent ? 'No complete metadata reply; keeping the known preset names' : 'No complete metadata reply; continuing with current-state dump');
+      if (!opts.silent) void this.requestState();
     }, this.opts.metadataTimeoutMs);
     await this.transport.writeCommand(METADATA_DUMP_REQUEST);
   }
@@ -320,6 +367,7 @@ export class SyncEngine {
         this.store.setField('presetNames', md.presets.map((p) => p.name), 'metadata');
         this.updateSlotKnowledge(Date.now());
         this.store.patch({ lastMetadataAt: Date.now() });
+        this.persistMetadata(md);
       } else {
         this.log('warn', `Only ${md.presetRecordCount} preset records; keeping previous names`);
       }
@@ -377,6 +425,11 @@ export class SyncEngine {
       }
     }
     this.store.patch({ lastStateSyncAt: at, syncPhase: 'ready' });
+    if (this.backgroundMetadataPending) {
+      // The screen is live; now refresh the names without touching the sync phase.
+      this.backgroundMetadataPending = false;
+      void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Background metadata refresh failed: ${(err as Error).message}`));
+    }
     if (!this.settingsRequestedThisLink) {
       this.settingsRequestedThisLink = true;
       setTimeout(() => void this.requestDeviceSettings().catch((err) => this.log('warn', `Settings request failed: ${(err as Error).message}`)), this.opts.confirmDelayMs);

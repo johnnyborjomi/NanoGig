@@ -8,7 +8,8 @@ import type { LogLine, TransportStatus } from '../transport/types';
 import type { FxModelsBySlot } from '../protocol/models';
 import type { FootswitchAssignments } from '../protocol/decode';
 
-export type FieldSource = 'none' | 'dump' | 'metadata' | 'event' | 'inferred' | 'optimistic';
+/** 'cache' = restored from the last session's metadata, pending a background refresh. */
+export type FieldSource = 'none' | 'dump' | 'metadata' | 'cache' | 'event' | 'inferred' | 'optimistic';
 
 export interface Field<T> {
   value: T;
