@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { HW_PRESET_SELECT_0 } from '../src/fixtures/hardware-2026-09-19';
 import { MockTransport } from '../src/transport/mock';
 import { Store } from '../src/state/store';
 import { SyncEngine } from '../src/sync/engine';
@@ -262,8 +263,40 @@ describe('SyncEngine writes', () => {
     engine.dispose();
   });
 
+  it('selectPreset switches over Bluetooth with the c304 select frame and confirms through the state dump', async () => {
+    // Mock pedal behaves like NanOS 2.2.1 (2026-09-19 capture): honours the c304 select, no 0x1D event.
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2 });
+    const store = new Store();
+    const engine = new SyncEngine(mock, store, { writesEnabled: true, confirmDelayMs: 50, presetConfirmTimeoutMs: 300 });
+    await connect(mock);
+    await flush(3500);
+
+    const p = engine.selectPreset(3);
+    await flush(1500);
+    await p;
+    const tx = store.get().log.filter((l) => l.dir === 'tx');
+    const select = tx.find((l) => l.text.includes('[c304-select]'));
+    expect(select?.hex).toBe(toHex(HW_PRESET_SELECT_0).replace('20 00 28', '20 03 28'));
+    expect(tx.some((l) => l.hex === '06 C0 20 01 1E 00 00 00')).toBe(false); // no MIDI ack frame on this path
+    expect(tx.filter((l) => l.text.includes('[')).map((l) => /\[([a-z0-9-]+)\]/.exec(l.text)![1])).toEqual(['c304-select']);
+    expect(store.get().log.some((l) => /Preset select acknowledged/.test(l.text))).toBe(true);
+    expect(engine.activeMidiStrategy?.id).toBe('c304-select');
+    expect(store.get().activePreset.value).toBe(3);
+    expect(store.get().activePreset.source).toBe('dump');
+    expect(store.get().captureName.value).toBe('Brit 1959 Crunch');
+
+    const before = tx.length;
+    const q = engine.selectPreset(4);
+    await flush(1500);
+    await q;
+    const later = store.get().log.filter((l) => l.dir === 'tx').slice(before);
+    expect(later.filter((l) => l.text.includes('[')).map((l) => l.text)).toEqual(['TX c304 [c304-select] preset select']);
+    expect(store.get().activePreset.value).toBe(4);
+    engine.dispose();
+  });
+
   it('selectPreset probes MIDI deliveries until the device confirms, then remembers the winner', async () => {
-    // Mock pedal: rejects raw c302 like the hardware did, honours c303 BLE-MIDI framing.
+    // Mock pedal: ignores the c304 select, rejects raw c302 like the hardware did, honours c303 BLE-MIDI framing.
     const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, acceptedMidi: 'c303-ble-midi' });
     const store = new Store();
     const engine = new SyncEngine(mock, store, { writesEnabled: true, confirmDelayMs: 50, presetConfirmTimeoutMs: 300 });
@@ -271,9 +304,10 @@ describe('SyncEngine writes', () => {
     await flush(3500);
 
     const p = engine.selectPreset(3);
-    await flush(2000);
+    await flush(2500);
     await p;
     const tx = store.get().log.filter((l) => l.dir === 'tx');
+    expect(tx.some((l) => l.text.includes('[c304-select]'))).toBe(true); // tried first, ignored by this pedal
     expect(tx.some((l) => l.text.includes('c303-ble-midi') && l.hex === '80 80 C0 03')).toBe(true);
     expect(tx.some((l) => l.hex === '06 C0 20 01 1E 00 00 00')).toBe(true);
     expect(engine.activeMidiStrategy?.id).toBe('c303-ble-midi');
@@ -298,19 +332,19 @@ describe('SyncEngine writes', () => {
     await connect(mock);
     await flush(3500);
     const p = engine.selectPreset(5);
-    await flush(3000);
+    await flush(3500);
     await p;
     const ids = store
       .get()
-      .log.filter((l) => l.dir === 'tx' && /\[(c30[23]-[a-z-]+)\]/.test(l.text))
-      .map((l) => /\[(c30[23]-[a-z-]+)\]/.exec(l.text)![1]);
-    expect(ids).toEqual(['c303-ble-midi', 'c302-ble-midi', 'c303-raw']);
+      .log.filter((l) => l.dir === 'tx' && /\[(c30[234]-[a-z-]+)\]/.test(l.text))
+      .map((l) => /\[(c30[234]-[a-z-]+)\]/.exec(l.text)![1]);
+    expect(ids).toEqual(['c304-select', 'c303-ble-midi', 'c302-ble-midi', 'c303-raw']);
     expect(engine.activeMidiStrategy?.id).toBe('c303-raw');
     expect(store.get().activePreset.value).toBe(5);
     engine.dispose();
   });
 
-  it('prefers Web MIDI when an output is available and confirms through the device', async () => {
+  it('falls back to Web MIDI when the pedal ignores the Bluetooth select and a USB output is available', async () => {
     const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2, acceptedMidi: 'none' });
     const store = new Store();
     const sent: number[][] = [];
@@ -328,11 +362,11 @@ describe('SyncEngine writes', () => {
     await connect(mock);
     await flush(3500);
     const p = engine.selectPreset(6);
-    await flush(1000);
+    await flush(1500);
     await p;
     expect(sent).toEqual([[0xc0, 6]]);
     expect(engine.activeMidiStrategy?.id).toBe('web-midi');
-    expect(store.get().log.filter((l) => l.dir === 'tx' && /\[c30/.test(l.text))).toHaveLength(0); // no BLE attempts
+    expect(store.get().log.filter((l) => l.dir === 'tx' && /\[c30[23]/.test(l.text))).toHaveLength(0); // no BLE-MIDI attempts
     expect(store.get().activePreset.value).toBe(6);
     engine.dispose();
   });
@@ -353,7 +387,7 @@ describe('SyncEngine writes', () => {
     await connect(mock);
     await flush(3500);
     const p = engine.selectPreset(2);
-    await flush(2000);
+    await flush(2500);
     await p;
     expect(store.get().log.some((l) => l.dir === 'warn' && /web-midi rejected: No Nano Cortex MIDI output/.test(l.text))).toBe(true);
     expect(engine.activeMidiStrategy?.id).toBe('c303-ble-midi');
@@ -434,7 +468,7 @@ describe('SyncEngine writes', () => {
     await p;
     const midiWrites = store.get().log.filter((l) => l.dir === 'tx' && l.text.includes('['));
     expect(midiWrites).toHaveLength(1);
-    expect(store.get().log.some((l) => l.dir === 'error' && /no MIDI delivery/.test(l.text))).toBe(true);
+    expect(store.get().log.some((l) => l.dir === 'error' && /no delivery was confirmed/.test(l.text))).toBe(true);
     expect(store.get().activePreset.value).toBe(7); // resynced from the pedal
     engine.dispose();
   });

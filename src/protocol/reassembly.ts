@@ -78,7 +78,10 @@ export const MSG = {
   ENCODER: 0x1c,
   /** Preset changed: field 4 = preset index, 5/6/7/8 = footswitch IA/IB/IIA/IIB. */
   PRESET_CHANGED: 0x1d,
-  /** App-initiated preset-change acknowledgement request (we send this). */
+  /**
+   * Preset-change acknowledgement: we send `06 C0 20 01 1E 00 00 00` after a MIDI Program
+   * Change; the pedal sends `08 C0 08 01 20 01 1E 00 00 00` after a c304 preset select.
+   */
   PRESET_ACK_REQUEST: 0x1e,
   /** FX / gate bypass changed. */
   BYPASS_CHANGED: 0x1f,

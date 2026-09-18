@@ -70,14 +70,15 @@ and installs as a separate "NanoGig β" app.
 
 | Device                 | How                                                                                                                        | Live display | Control mode | Preset switching  |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------ | ------------ | ----------------- |
-| Laptop / desktop       | Chrome or Edge                                                                                                             | yes          | yes          | yes, pedal on USB |
-| Android phone / tablet | Chrome. Menu → _Add to Home screen_ installs it as a fullscreen landscape app                                              | yes          | yes          | yes, pedal on USB |
-| iPad / iPhone          | [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) browser (Safari has no Web Bluetooth)             | yes          | yes          | no                |
-| iPad, native app       | Build it yourself with a free Apple ID: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#ipad--iphone-app-capacitor-free-signing) | yes          | yes          | no                |
+| Laptop / desktop       | Chrome or Edge                                                                                                             | yes          | yes          | yes               |
+| Android phone / tablet | Chrome. Menu → _Add to Home screen_ installs it as a fullscreen landscape app                                              | yes          | yes          | yes               |
+| iPad / iPhone          | [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) browser (Safari has no Web Bluetooth)             | yes          | yes          | yes               |
+| iPad, native app       | Build it yourself with a free Apple ID: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#ipad--iphone-app-capacitor-free-signing) | yes          | yes          | yes               |
 
-**Why USB for presets?** The pedal ignores MIDI sent over its Bluetooth link, so preset changes
-go out as MIDI over the USB cable while Bluetooth keeps feeding the display. Everything else
-works over Bluetooth alone. Firefox and Safari have no Web Bluetooth and are not supported.
+Everything, preset switching included, works over Bluetooth alone: the app sends the same
+preset-select command Cortex Cloud does. If a pedal on other firmware ignores it, the app falls
+back to a MIDI Program Change over USB (Web MIDI), which was the only path before v1.1. Firefox
+and Safari have no Web Bluetooth and are not supported.
 
 **Picking the pedal on every launch?** Stock Chrome keeps Bluetooth permissions in memory
 only, so an installed app that was closed (or killed in the background, which Android does
@@ -116,8 +117,8 @@ small _1/2_ badge sits next to the tempo in the top bar.
 ## Control mode
 
 Off by default. When on, taps write to the pedal: FX and gate tiles toggle their block, the
-capture and cab labels bypass or re-enable, and the preset strip switches presets (USB
-required for that). The only write that does not need it is the outputs 1/2 mute switch in
+capture and cab labels bypass or re-enable, and the preset strip switches presets. The only
+write that does not need control mode is the outputs 1/2 mute switch in
 Settings, which touches no preset. Every change is confirmed against the pedal's own report a moment later,
 so the screen shows what the pedal did, not what the app asked for.
 
@@ -130,7 +131,6 @@ so the screen shows what the pedal did, not what the app asked for.
 | Area               | Detail                                                                                                                                              |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Firmware           | Verified on NanOS 2.2.1. Other versions may decode wrongly or not at all. If something looks off, Menu → Log → copy and open an issue with the hex. |
-| Bluetooth only     | Preset switching from the app needs the pedal on USB. Not possible from iPad / iPhone.                                                              |
 | Factory cabs       | Can be bypassed but not re-enabled from the app, so their toggle is locked. User IR slots and captures work both ways.                              |
 | One client         | The pedal drops NanoGig when Cortex Cloud connects, and vice versa.                                                                                 |
 | Free Apple signing | The self-built iPad app expires after 7 days; Bluefy needs no build.                                                                                |

@@ -39,6 +39,7 @@ import {
   METADATA_DUMP_REQUEST,
   PRESET_CHANGE_ACK,
   BLE_MIDI_STRATEGIES,
+  BLE_SELECT_STRATEGY,
   PRESET_COUNT,
   WEB_MIDI_STRATEGY,
   cabIrSlotFrame,
@@ -48,6 +49,7 @@ import {
   gateBypassFrame,
   midiStrategyById,
   outputsMuteFrame,
+  presetSelectFrame,
   programChange,
   type FxSlot,
   type MidiStrategy,
@@ -56,7 +58,7 @@ import { toHex } from '../protocol/hex';
 import { MSG, MessageAssembler, classifyPacket, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
 import type { Store } from '../state/store';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
-import type { NotifyPacket, Transport } from '../transport/types';
+import type { LogDirection, NotifyPacket, Transport } from '../transport/types';
 import type { MidiOut } from '../transport/webmidi';
 import { metadataFingerprint, type MetadataCache } from './metadata-cache';
 
@@ -166,7 +168,7 @@ export class SyncEngine {
     for (const t of [this.unknownEventTimer, this.metadataTimer, this.confirmTimer, this.idleTimer]) if (t) clearTimeout(t);
   }
 
-  private log(dir: 'info' | 'warn' | 'error', text: string, hex?: string) {
+  private log(dir: LogDirection, text: string, hex?: string) {
     this.store.appendLog({ at: Date.now(), dir, text, ...(hex ? { hex } : {}) });
   }
 
@@ -382,6 +384,12 @@ export class SyncEngine {
       case 'bypass-changed':
         this.log('info', 'Bypass changed on device; re-reading state', toHex(pkt.data));
         this.scheduleConfirm(150);
+        return;
+      case 'preset-select-ack':
+        // The pedal's reply to a c304 preset select (2026-09-19). Cortex Cloud requests the
+        // state right after it; field 13 there is what settles the switch.
+        this.log('info', 'Preset select acknowledged; re-reading state', toHex(pkt.data));
+        this.scheduleConfirm(50);
         return;
       case 'settings':
         this.log('info', `Device settings: outputs 1/2 ${ev.settings.outputsMuted ? 'muted' : 'on'} · ${describeDeviceSettings(ev.settings)}`, toHex(pkt.data));
@@ -704,23 +712,27 @@ export class SyncEngine {
   }
 
   /**
-   * Switch preset by zero-based index. Sends a MIDI Program Change, then the
-   * ack frame on c304, then waits for the device to report the new preset
-   * (preset-changed event or state dump field 13). If the delivery strategy is
-   * not yet known, the documented variants are tried in order until the device
-   * confirms one; the winner is remembered for the session.
+   * Switch preset by zero-based index. Writes the pedal's own preset-select
+   * frame on c304 (Cortex Cloud's path, Bluetooth only) and waits for the
+   * device to report the new preset (preset-changed event or state dump field
+   * 13). If that is not confirmed, the MIDI deliveries follow: a Program Change
+   * over Web MIDI (USB) and the BLE variants, each followed by the ack frame.
+   * The first delivery the device confirms is remembered for the session.
    */
   async selectPreset(index: number): Promise<void> {
     this.assertWrites();
     if (!Number.isInteger(index) || index < 0 || index >= PRESET_COUNT) throw new RangeError(`bad preset index ${index}`);
     this.store.setField('activePreset', index, 'optimistic');
     const midiOut = this.opts.midiOut;
-    const all = [...(midiOut?.isSupported() ? [WEB_MIDI_STRATEGY] : []), ...BLE_MIDI_STRATEGIES];
+    const all = [BLE_SELECT_STRATEGY, ...(midiOut?.isSupported() ? [WEB_MIDI_STRATEGY] : []), ...BLE_MIDI_STRATEGIES];
     const candidates = this.midiStrategy ? [this.midiStrategy, ...(this.midiPinned ? [] : all.filter((s) => s.id !== this.midiStrategy!.id))] : all;
     for (const strategy of candidates) {
       const confirmed = this.waitForPreset(index);
       try {
-        if (strategy.char === 'web-midi') {
+        if (strategy.framing === 'select') {
+          this.log('tx', `TX c304 [${strategy.id}] preset select`, toHex(presetSelectFrame(index)));
+          await this.transport.writeCommand(presetSelectFrame(index));
+        } else if (strategy.char === 'web-midi') {
           if (!midiOut) throw new Error('Web MIDI not configured');
           await midiOut.open();
           const pc = programChange(index);
@@ -734,8 +746,12 @@ export class SyncEngine {
         this.settlePresetWaiters(-1);
         continue;
       }
-      await new Promise((r) => setTimeout(r, 50));
-      await this.transport.writeCommand(PRESET_CHANGE_ACK).catch((err) => this.log('warn', `ack frame failed: ${(err as Error).message}`));
+      if (strategy.framing !== 'select') {
+        // MIDI deliveries: the web editor follows the Program Change with the ack frame.
+        // The c304 select needs none — the pedal acks it by itself (2026-09-19 capture).
+        await new Promise((r) => setTimeout(r, 50));
+        await this.transport.writeCommand(PRESET_CHANGE_ACK).catch((err) => this.log('warn', `ack frame failed: ${(err as Error).message}`));
+      }
       this.scheduleConfirm(this.midiStrategy === strategy ? this.opts.confirmDelayMs : 400);
       if (await confirmed) {
         if (this.midiStrategy !== strategy) {
@@ -749,7 +765,7 @@ export class SyncEngine {
     }
     this.log(
       'error',
-      'Preset switch failed: no MIDI delivery was confirmed by the device. Connect the pedal over USB so Web MIDI can reach its "Nano Cortex" port.',
+      'Preset switch failed: no delivery was confirmed by the device (Bluetooth select, then MIDI). Check the pedal is on NanOS 2.2.x; on other firmware, USB Web MIDI may still work.',
     );
     void this.requestState(); // resync the optimistic value with reality
   }

@@ -315,6 +315,8 @@ export type DeviceEvent =
   | { kind: 'settings'; settings: DeviceSettings; hex: string; provisional: typeof PROVISIONAL }
   /** Ack to an outputs-mute write (type 0x44). */
   | { kind: 'outputs-mute-ack'; hex: string; provisional: typeof PROVISIONAL }
+  /** Ack to a c304 preset select (type 0x1E, `08 C0 08 01 20 01 1E 00 00 00`; 2026-09-19). */
+  | { kind: 'preset-select-ack'; hex: string; provisional: typeof PROVISIONAL }
   | { kind: 'unknown'; msgType: number | null; hex: string; provisional: typeof PROVISIONAL };
 
 // ---------------------------------------------------------------------------
@@ -416,6 +418,7 @@ export function decodeEvent(data: Uint8Array): DeviceEvent {
       return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
     }
     if (msgType === MSG.OUTPUTS_MUTE_ACK) return { kind: 'outputs-mute-ack', hex, provisional: PROVISIONAL };
+    if (msgType === MSG.PRESET_ACK_REQUEST) return { kind: 'preset-select-ack', hex, provisional: PROVISIONAL };
     if (msgType !== null && CONTROL_TYPES.has(msgType)) return { kind: 'control', msgType, hex, provisional: PROVISIONAL };
     if (msgType !== null) return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
   }

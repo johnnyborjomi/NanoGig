@@ -139,9 +139,40 @@ export function bleMidiFrame(midi: Uint8Array): Uint8Array {
   return Uint8Array.from([0x80, 0x80, ...midi]);
 }
 
-export type MidiChar = 'web-midi' | 'c302' | 'c303';
-/** `sequential` = one GATT write per MIDI byte (rixrix probe mode). */
-export type MidiFraming = 'raw' | 'ble-midi' | 'sequential';
+export type MidiChar = 'web-midi' | 'c302' | 'c303' | 'c304';
+/**
+ * `sequential` = one GATT write per MIDI byte (rixrix probe mode); `select` = not MIDI at
+ * all but the pedal's own preset-select frame on c304 (see `presetSelectFrame`).
+ */
+export type MidiFraming = 'raw' | 'ble-midi' | 'sequential' | 'select';
+
+/** Protobuf varint for -1 as Cortex Cloud writes it (sint-less int32/int64: ten bytes). */
+const VARINT_MINUS_ONE = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01] as const;
+
+/**
+ * Preset select over Bluetooth, captured 2026-09-19 from Cortex Cloud (HCI snoop, NanOS
+ * 2.2.1): a type-0x1D message — the same type as the pedal's preset-changed event — written to
+ * c304 with response. Field 3 = 0, field 4 = preset index, fields 5–8 = footswitch IA/IB/IIA/IIB
+ * assignments as -1 (leave unchanged), field 9 = 4 (Cortex Cloud sent 4 in 8 of 10 writes and
+ * 0 / 1 once each; meaning unknown, the pedal switched every time). The pedal answers with
+ * `06 C0 08 01 1F 00 00 00` then `08 C0 08 01 20 01 1E 00 00 00`; dump field 13 confirms.
+ */
+export function presetSelectFrame(presetIndex: number): Uint8Array {
+  if (!Number.isInteger(presetIndex) || presetIndex < 0 || presetIndex >= PRESET_COUNT) {
+    throw new RangeError(`preset index out of range: ${presetIndex}`);
+  }
+  return new Uint8Array([
+    0x36, 0xc0,
+    0x18, 0x00,
+    0x20, presetIndex,
+    0x28, ...VARINT_MINUS_ONE,
+    0x30, ...VARINT_MINUS_ONE,
+    0x38, ...VARINT_MINUS_ONE,
+    0x40, ...VARINT_MINUS_ONE,
+    0x48, 0x04,
+    0x1d, 0x00, 0x00, 0x00,
+  ]);
+}
 
 export interface MidiStrategy {
   id: string;
@@ -149,7 +180,13 @@ export interface MidiStrategy {
   framing: MidiFraming;
 }
 
-/** Web MIDI through the OS Bluetooth-MIDI pairing: the web editor's verified path. */
+/**
+ * The pedal's own preset-select frame on c304 (Cortex Cloud's path, captured 2026-09-19).
+ * Tried first: it needs nothing but the Bluetooth link the display already uses.
+ */
+export const BLE_SELECT_STRATEGY: MidiStrategy = { id: 'c304-select', char: 'c304', framing: 'select' };
+
+/** Web MIDI over the pedal's USB port: verified 2026-09-12, needs the cable. */
 export const WEB_MIDI_STRATEGY: MidiStrategy = { id: 'web-midi', char: 'web-midi', framing: 'raw' };
 
 /**
@@ -157,7 +194,7 @@ export const WEB_MIDI_STRATEGY: MidiStrategy = { id: 'web-midi', char: 'web-midi
  * `nano_ble_preset_probe` (modes raw / ble-midi / sequential; chars c303 then
  * c302). Hardware 2026-09-12: c302 rejects every write ("GATT operation
  * failed"), c303 accepts them but the pedal does not switch. Kept as fallbacks
- * for other firmware; `WEB_MIDI_STRATEGY` is tried first when available.
+ * for other firmware; `BLE_SELECT_STRATEGY` and then `WEB_MIDI_STRATEGY` go first.
  */
 export const BLE_MIDI_STRATEGIES: readonly MidiStrategy[] = [
   { id: 'c303-ble-midi', char: 'c303', framing: 'ble-midi' },
@@ -167,7 +204,7 @@ export const BLE_MIDI_STRATEGIES: readonly MidiStrategy[] = [
   { id: 'c302-raw', char: 'c302', framing: 'raw' },
 ];
 
-export const MIDI_STRATEGIES: readonly MidiStrategy[] = [WEB_MIDI_STRATEGY, ...BLE_MIDI_STRATEGIES];
+export const MIDI_STRATEGIES: readonly MidiStrategy[] = [BLE_SELECT_STRATEGY, WEB_MIDI_STRATEGY, ...BLE_MIDI_STRATEGIES];
 
 export function midiStrategyById(id: string | null | undefined): MidiStrategy | null {
   return MIDI_STRATEGIES.find((s) => s.id === id) ?? null;

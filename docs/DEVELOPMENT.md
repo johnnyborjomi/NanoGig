@@ -16,7 +16,7 @@ npm run build        # type-check + production bundle in dist/
 | `?mock=1`    | Demo mode: a fake pedal replays captured packets. No hardware needed.                                      |
 | `?writes=1`  | Start in control mode (the Control button toggles it too).                                                  |
 | `?debug=1`   | Open the hex log on load.                                                                                  |
-| `?midi=<id>` | Pin the preset-switch delivery: `web-midi`, `c303-ble-midi`, `c302-ble-midi`, `c303-raw`, `c303-sequential`, `c302-raw`. |
+| `?midi=<id>` | Pin the preset-switch delivery: `c304-select` (Bluetooth, default winner), `web-midi` (USB), `c303-ble-midi`, `c302-ble-midi`, `c303-raw`, `c303-sequential`, `c302-raw`. |
 
 Menu → Log shows every TX/RX frame in hex; "copy" puts it on the clipboard. That log is what
 protocol bug reports need, together with the firmware version shown at the bottom of the menu.
@@ -124,8 +124,8 @@ In Xcode: select the **App** target → Signing & Capabilities → Team = your p
 run destination and press Run. On the iPad, allow the app under Settings → General → VPN &
 Device Management the first time. With free signing the install expires after 7 days; run
 again from Xcode to renew. CocoaPods is required (`brew install cocoapods`; on an Apple
-Silicon Mac whose shell runs under Rosetta, prefix with `arch -arm64`). Preset switching is not
-available in the iOS app (no MIDI path).
+Silicon Mac whose shell runs under Rosetta, prefix with `arch -arm64`). Preset switching in the iOS app
+uses the Bluetooth c304 select (there is no MIDI fallback on iOS).
 
 ## Hardware checklist
 
@@ -137,7 +137,7 @@ available in the iOS app (no MIDI path).
       `enable-web-bluetooth-new-permissions-backend` flag; stock Chrome, and every PWA launch on Android,
       goes through the chooser).
 - [x] Control: FX and gate tile taps.
-- [x] Control: preset buttons via Web MIDI over USB.
+- [x] Control: preset buttons over Bluetooth (c304 select, 2026-09-19); Web MIDI over USB as fallback.
 - [x] Control: capture and cab bypass / re-enable from the labels.
 - [x] Capture / cab names follow the footswitch encoders.
 - [x] Android Chrome PWA, iPad Capacitor app, iPad Bluefy.

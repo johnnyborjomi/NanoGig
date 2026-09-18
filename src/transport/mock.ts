@@ -32,6 +32,8 @@ import {
   type MockPreset,
 } from '../fixtures/captures';
 import { HW_DEVICE_SETTINGS_REPLY, HW_DEVICE_SETTINGS_REPLY_UNMUTED, HW_OUTPUTS_MUTE_ACK } from '../fixtures/hardware-2026-09-15';
+import { HW_BYPASS_CHANGED } from '../fixtures/hardware-2026-09-12';
+import { HW_PRESET_SELECT_ACK } from '../fixtures/hardware-2026-09-19';
 import {
   Emitter,
   type ConnectOptions,
@@ -55,8 +57,9 @@ export interface MockOptions {
   /** Force reply shape instead of alternating. */
   stateReplyShape?: 'single' | 'segmented' | 'alternate';
   /**
-   * Which MIDI delivery the fake pedal honours. Others are ignored silently,
-   * except raw-on-c302 which fails like the real pedal did on 2026-09-12.
+   * Which preset-switch delivery the fake pedal honours (default `c304-select`, like
+   * NanOS 2.2.1). Others are ignored silently, except raw-on-c302 which fails like the
+   * real pedal did on 2026-09-12.
    */
   acceptedMidi?: string;
 }
@@ -84,7 +87,7 @@ export class MockTransport implements Transport {
       autoEventIntervalMs: opts.autoEventIntervalMs ?? 0,
       replayRealDumpFirst: opts.replayRealDumpFirst ?? true,
       stateReplyShape: opts.stateReplyShape ?? 'alternate',
-      acceptedMidi: opts.acceptedMidi ?? 'c303-ble-midi',
+      acceptedMidi: opts.acceptedMidi ?? 'c304-select',
     };
     this.presets = this.opts.presets;
     this.device = { ...defaultMockDeviceState(), ...this.opts.initialState };
@@ -181,7 +184,18 @@ export class MockTransport implements Transport {
       return;
     }
     if (bytesEqual(bytes, PRESET_CHANGE_ACK)) {
-      return; // reply shape after an app-initiated change not captured yet
+      return; // the pedal's reply to this MIDI-path ack is not captured
+    }
+    // Preset select (Cortex Cloud, 2026-09-19): 36 C0 18 00 20 <preset> … 1D 00 00 00
+    if (bytes.length === 56 && bytes[0] === 0x36 && bytes[1] === 0xc0 && bytes[2] === 0x18 && bytes[4] === 0x20 && bytes[52] === 0x1d) {
+      if (this.opts.acceptedMidi !== 'c304-select') return; // other firmware: ignored
+      this.device.activePreset = bytes[5]!;
+      // The real pedal answers with a bypass-changed notice, then the 0x1E ack; no 0x1D event.
+      this.schedule(() => {
+        this.emit(HW_BYPASS_CHANGED);
+        this.emit(HW_PRESET_SELECT_ACK);
+      }, this.opts.latencyMs);
+      return;
     }
     if (bytesEqual(bytes, DEVICE_SETTINGS_REQUEST)) {
       this.schedule(() => this.emit(this.device.outputsMuted ? HW_DEVICE_SETTINGS_REPLY : HW_DEVICE_SETTINGS_REPLY_UNMUTED), this.opts.latencyMs);

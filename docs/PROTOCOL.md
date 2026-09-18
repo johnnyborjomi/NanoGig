@@ -42,7 +42,7 @@ are simply the length bytes of MTU-sized packets.
 | ------------------- | -------------------------------------------- | -------------------------------------------------- |
 | Metadata dump       | `06 C0 08 03 01 00 00 00`                    | ~17 KB message over ~6 s, type `0x02`             |
 | Current state       | `0C C0 08 03 18 01 20 01 28 01 01 00 00 00`  | ~300-500 B message, type `0x02`                   |
-| Preset-change ack   | `06 C0 20 01 1E 00 00 00`                    | sent after a MIDI Program Change                   |
+| Preset-change ack   | `06 C0 20 01 1E 00 00 00`                    | sent after a MIDI Program Change (USB path only)   |
 | Device settings     | `06 C0 08 03 41 00 00 00`                    | 60 B single packet, type `0x42` (new, 2026-09-15) |
 
 NanoGig streams the metadata dump only on the first ever connect. Afterwards the names come
@@ -112,6 +112,7 @@ every mute ack to confirm the switch against the pedal's report.
 | `0x73` | Generic "something changed" notice; also the ack to capture / cab slot writes                         | debounced re-read                      |
 | `0x42` | Device-settings reply (see above)                                                                    | log the fields                         |
 | `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
+| `0x1E` | Ack to the c304 preset select: `08 C0 08 01 20 01 1E 00 00 00`, after a `0x1F` notice               | re-read state (field 13 confirms)      |
 
 ## Writes (control mode, c304)
 
@@ -124,6 +125,7 @@ every mute ack to confirm the switch against the pedal's report.
 | Cab bypass                 | `08 C0 18 03 20 00 1C 00 00 00`                  | 2026-09-13 |
 | Cab / IR slot select       | `08 C0 18 03 20 <slot 1..5> 1C 00 00 00`         | 2026-09-13 |
 | Mute outputs 1/2 (global)  | `08 C0 08 01 68 <1 mute / 0 outputs on> 43 00 00 00` | 2026-09-15 (captured from Cortex Cloud, polarity by ear) |
+| Preset select              | `36 C0 18 00 20 <preset> 28 <-1> 30 <-1> 38 <-1> 40 <-1> 48 04 1D 00 00 00`, `<-1>` = `FF FF FF FF FF FF FF FF FF 01` | 2026-09-19 (captured from Cortex Cloud; pedal test pending) |
 
 Re-enabling a capture or cab needs its slot index, which NanoGig can only get by matching the
 current name against the metadata slot lists. When there is no match (factory cab, library
@@ -132,15 +134,33 @@ app never bypasses something it could not bring back.
 
 ## Preset switching
 
-MIDI Program Changes written to `c302` / `c303` (raw or Bluetooth-MIDI framed) do **not**
-switch presets on NanOS 2.2.1. The verified path is **Web MIDI over USB**: the pedal exposes a
-MIDI port named "Nano Cortex"; a Program Change there switches presets while Bluetooth keeps
-serving the display. The app tries Web MIDI first, then the BLE variants from the rixrix probe,
-confirms each against the pedal's own report (event `0x1D` or dump field 13) and remembers
-what worked for the session. `?midi=<id>` pins one strategy: `web-midi`, `c303-ble-midi`,
-`c302-ble-midi`, `c303-raw`, `c303-sequential`, `c302-raw`.
+**Over Bluetooth (Cortex Cloud's path, captured 2026-09-19 from an Android HCI snoop log of
+Cortex Cloud clicking presets 1–10):** a type-`0x1D` message — the same type as the pedal's
+preset-changed event, in the other direction — written to `c304` with response:
+
+```
+36 C0 18 00 20 <preset> 28 <-1> 30 <-1> 38 <-1> 40 <-1> 48 04 1D 00 00 00
+```
+
+Field 3 = 0, field 4 = preset index 0–63, fields 5–8 = footswitch IA/IB/IIA/IIB assignments
+as `-1` (the 10-byte varint `FF FF FF FF FF FF FF FF FF 01`, i.e. leave unchanged), field 9 = 4.
+Cortex Cloud sent 4 in eight of ten writes and 0 / 1 once each; it matches neither the index nor
+dump field 9, so it is treated as a client-side value and always sent as 4. Within ~100 ms of
+the write response the pedal sends `06 C0 08 01 1F 00 00 00` (bypass-changed notice) and
+`08 C0 08 01 20 01 1E 00 00 00` (ack); Cortex Cloud then requests the state, whose field 13
+carries the new index. No `0x1D` event is sent for app-initiated switches. NanoGig sends no ack
+frame on this path.
+
+**Fallbacks:** MIDI Program Changes written to `c302` / `c303` (raw or Bluetooth-MIDI framed)
+do **not** switch presets on NanOS 2.2.1. **Web MIDI over USB** does: the pedal exposes a MIDI
+port named "Nano Cortex"; a Program Change there switches presets (verified 2026-09-12). The
+app tries the `c304` select first, then Web MIDI, then the BLE-MIDI variants from the rixrix
+probe, confirms each against the pedal's own report (event `0x1D` or dump field 13) and
+remembers what worked for the session. `?midi=<id>` pins one strategy: `c304-select`,
+`web-midi`, `c303-ble-midi`, `c302-ble-midi`, `c303-raw`, `c303-sequential`, `c302-raw`.
 
 ## Fixtures
 
-Real packets from the hardware sessions live in `src/fixtures/hardware-2026-09-12.ts` and
-`src/fixtures/captures.ts` and are asserted byte-for-byte in `tests/`.
+Real packets from the hardware sessions live in `src/fixtures/hardware-2026-09-12.ts`,
+`hardware-2026-09-15.ts`, `hardware-2026-09-19.ts` and `captures.ts` and are asserted
+byte-for-byte in `tests/`.

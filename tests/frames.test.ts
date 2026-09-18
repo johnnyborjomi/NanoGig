@@ -18,10 +18,12 @@ import {
   gateBypassFrame,
   outputsMuteFrame,
   presetLabel,
+  presetSelectFrame,
   programChange,
 } from '../src/protocol/frames';
 import { toHex } from '../src/protocol/hex';
 import { HW_DEVICE_SETTINGS_REQUEST, HW_OUTPUTS_MUTE_WRITES } from '../src/fixtures/hardware-2026-09-15';
+import { HW_PRESET_SELECT_0, HW_PRESET_SELECT_9 } from '../src/fixtures/hardware-2026-09-19';
 
 describe('request frames (byte-exact against the reference tables)', () => {
   it('metadata dump request', () => {
@@ -125,10 +127,33 @@ describe('MIDI delivery strategies', () => {
   it('BLE-MIDI framing is the rixrix probe shape: 80 80 <status> <program>', () => {
     expect(toHex(bleMidiFrame(programChange(15)))).toBe('80 80 C0 0F');
   });
-  it('lists Web MIDI first, then the BLE variants from the rixrix probe, raw c302 last', () => {
-    expect(MIDI_STRATEGIES.map((s) => s.id)).toEqual(['web-midi', 'c303-ble-midi', 'c302-ble-midi', 'c303-raw', 'c303-sequential', 'c302-raw']);
+  it('lists the c304 select first, then Web MIDI, then the BLE variants from the rixrix probe, raw c302 last', () => {
+    expect(MIDI_STRATEGIES.map((s) => s.id)).toEqual(['c304-select', 'web-midi', 'c303-ble-midi', 'c302-ble-midi', 'c303-raw', 'c303-sequential', 'c302-raw']);
+    expect(midiStrategyById('c304-select')).toEqual({ id: 'c304-select', char: 'c304', framing: 'select' });
     expect(midiStrategyById('c302-raw')).toEqual({ id: 'c302-raw', char: 'c302', framing: 'raw' });
     expect(midiStrategyById('nope')).toBeNull();
+  });
+});
+
+describe('preset select frame (Cortex Cloud HCI capture 2026-09-19)', () => {
+  it('is byte-identical to the captured writes for presets 0 and 9', () => {
+    expect(toHex(presetSelectFrame(0))).toBe(toHex(HW_PRESET_SELECT_0));
+    expect(toHex(presetSelectFrame(9))).toBe(toHex(HW_PRESET_SELECT_9));
+  });
+  it('is a type-0x1D message (54-byte body) with the index in field 4 and -1 in the four footswitch fields', () => {
+    const f = presetSelectFrame(63);
+    expect(f).toHaveLength(56);
+    expect(f[0]).toBe(0x36); // 14-bit length 54 = body + trailer, START|END
+    expect(Array.from(f.slice(2, 6))).toEqual([0x18, 0x00, 0x20, 63]);
+    for (const tag of [0x28, 0x30, 0x38, 0x40]) {
+      const at = f.indexOf(tag);
+      expect(toHex(f.slice(at + 1, at + 11))).toBe('FF FF FF FF FF FF FF FF FF 01');
+    }
+    expect(toHex(f.slice(50))).toBe('48 04 1D 00 00 00');
+  });
+  it('rejects indices outside 0..63', () => {
+    expect(() => presetSelectFrame(64)).toThrow(RangeError);
+    expect(() => presetSelectFrame(-1)).toThrow(RangeError);
   });
 });
 
