@@ -21,9 +21,10 @@ async function connect(mock: MockTransport) {
   await p;
 }
 
-function setup(opts: { writes?: boolean; shape?: 'single' | 'segmented' | 'alternate'; cache?: MetadataCache; packetGapMs?: number; idleMs?: number } = {}) {
+function setup(opts: { writes?: boolean; shape?: 'single' | 'segmented' | 'alternate'; cache?: MetadataCache; packetGapMs?: number; idleMs?: number; liveTuner?: boolean } = {}) {
   const mock = new MockTransport({ latencyMs: 10, packetGapMs: opts.packetGapMs ?? 2, stateReplyShape: opts.shape ?? 'alternate' });
-  const store = new Store();
+  // Live tuner off by default here: the mock's pitch stream counts as pedal activity (idle refresh) and adds noise; its own test covers it.
+  const store = new Store({ liveTuner: opts.liveTuner ?? false });
   const engine = new SyncEngine(mock, store, { writesEnabled: opts.writes ?? false, confirmDelayMs: 50, metadataCache: opts.cache ?? null, idleNamesRefreshMs: opts.idleMs ?? 0 });
   return { mock, store, engine };
 }
@@ -736,6 +737,85 @@ describe('idle names refresh', () => {
     store.patch({ autoRefreshNames: false });
     await flush(20000);
     expect(metadataRequests(store)).toBe(0);
+    engine.dispose();
+  });
+});
+
+describe('tuner', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('start writes tuner-on, readings stream into the store, reference re-sends, stop writes tuner-off', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2 });
+    const store = new Store({ liveTuner: false });
+    const engine = new SyncEngine(mock, store, { writesEnabled: false }); // no control mode needed
+    await connect(mock);
+    await flush(3500);
+    expect(store.get().tuner.referenceHz).toBe(440);
+
+    await engine.startTuner();
+    expect(store.get().tuner.on).toBe(true);
+    const tx = () => store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
+    expect(tx()).toContain('0F C0 20 01 2D 00 00 DC 43 30 01 38 00 7F 00 00 00');
+    await flush(400);
+    const r = store.get().tuner.reading;
+    expect(r).not.toBeNull();
+    expect(['E', 'A', 'D', 'G', 'B']).toContain(r!.note);
+    expect(typeof r!.cents).toBe('number');
+    expect(store.get().log.filter((l) => /Undocumented event/.test(l.text))).toHaveLength(0);
+
+    await engine.setTunerReference(442);
+    expect(tx()).toContain('0F C0 20 01 2D 00 00 DD 43 30 01 38 00 7F 00 00 00'); // 442.0 = 0x43DD0000
+    await engine.setTunerMute(true);
+    expect(tx()).toContain('0F C0 20 01 2D 00 00 DD 43 30 01 38 01 7F 00 00 00');
+
+    await engine.stopTuner();
+    expect(tx()).toContain('06 C0 20 00 7F 00 00 00');
+    expect(store.get().tuner.on).toBe(false);
+    expect(store.get().tuner.reading).toBeNull();
+    const before = store.get().log.length;
+    await flush(500);
+    expect(store.get().log.length).toBe(before); // the mock stream stopped
+    engine.dispose();
+  });
+});
+
+describe('live tuner', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('turns the tuner on after sync, keeps it on (unmuted) when the big tuner closes, and off when the setting goes off', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2 });
+    const store = new Store(); // liveTuner defaults to on
+    const engine = new SyncEngine(mock, store, { writesEnabled: false, confirmDelayMs: 50 });
+    await connect(mock);
+    await flush(4000);
+    const tx = () => store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
+    expect(store.get().tuner.on).toBe(true);
+    const onWrites = () => store.get().log.filter((l) => l.dir === 'tx' && l.text.startsWith('Tuner on'));
+    expect(onWrites()).toHaveLength(1); // the transport logs the same hex again as 'TX c304'
+    await flush(400);
+    expect(store.get().tuner.reading).not.toBeNull(); // the mock streams readings
+
+    // Big tuner: mute, then close → back to on + unmuted, never off.
+    await engine.startTuner();
+    await engine.setTunerMute(true);
+    expect(tx()).toContain('0F C0 20 01 2D 00 00 DC 43 30 01 38 01 7F 00 00 00');
+    await engine.stopTuner();
+    expect(store.get().tuner.on).toBe(true);
+    expect(store.get().tuner.muted).toBe(false);
+    expect(tx()).not.toContain('06 C0 20 00 7F 00 00 00');
+    expect(onWrites().length).toBeGreaterThanOrEqual(2);
+
+    // A preset change on the pedal re-arms the tuner.
+    const before = tx().length;
+    mock.pressFootswitch(2);
+    await flush(300);
+    expect(tx().slice(before)).toContain('0F C0 20 01 2D 00 00 DC 43 30 01 38 00 7F 00 00 00');
+
+    await engine.setLiveTuner(false);
+    expect(store.get().tuner.on).toBe(false);
+    expect(tx()).toContain('06 C0 20 00 7F 00 00 00');
     engine.dispose();
   });
 });

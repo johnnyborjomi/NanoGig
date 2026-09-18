@@ -8,6 +8,7 @@ import {
   sanitizeName,
 } from '../src/protocol/decode';
 import { fromHex } from '../src/protocol/hex';
+import { HW_TUNER_ON_ACK, HW_TUNER_PITCH_A_PLUS_14, HW_TUNER_PITCH_D_MINUS_0_5, HW_TUNER_PITCH_G_PLUS_2_3 } from '../src/fixtures/hardware-2026-09-19';
 import { bytesField, stringField } from '../src/protocol/proto';
 import { DEMO_PRESETS, REAL_EVENTS, REAL_STATE_DUMP_PACKET, buildFootswitchSelectEvent, buildMetadataBody, buildPresetChangedEvent } from '../src/fixtures/captures';
 
@@ -299,5 +300,34 @@ describe('device settings (type 0x42) and outputs-mute ack (type 0x44)', async (
     expect(ev.kind).toBe('settings');
     if (ev.kind === 'settings') expect(ev.settings.deviceName).toBe('Neural DSP Nano Cortex');
     expect(decodeEvent(HW_OUTPUTS_MUTE_ACK).kind).toBe('outputs-mute-ack');
+  });
+  it('decodeEvent reads the tuner-on ack: on, 440 Hz (NanoGig log 2026-09-19)', () => {
+    const ev = decodeEvent(HW_TUNER_ON_ACK);
+    expect(ev.kind).toBe('tuner-ack');
+    if (ev.kind === 'tuner-ack') {
+      expect(ev.on).toBe(true);
+      expect(ev.referenceHz).toBe(440);
+    }
+  });
+  it('decodeEvent reads tuner pitch events: note, cents and the in-tune flag (2026-09-19 capture)', () => {
+    const a = decodeEvent(HW_TUNER_PITCH_A_PLUS_14);
+    expect(a.kind).toBe('tuner');
+    if (a.kind === 'tuner') {
+      expect(a.reading.note).toBe('A');
+      expect(a.reading.cents).toBeCloseTo(14.272, 2);
+      expect(a.reading.inTune).toBe(false);
+    }
+    const d = decodeEvent(HW_TUNER_PITCH_D_MINUS_0_5);
+    if (d.kind === 'tuner') {
+      expect(d.reading.note).toBe('D');
+      expect(d.reading.cents).toBeCloseTo(-0.541, 2);
+      expect(d.reading.inTune).toBe(true);
+    } else throw new Error(d.kind);
+    const g = decodeEvent(HW_TUNER_PITCH_G_PLUS_2_3);
+    if (g.kind === 'tuner') {
+      expect(g.reading.note).toBe('G');
+      expect(g.reading.cents).toBeCloseTo(2.341, 2);
+      expect(g.reading.inTune).toBe(false);
+    } else throw new Error(g.kind);
   });
 });

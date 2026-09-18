@@ -20,10 +20,12 @@ import {
   presetLabel,
   presetSelectFrame,
   programChange,
+  tunerOnFrame,
+  TUNER_OFF,
 } from '../src/protocol/frames';
 import { toHex } from '../src/protocol/hex';
 import { HW_DEVICE_SETTINGS_REQUEST, HW_OUTPUTS_MUTE_WRITES } from '../src/fixtures/hardware-2026-09-15';
-import { HW_PRESET_SELECT_0, HW_PRESET_SELECT_9 } from '../src/fixtures/hardware-2026-09-19';
+import { HW_PRESET_SELECT_0, HW_PRESET_SELECT_9, HW_TUNER_OFF, HW_TUNER_ON_440, HW_TUNER_ON_440_MUTED, HW_TUNER_ON_462 } from '../src/fixtures/hardware-2026-09-19';
 
 describe('request frames (byte-exact against the reference tables)', () => {
   it('metadata dump request', () => {
@@ -154,6 +156,21 @@ describe('preset select frame (Cortex Cloud HCI capture 2026-09-19)', () => {
   it('rejects indices outside 0..63', () => {
     expect(() => presetSelectFrame(64)).toThrow(RangeError);
     expect(() => presetSelectFrame(-1)).toThrow(RangeError);
+  });
+});
+
+describe('tuner frames (Cortex Cloud HCI capture 2026-09-19)', () => {
+  it('tuner on is byte-identical to the captured writes: 440 Hz, 440 Hz muted, 462 Hz', () => {
+    expect(toHex(tunerOnFrame())).toBe(toHex(HW_TUNER_ON_440));
+    expect(toHex(tunerOnFrame(440, true))).toBe(toHex(HW_TUNER_ON_440_MUTED));
+    expect(toHex(tunerOnFrame(462))).toBe(toHex(HW_TUNER_ON_462));
+  });
+  it('tuner off is the captured 4-byte body', () => {
+    expect(toHex(TUNER_OFF)).toBe(toHex(HW_TUNER_OFF));
+  });
+  it('rejects a reference outside the slider range', () => {
+    expect(() => tunerOnFrame(300)).toThrow(RangeError);
+    expect(() => tunerOnFrame(500)).toThrow(RangeError);
   });
 });
 

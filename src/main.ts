@@ -21,7 +21,7 @@ const debug = flag('debug');
 const midiStrategy = params.get('midi'); // pin a MIDI delivery strategy, e.g. ?midi=c303-ble-midi
 
 const SETTINGS_KEY = 'nanogig.settings';
-type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean; showFootswitches: boolean; showPresetStrip: boolean; autoRefreshNames: boolean };
+type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean; showFootswitches: boolean; showPresetStrip: boolean; autoRefreshNames: boolean; liveTuner: boolean };
 function loadSettings(): Partial<Settings> {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -34,15 +34,16 @@ function loadSettings(): Partial<Settings> {
     if (typeof parsed.showFootswitches === 'boolean') out.showFootswitches = parsed.showFootswitches;
     if (typeof parsed.showPresetStrip === 'boolean') out.showPresetStrip = parsed.showPresetStrip;
     if (typeof parsed.autoRefreshNames === 'boolean') out.autoRefreshNames = parsed.autoRefreshNames;
+    if (typeof parsed.liveTuner === 'boolean') out.liveTuner = parsed.liveTuner;
     return out;
   } catch {
     return {};
   }
 }
 function saveSettings() {
-  const { presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames } = store.get();
+  const { presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner } = store.get();
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner }));
   } catch {
     /* storage unavailable */
   }
@@ -107,6 +108,10 @@ const view = new GigView(
     toggleCapture: () => requireEngine().toggleCapture(),
     selectPreset: (index) => requireEngine().selectPreset(index),
     setOutputsMuted: (muted) => requireEngine().setOutputsMuted(muted),
+    startTuner: () => requireEngine().startTuner(),
+    stopTuner: () => requireEngine().stopTuner(),
+    setTunerReference: (hz) => requireEngine().setTunerReference(hz),
+    setTunerMute: (muted) => requireEngine().setTunerMute(muted),
     simulateDrop: () => {
       if (transport instanceof MockTransport) transport.simulateDrop();
     },
@@ -118,6 +123,7 @@ const view = new GigView(
     setSettings: (patch) => {
       store.patch(patch);
       saveSettings();
+      if (typeof patch.liveTuner === 'boolean') void engine?.setLiveTuner(patch.liveTuner).catch((e) => store.appendLog({ at: Date.now(), dir: 'warn', text: `Live tuner: ${(e as Error).message}` }));
     },
     installApp: () => installPrompt.install(),
     applyUpdate: () => updater.apply(),

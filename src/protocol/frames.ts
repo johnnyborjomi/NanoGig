@@ -113,6 +113,31 @@ export function outputsMuteFrame(muted: boolean): Uint8Array {
 
 export const PRESET_COUNT = 64;
 
+/** Cortex Cloud's tuner reference slider range (Hz); 440 is the pedal's default (state field 46). */
+export const TUNER_REFERENCE_MIN_HZ = 400;
+export const TUNER_REFERENCE_MAX_HZ = 480;
+export const TUNER_REFERENCE_DEFAULT_HZ = 440;
+
+/**
+ * Tuner on (type 0x7F), captured 2026-09-19 from Cortex Cloud opening its tuner page:
+ * `0F C0 20 01 2D <f32 reference Hz> 30 01 38 <0 / 1 mute> 7F 00 00 00`. Cortex Cloud
+ * re-sends it on every reference-slider step and every mute toggle. Field 6 = 1 always
+ * (meaning unknown). While the tuner is on the pedal streams type-0x80 pitch events.
+ * The mute polarity (1 = outputs silenced while tuning) is inferred from the capture
+ * order: first write 0, then alternating from the user's first toggle.
+ */
+export function tunerOnFrame(referenceHz = TUNER_REFERENCE_DEFAULT_HZ, mute = false): Uint8Array {
+  if (!Number.isFinite(referenceHz) || referenceHz < TUNER_REFERENCE_MIN_HZ || referenceHz > TUNER_REFERENCE_MAX_HZ) {
+    throw new RangeError(`tuner reference out of range: ${referenceHz}`);
+  }
+  const f = new Uint8Array(4);
+  new DataView(f.buffer).setFloat32(0, referenceHz, true);
+  return new Uint8Array([0x0f, 0xc0, 0x20, 0x01, 0x2d, f[0]!, f[1]!, f[2]!, f[3]!, 0x30, 0x01, 0x38, mute ? 0x01 : 0x00, 0x7f, 0x00, 0x00, 0x00]);
+}
+
+/** Tuner off (type 0x7F, field 4 = 0), captured 2026-09-19 when the tuner page closed. */
+export const TUNER_OFF: Uint8Array = fromHex('06 C0 20 00 7F 00 00 00');
+
 /** Preset names are at most 20 characters — confirmed in Cortex Cloud (2026-09-12). */
 export const PRESET_NAME_MAX_LENGTH = 20;
 

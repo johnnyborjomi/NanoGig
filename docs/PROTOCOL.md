@@ -13,7 +13,7 @@ and the specification in [rixrix/deskop-nano-cortex](https://github.com/rixrix/d
 - Device name `Neural DSP Nano Cortex`. Service `a002`; characteristics `c302` (MIDI write,
   rejects everything on 2.2.1), `c303` (write-no-response, accepted but ignored), `c304`
   (command write), `c305` (notify: replies and live events), `c306` (indicate: duplicate of
-  c305, deduplicated by the app), `c307` (read). Service `a003` with `c400`/`c401` (read).
+  c305; not subscribed any more, see "Tuner"), `c307` (read). Service `a003` with `c400`/`c401` (read).
 - The pedal accepts one BLE client. Cortex Cloud must be disconnected first.
 - The pedal does **not** advertise the standard Bluetooth-MIDI service, so no OS-level
   Bluetooth MIDI pairing exists.
@@ -113,6 +113,7 @@ every mute ack to confirm the switch against the pedal's report.
 | `0x42` | Device-settings reply (see above)                                                                    | log the fields                         |
 | `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
 | `0x1E` | Ack to the c304 preset select: `08 C0 08 01 20 01 1E 00 00 00`, after a `0x1F` notice               | re-read state (field 13 confirms)      |
+| `0x80` | Tuner pitch reading, ~30/s while the tuner is on and a note sounds (see "Tuner")                     | tuner overlay (note, cents, in tune)   |
 
 ## Writes (control mode, c304)
 
@@ -125,7 +126,9 @@ every mute ack to confirm the switch against the pedal's report.
 | Cab bypass                 | `08 C0 18 03 20 00 1C 00 00 00`                  | 2026-09-13 |
 | Cab / IR slot select       | `08 C0 18 03 20 <slot 1..5> 1C 00 00 00`         | 2026-09-13 |
 | Mute outputs 1/2 (global)  | `08 C0 08 01 68 <1 mute / 0 outputs on> 43 00 00 00` | 2026-09-15 (captured from Cortex Cloud, polarity by ear) |
-| Preset select              | `36 C0 18 00 20 <preset> 28 <-1> 30 <-1> 38 <-1> 40 <-1> 48 04 1D 00 00 00`, `<-1>` = `FF FF FF FF FF FF FF FF FF 01` | 2026-09-19 (captured from Cortex Cloud; pedal test pending) |
+| Preset select              | `36 C0 18 00 20 <preset> 28 <-1> 30 <-1> 38 <-1> 40 <-1> 48 04 1D 00 00 00`, `<-1>` = `FF FF FF FF FF FF FF FF FF 01` | 2026-09-19 (captured from Cortex Cloud, verified on the pedal) |
+| Tuner on                   | `0F C0 20 01 2D <f32 reference Hz> 30 01 38 <0 / 1 mute> 7F 00 00 00` | 2026-09-19 (captured from Cortex Cloud; pedal test pending) |
+| Tuner off                  | `06 C0 20 00 7F 00 00 00`                        | 2026-09-19 (captured) |
 
 Re-enabling a capture or cab needs its slot index, which NanoGig can only get by matching the
 current name against the metadata slot lists. When there is no match (factory cab, library
@@ -158,6 +161,48 @@ app tries the `c304` select first, then Web MIDI, then the BLE-MIDI variants fro
 probe, confirms each against the pedal's own report (event `0x1D` or dump field 13) and
 remembers what worked for the session. `?midi=<id>` pins one strategy: `c304-select`,
 `web-midi`, `c303-ble-midi`, `c302-ble-midi`, `c303-raw`, `c303-sequential`, `c302-raw`.
+
+## Tuner
+
+Captured 2026-09-19 from an Android HCI snoop log of Cortex Cloud's tuner page (all six
+strings plucked, the tuner's mute switch toggled, the reference slider dragged 440 → 462 → 440).
+
+**Tuner on** (type `0x7F`), written to `c304` when the page opens and again on every slider
+step and every mute toggle:
+
+```
+0F C0 20 01 2D <f32 reference Hz> 30 01 38 <mute> 7F 00 00 00
+```
+
+Field 4 = 1 (on), field 5 = reference pitch as a little-endian float (`00 00 DC 43` = 440.0;
+the slider went up to `00 00 E7 43` = 462.0), field 6 = 1 (constant, meaning unknown), field 7
+= the tuner's own mute switch. The first write of the session carried 0 and the user's toggles
+alternated 1 / 0 from there, so 1 = outputs muted while tuning is the working assumption.
+**Tuner off**: `06 C0 20 00 7F 00 00 00` (field 4 = 0), written when the page closes.
+The pedal replies to tuner-on with the same type back, `0D C0 08 01 20 01 2D <f32 Hz> 7F 00 00
+00` (field 4 = 1, field 5 = the reference it took), about 1.6 s later on 2.2.1; nothing else
+changes, so NanoGig only logs it.
+
+**Subscribe to `c305` only.** Cortex Cloud never enables `c306`, the *indicate* mirror. With both
+subscribed the pitch stream lagged 3–5 s behind the pedal: every indication is acknowledged one
+per connection interval (48.75 ms on the user's Pixel), which throttles a 30/s stream. NanoGig
+now uses `c306` only when `c305` cannot be subscribed.
+
+**Pitch events** (type `0x80`) stream at roughly 30 per second while a note is detected and
+stop in silence:
+
+```
+10 C0 08 01 22 01 <note> 2D <f32 cents> 30 01 80 00 00 00           not in tune
+12 C0 08 01 22 01 <note> 2D <f32 cents> 30 01 38 01 80 00 00 00     in tune
+```
+
+Field 4 = the note name as ASCII (`A` `B` `D` `E` `G` seen; sharps not yet observed, so
+whether they arrive as `A#` or `Bb` is unknown), field 5 = deviation in cents (float, negative
+= flat; +14.3 on a fresh pluck decaying towards 0), field 6 = 1, field 7 = 1 only when the
+pedal judges the note in tune, which in the capture meant |cents| below about 2.
+
+Also seen at connect: Cortex Cloud sends `06 C0 08 03 36 00 00 00` and the pedal answers
+`08 C0 08 03 18 01 37 00 00 00` (field 3 = 1). Purpose unknown.
 
 ## Fixtures
 

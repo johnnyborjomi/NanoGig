@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fromHex, toHex } from '../src/protocol/hex';
+import { isTunerPitchPacket } from '../src/protocol/reassembly';
+import { HW_PRESET_SELECT_ACK, HW_TUNER_PITCH_A_PLUS_14, HW_TUNER_PITCH_D_MINUS_0_5 } from '../src/fixtures/hardware-2026-09-19';
 import {
   MSG,
   MessageAssembler,
@@ -165,5 +167,15 @@ describe('MessageAssembler', () => {
     expect(a.open).toBe(false);
     vi.advanceTimersByTime(10_000);
     expect(onMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('isTunerPitchPacket', () => {
+  it('matches the captured pitch readings and nothing else', () => {
+    expect(isTunerPitchPacket(HW_TUNER_PITCH_A_PLUS_14)).toBe(true);
+    expect(isTunerPitchPacket(HW_TUNER_PITCH_D_MINUS_0_5)).toBe(true);
+    expect(isTunerPitchPacket(HW_PRESET_CHANGED)).toBe(false);
+    expect(isTunerPitchPacket(HW_PRESET_SELECT_ACK)).toBe(false);
+    expect(isTunerPitchPacket(new Uint8Array([0x80, 0x00, 0x00, 0x00]))).toBe(false);
   });
 });

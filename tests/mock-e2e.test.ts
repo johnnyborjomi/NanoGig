@@ -34,6 +34,10 @@ describe('mock mode end-to-end', () => {
       toggleCapture: () => engine.toggleCapture(),
       selectPreset: (i: number) => engine.selectPreset(i),
       setOutputsMuted: (m: boolean) => engine.setOutputsMuted(m),
+      startTuner: () => engine.startTuner(),
+      stopTuner: () => engine.stopTuner(),
+      setTunerReference: (hz: number) => engine.setTunerReference(hz),
+      setTunerMute: (m: boolean) => engine.setTunerMute(m),
       setWritesEnabled: (v: boolean) => engine.setWritesEnabled(v),
       setSettings: (patch: Partial<{ presetsPerBank: number; labelStyle: 'number-letter' | 'letter-number'; showPresetNumber: boolean }>) => store.patch(patch),
     };

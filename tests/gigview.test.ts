@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setOutputsMuted: p, setWritesEnabled: () => {}, setSettings: () => {} };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setOutputsMuted: p, startTuner: p, stopTuner: p, setTunerReference: p, setTunerMute: p, setWritesEnabled: () => {}, setSettings: () => {} };
 }
 
 describe('GigView', () => {
@@ -288,9 +288,9 @@ describe('GigView writes toggle and reconnect button', () => {
     const install = menu.querySelector<HTMLButtonElement>('button:last-of-type')!;
     expect(install.textContent).toBe('Install app');
     expect(install.hidden).toBe(true); // only while the browser offers a prompt
-    expect(Array.from(menu.querySelectorAll('button')).filter((b) => b !== install).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Log', 'Disconnect']);
-    expect(menu.querySelectorAll('button svg').length).toBe(5); // an icon per item, the install one included
-    expect(Array.from(menu.querySelectorAll<HTMLElement>('.menu-sep')).filter((d) => !d.hidden).length).toBe(4); // between items + a stronger one above the info line
+    expect(Array.from(menu.querySelectorAll('button')).filter((b) => b !== install).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Tuner', 'Log', 'Disconnect']);
+    expect(menu.querySelectorAll('button svg').length).toBe(6); // an icon per item, the install one included
+    expect(Array.from(menu.querySelectorAll<HTMLElement>('.menu-sep')).filter((d) => !d.hidden).length).toBe(5); // between items + a stronger one above the info line
     expect(menu.lastElementChild?.classList.contains('menu-info')).toBe(true); // device/firmware info at the bottom
     expect(menu.querySelector('button.danger')?.textContent).toBe('Disconnect');
     // Settings opens its own popup with the two selects and closes the menu.
@@ -299,7 +299,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(5); // preset number, footswitch labels, preset list, auto names, outputs mute
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(6); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
@@ -423,5 +423,119 @@ describe('GigView names refresh indicator', () => {
     expect(status.textContent).toContain('updating names…');
     store.patch({ namesRefreshing: false });
     expect(status.textContent).not.toContain('updating names');
+  });
+});
+
+describe('GigView tuner', () => {
+  it('opens from the menu, shows the reading, steps the reference, and sends tuner-off on Done', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    const calls: string[] = [];
+    const actions = {
+      ...noopActions(),
+      startTuner: () => { calls.push('start'); store.patch({ tuner: { ...store.get().tuner, on: true } }); return Promise.resolve(); },
+      stopTuner: () => { calls.push('stop'); store.patch({ tuner: { ...store.get().tuner, on: false, reading: null, readingAt: null } }); return Promise.resolve(); },
+      setTunerReference: (hz: number) => { calls.push(`ref:${hz}`); store.patch({ tuner: { ...store.get().tuner, referenceHz: hz } }); return Promise.resolve(); },
+      setTunerMute: (m: boolean) => { calls.push(`mute:${m}`); return Promise.resolve(); },
+    };
+    const view = new GigView(root, store, actions, { bluetoothAvailable: true, showMockButton: false });
+    store.patch({ connection: 'connected', transportName: 'ble' });
+    const tunerItem = Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Tuner')!;
+    expect(tunerItem.hidden).toBe(false);
+    const overlay = root.querySelector<HTMLElement>('.overlay.tuner')!;
+    expect(overlay.classList.contains('open')).toBe(false);
+    tunerItem.click();
+    expect(overlay.classList.contains('open')).toBe(true);
+    expect(calls).toEqual(['start']);
+    expect(root.querySelector('.tuner-note')?.textContent).toBe('—');
+    expect(root.querySelector('.tuner-cents')?.textContent).toBe('play a string');
+
+    store.patch({ tuner: { ...store.get().tuner, reading: { note: 'A', cents: 14.27, inTune: false }, readingAt: Date.now() } });
+    expect(root.querySelector('.tuner-note')?.textContent).toBe('A');
+    expect(root.querySelector('.tuner-cents')?.textContent).toBe('+14 ct · sharp');
+    expect(root.querySelector<HTMLElement>('.tuner-card')?.dataset.tune).toBe('sharp');
+    expect(root.querySelector<HTMLElement>('.tuner-needle')?.style.left).toBe('64.27%');
+    store.patch({ tuner: { ...store.get().tuner, reading: { note: 'D', cents: -0.54, inTune: true }, readingAt: Date.now() } });
+    expect(root.querySelector('.tuner-cents')?.textContent).toBe('in tune');
+    expect(root.querySelector<HTMLElement>('.tuner-card')?.dataset.tune).toBe('in');
+
+    const [minus, plus] = Array.from(overlay.querySelectorAll<HTMLButtonElement>('.tuner-ref-btn'));
+    plus!.click();
+    expect(calls).toContain('ref:441');
+    expect(root.querySelector('.tuner-ref-value')?.textContent).toBe('441 Hz');
+    minus!.click();
+    expect(calls).toContain('ref:440');
+    const mute = overlay.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    mute.click();
+    expect(calls).toContain('mute:true');
+
+    Array.from(overlay.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
+    expect(overlay.classList.contains('open')).toBe(false);
+    expect(calls[calls.length - 1]).toBe('stop');
+
+    // Losing the link closes the tuner too.
+    tunerItem.click();
+    expect(overlay.classList.contains('open')).toBe(true);
+    store.patch({ connection: 'reconnecting' });
+    expect(overlay.classList.contains('open')).toBe(false);
+    expect(calls[calls.length - 1]).toBe('stop');
+    void view;
+  });
+});
+
+describe('GigView console log', () => {
+  it('builds lines only while open and keeps following the log past the 400-line cap', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+    const body = root.querySelector('.console-body') ?? root.querySelector('.console')!.lastElementChild!;
+    for (let i = 0; i < 10; i++) store.appendLog({ at: Date.now(), dir: 'info', text: `line ${i}` });
+    expect(body.childNodes.length).toBe(0); // closed: nothing built
+    Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Log')!.click();
+    expect(body.childNodes.length).toBe(10); // opening catches up
+    for (let i = 10; i < 450; i++) store.appendLog({ at: Date.now(), dir: 'info', text: `line ${i}` });
+    expect(body.childNodes.length).toBe(400);
+    expect(body.lastChild?.textContent).toContain('line 449');
+  });
+});
+
+describe('GigView live tuner', () => {
+  it('shows a note ring with flat/sharp dots in the top bar while connected with the tuner on', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    const opened: string[] = [];
+    new GigView(root, store, { ...noopActions(), startTuner: () => { opened.push('start'); return Promise.resolve(); } }, { bluetoothAvailable: true, showMockButton: false });
+    const lt = root.querySelector<HTMLElement>('.status .live-tuner')!;
+    expect(lt.hidden).toBe(true);
+    store.patch({ connection: 'connected', transportName: 'ble' });
+    expect(lt.hidden).toBe(true); // tuner not on yet
+    store.patch({ tuner: { ...store.get().tuner, on: true } });
+    expect(lt.hidden).toBe(false);
+    expect(lt.dataset.tune).toBe('silent');
+    expect(lt.querySelector('.lt-note')?.textContent).toBe('_');
+
+    store.patch({ tuner: { ...store.get().tuner, reading: { note: 'E', cents: -14, inTune: false }, readingAt: Date.now() } });
+    expect(lt.querySelector('.lt-note')?.textContent).toBe('E');
+    expect(lt.dataset.tune).toBe('flat');
+    expect(lt.dataset.level).toBe('far');
+    store.patch({ tuner: { ...store.get().tuner, reading: { note: 'E', cents: 4, inTune: false }, readingAt: Date.now() } });
+    expect(lt.dataset.tune).toBe('sharp');
+    expect(lt.dataset.level).toBe('near');
+    store.patch({ tuner: { ...store.get().tuner, reading: { note: 'E', cents: 0.3, inTune: true }, readingAt: Date.now() } });
+    expect(lt.dataset.tune).toBe('in');
+    expect(lt.dataset.level).toBe('');
+
+    lt.click(); // tap → the full tuner
+    expect(opened).toEqual(['start']);
+    expect(root.querySelector('.overlay.tuner')?.classList.contains('open')).toBe(true);
+
+    store.patch({ liveTuner: false });
+    expect(lt.hidden).toBe(true);
+    const settings = root.querySelector('.overlay.settings')!;
+    const liveRow = Array.from(settings.querySelectorAll('label.setting-row')).find((r) => r.textContent?.includes('Live tuner'))!;
+    expect((liveRow.querySelector('input') as HTMLInputElement).checked).toBe(false);
   });
 });

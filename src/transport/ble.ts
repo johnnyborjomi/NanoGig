@@ -3,13 +3,15 @@
  *
  * Connect flow adapted from choldy/nano-cortex-web-editor (`connectNano`, MIT)
  * with the robustness rules from rixrix/deskop-nano-cortex spec FR-2..FR-6,
- * FR-17: retain the whole characteristic map, subscribe c305 AND c306 with
+ * FR-17: retain the whole characteristic map, subscribe c305 (c306, its
+ * indicate mirror, only as a fallback: indications throttled the tuner stream),
  * payload dedupe, 3 s write timeouts, unsubscribe before disconnect,
  * auto-reconnect on `gattserverdisconnected`.
  */
 import { toHex } from '../protocol/hex';
 import { bleMidiFrame, type MidiStrategy } from '../protocol/frames';
 import { PacketDeduper } from './dedupe';
+import { isTunerPitchPacket } from '../protocol/reassembly';
 import {
   ALL_SERVICE_UUIDS,
   CHAR_BY_KEY,
@@ -255,7 +257,11 @@ export class BleTransport implements Transport {
     }
     if (!this.chars.has('c302') && !this.chars.has('c303')) this.log('warn', 'c302/c303 (MIDI write) not found — preset switching via MIDI will be unavailable');
 
+    // Cortex Cloud subscribes to c305 alone (HCI captures 2026-09-15/19). c306 is an *indicate*
+    // mirror of it: every indication needs an ack round trip, one per connection interval, which
+    // throttled the tuner's ~30 readings/s to a few-second backlog. It is only a fallback now.
     for (const key of ['c305', 'c306'] as CharKey[]) {
+      if (key === 'c306' && this.subscribed.length > 0) break;
       const ch = this.chars.get(key);
       if (!ch) continue;
       try {
@@ -279,7 +285,7 @@ export class BleTransport implements Transport {
     const at = Date.now();
     // c306 mirrors c305 — drop a payload identical to the last one from the other char within the window.
     if (!this.deduper.accept(char, data, at)) return;
-    this.log('rx', `RX ${char} (${data.length} B)`, toHex(data));
+    if (!isTunerPitchPacket(data)) this.log('rx', `RX ${char} (${data.length} B)`, toHex(data)); // pitch stream: ~30/s, not worth a line each
     this.packets.emit({ char, data, at });
   };
 

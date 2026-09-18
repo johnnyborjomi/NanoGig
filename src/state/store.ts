@@ -3,10 +3,10 @@
  * `Field<T>` that carries `provisional: true` and the source it came from, so
  * the UI can never mistake decoded BLE data for confirmed device truth.
  */
-import { DEFAULT_LABEL_STYLE, DEFAULT_PRESETS_PER_BANK, PRESET_COUNT, type FxSlot, type PresetLabelStyle } from '../protocol/frames';
+import { DEFAULT_LABEL_STYLE, DEFAULT_PRESETS_PER_BANK, PRESET_COUNT, TUNER_REFERENCE_DEFAULT_HZ, type FxSlot, type PresetLabelStyle } from '../protocol/frames';
 import type { LogLine, TransportStatus } from '../transport/types';
 import type { FxModelsBySlot } from '../protocol/models';
-import type { FootswitchAssignments } from '../protocol/decode';
+import type { FootswitchAssignments, TunerReading } from '../protocol/decode';
 
 /** 'cache' = restored from the last session's metadata, pending a background refresh. */
 export type FieldSource = 'none' | 'dump' | 'metadata' | 'cache' | 'event' | 'inferred' | 'optimistic';
@@ -19,6 +19,19 @@ export interface Field<T> {
 }
 
 export type SyncPhase = 'idle' | 'metadata' | 'state' | 'ready' | 'error';
+
+/** Tuner as the app drives it (protocol captured 2026-09-19; see docs/PROTOCOL.md "Tuner"). */
+export interface TunerState {
+  /** The app sent tuner-on and not yet tuner-off. */
+  on: boolean;
+  /** Reference pitch sent with the last tuner-on write; seeded from state field 46 when known. */
+  referenceHz: number;
+  /** The tuner's own mute switch (field 7 of the tuner-on write). */
+  muted: boolean;
+  /** Latest pitch reading and when it arrived; null in silence (the pedal sends nothing then). */
+  reading: TunerReading | null;
+  readingAt: number | null;
+}
 
 export interface GigState {
   connection: TransportStatus;
@@ -42,6 +55,11 @@ export interface GigState {
    * while (cached names only). The ~6 s stream delays any footswitch press made during it.
    */
   autoRefreshNames: boolean;
+  /**
+   * User setting: keep the pedal's tuner on for the whole session and show a compact note /
+   * flat / sharp indicator in the top bar. Sound passes through (the tuner's mute stays off).
+   */
+  liveTuner: boolean;
   /** A metadata (names) stream is in flight on a live link; footswitch events queue behind it. */
   namesRefreshing: boolean;
   /** PWA: the browser offered an install prompt and the app is not installed yet. */
@@ -74,6 +92,7 @@ export interface GigState {
    * pedal's ack, 'dump' once the settings re-read confirms it. null = not read yet.
    */
   outputsMuted: Field<boolean | null>;
+  tuner: TunerState;
 
   lastStateSyncAt: number | null;
   lastMetadataAt: number | null;
@@ -101,6 +120,7 @@ export function initialState(transportName = 'none'): GigState {
     showFootswitches: false,
     showPresetStrip: true,
     autoRefreshNames: true,
+    liveTuner: true,
     namesRefreshing: false,
     installable: false,
     updateReady: false,
@@ -119,6 +139,7 @@ export function initialState(transportName = 'none'): GigState {
     tempo: field<number | null>(null),
     footswitches: field<FootswitchAssignments | null>(null),
     outputsMuted: field<boolean | null>(null),
+    tuner: { on: false, referenceHz: TUNER_REFERENCE_DEFAULT_HZ, muted: false, reading: null, readingAt: null },
     lastStateSyncAt: null,
     lastMetadataAt: null,
     lastEventAt: null,
@@ -184,6 +205,7 @@ export class Store {
       irName: s.irName,
       cabSlotKnown: s.cabSlotKnown,
       outputsMuted: s.outputsMuted,
+      tuner: { ...this.state.tuner, on: false, reading: null, readingAt: null },
       namesRefreshing: false,
       syncPhase: 'idle',
     };

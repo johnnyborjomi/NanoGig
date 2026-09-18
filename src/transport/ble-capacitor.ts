@@ -10,6 +10,7 @@ import { toHex } from '../protocol/hex';
 import { bleMidiFrame, type MidiStrategy } from '../protocol/frames';
 import { ALL_SERVICE_UUIDS, SERVICE_A002, charKeyOf, looksLikeNano, type CharKey } from '../protocol/uuids';
 import { PacketDeduper } from './dedupe';
+import { isTunerPitchPacket } from '../protocol/reassembly';
 import { Emitter, sleep, withTimeout, type ConnectOptions, type LogLine, type NotifyPacket, type Transport, type TransportStatus } from './types';
 
 const WRITE_TIMEOUT_MS = 3000;
@@ -184,7 +185,10 @@ export class CapacitorBleTransport implements Transport {
     if (!this.chars.has('c304') || !this.chars.has('c305')) {
       throw new Error(`Required characteristic(s) not found: ${(['c304', 'c305'] as CharKey[]).filter((k) => !this.chars.has(k)).join(', ')}`);
     }
+    // c305 alone, like Cortex Cloud; c306 (indicate mirror) only if c305 cannot be subscribed —
+    // indications are acked one per connection interval and throttled the tuner stream.
     for (const key of ['c305', 'c306'] as CharKey[]) {
+      if (key === 'c306' && this.subscribed.length > 0) break;
       const ref = this.chars.get(key);
       if (!ref) continue;
       try {
@@ -208,7 +212,7 @@ export class CapacitorBleTransport implements Transport {
     const data = toBytes(value);
     const at = Date.now();
     if (!this.deduper.accept(char, data, at)) return;
-    this.log('rx', `RX ${char} (${data.length} B)`, toHex(data));
+    if (!isTunerPitchPacket(data)) this.log('rx', `RX ${char} (${data.length} B)`, toHex(data)); // pitch stream: ~30/s, not worth a line each
     this.packets.emit({ char, data, at });
   }
 

@@ -41,6 +41,9 @@ import {
   BLE_MIDI_STRATEGIES,
   BLE_SELECT_STRATEGY,
   PRESET_COUNT,
+  TUNER_OFF,
+  TUNER_REFERENCE_MAX_HZ,
+  TUNER_REFERENCE_MIN_HZ,
   WEB_MIDI_STRATEGY,
   cabIrSlotFrame,
   captureBypassFrame,
@@ -51,11 +54,12 @@ import {
   outputsMuteFrame,
   presetSelectFrame,
   programChange,
+  tunerOnFrame,
   type FxSlot,
   type MidiStrategy,
 } from '../protocol/frames';
 import { toHex } from '../protocol/hex';
-import { MSG, MessageAssembler, classifyPacket, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
+import { MSG, MessageAssembler, classifyPacket, isTunerPitchPacket, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
 import type { Store } from '../state/store';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
 import type { LogDirection, NotifyPacket, Transport } from '../transport/types';
@@ -187,6 +191,8 @@ export class SyncEngine {
       this.stopIdleTimer();
       this.stateRequestInFlightSince = 0; // never coalesce the first request of a new link
       this.settingsRequestedThisLink = false;
+      this.liveTunerStartedThisLink = false;
+      this.tunerOverlayOpen = false;
       this.settlePresetWaiters(-1);
       this.settleMuteWaiter();
       if (status === 'disconnected' || status === 'reconnecting') this.store.clearDeviceState();
@@ -326,6 +332,12 @@ export class SyncEngine {
   // -------------------------------------------------------------------------
 
   private onPacket(pkt: NotifyPacket) {
+    // A pitch reading is a complete tiny message (START|END header); with the live tuner on it
+    // can arrive while a metadata stream is being reassembled and must not be taken as a fragment.
+    if (isTunerPitchPacket(pkt.data)) {
+      this.onEvent(pkt);
+      return;
+    }
     const kind = classifyPacket(pkt.data, this.assembler.open);
     switch (kind) {
       case 'empty':
@@ -369,8 +381,14 @@ export class SyncEngine {
 
   private onEvent(pkt: NotifyPacket) {
     const ev = decodeEvent(pkt.data);
-    this.store.patch({ lastEventAt: pkt.at });
     this.armIdleTimer(); // any pedal activity restarts the idle clock
+    if (ev.kind === 'tuner') {
+      // ~30/s while a note sounds: one store update per reading, nothing logged.
+      const t = this.store.get().tuner;
+      this.store.patch({ lastEventAt: pkt.at, tuner: { ...t, reading: ev.reading, readingAt: pkt.at } });
+      return;
+    }
+    this.store.patch({ lastEventAt: pkt.at });
     switch (ev.kind) {
       case 'program-change':
         this.log('info', `Preset changed → ${ev.preset + 1} (${ev.shape})`, toHex(pkt.data));
@@ -380,10 +398,16 @@ export class SyncEngine {
         if (ev.assignments) this.store.setField('footswitches', ev.assignments, 'event', pkt.at);
         this.settlePresetWaiters(ev.preset);
         this.scheduleConfirm(150);
+        // Whether a preset change on the pedal ends its tuner is unknown: re-arm it to be safe.
+        if (this.store.get().tuner.on) void this.writeTunerOn().catch((err) => this.log('warn', `Tuner re-arm failed: ${(err as Error).message}`));
         return;
       case 'bypass-changed':
         this.log('info', 'Bypass changed on device; re-reading state', toHex(pkt.data));
         this.scheduleConfirm(150);
+        return;
+      case 'tuner-ack':
+        // The pedal echoes the tuner write; nothing to re-read (the preset is untouched).
+        this.log('info', `Tuner ${ev.on ? 'on' : 'off'} acknowledged${ev.referenceHz !== null ? ` · ${ev.referenceHz} Hz` : ''}`, toHex(pkt.data));
         return;
       case 'preset-select-ack':
         // The pedal's reply to a c304 preset select (2026-09-19). Cortex Cloud requests the
@@ -507,6 +531,10 @@ export class SyncEngine {
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
     if (state.footswitchAssignments) this.store.setField('footswitches', state.footswitchAssignments, 'dump', at);
     this.store.setField('tempo', state.tempoBpm, 'dump', at);
+    // The pedal's saved reference pitch seeds the tuner while the app is not driving it.
+    if (state.tunerReferenceHz !== null && !this.store.get().tuner.on && this.store.get().tuner.referenceHz !== state.tunerReferenceHz) {
+      this.store.patch({ tuner: { ...this.store.get().tuner, referenceHz: state.tunerReferenceHz } });
+    }
     this.updateSlotKnowledge(at);
 
     if (state.activePreset !== null) {
@@ -528,6 +556,11 @@ export class SyncEngine {
     if (!this.settingsRequestedThisLink) {
       this.settingsRequestedThisLink = true;
       setTimeout(() => void this.requestDeviceSettings().catch((err) => this.log('warn', `Settings request failed: ${(err as Error).message}`)), this.opts.confirmDelayMs);
+    }
+    if (!this.liveTunerStartedThisLink && this.store.get().liveTuner) {
+      // Live tuner: keep the pedal's tuner on for the session (after the settings request has gone out).
+      this.liveTunerStartedThisLink = true;
+      setTimeout(() => void this.setLiveTuner(true).catch((err) => this.log('warn', `Live tuner start failed: ${(err as Error).message}`)), this.opts.confirmDelayMs * 2);
     }
     const on = FX_SLOTS.map((s) => `${s}=${models[s]?.name ?? 'empty'}:${state.fxOn ? (state.fxOn[s] ? 'on' : 'off') : '?'}`).join(' ');
     this.log(
@@ -768,6 +801,82 @@ export class SyncEngine {
       'Preset switch failed: no delivery was confirmed by the device (Bluetooth select, then MIDI). Check the pedal is on NanOS 2.2.x; on other firmware, USB Web MIDI may still work.',
     );
     void this.requestState(); // resync the optimistic value with reality
+  }
+
+  // -------------------------------------------------------------------------
+  // Tuner (works whenever connected: it changes no preset)
+  // -------------------------------------------------------------------------
+
+  private liveTunerStartedThisLink = false;
+  /** The full-screen tuner is open (it may mute; the live tuner never does). */
+  private tunerOverlayOpen = false;
+
+  /** Full-screen tuner opened: tuner on with the current reference and mute; the pedal streams readings. */
+  async startTuner(): Promise<void> {
+    if (this.transport.status !== 'connected') throw new Error('Not connected');
+    this.tunerOverlayOpen = true;
+    const t = this.store.get().tuner;
+    this.store.patch({ tuner: { ...t, on: true, reading: t.on ? t.reading : null, readingAt: t.on ? t.readingAt : null } });
+    await this.writeTunerOn();
+  }
+
+  /**
+   * Full-screen tuner closed. With the live tuner on, the pedal's tuner stays on but unmuted;
+   * otherwise it is switched off and the reading cleared.
+   */
+  async stopTuner(): Promise<void> {
+    this.tunerOverlayOpen = false;
+    const t = this.store.get().tuner;
+    if (this.store.get().liveTuner && this.transport.status === 'connected') {
+      this.store.patch({ tuner: { ...t, muted: false } });
+      if (t.muted || !t.on) await this.writeTunerOn();
+      return;
+    }
+    await this.tunerOff();
+  }
+
+  /** Live tuner setting: on = keep the pedal's tuner running (unmuted) while connected. */
+  async setLiveTuner(on: boolean): Promise<void> {
+    if (this.transport.status !== 'connected') return;
+    const t = this.store.get().tuner;
+    if (on) {
+      if (t.on) return;
+      this.store.patch({ tuner: { ...t, on: true, muted: false, reading: null, readingAt: null } });
+      await this.writeTunerOn();
+    } else if (t.on && !this.tunerOverlayOpen) {
+      await this.tunerOff();
+    }
+  }
+
+  private async tunerOff(): Promise<void> {
+    const t = this.store.get().tuner;
+    this.store.patch({ tuner: { ...t, on: false, reading: null, readingAt: null } });
+    if (this.transport.status !== 'connected') return;
+    this.log('tx', 'Tuner off', toHex(TUNER_OFF));
+    await this.transport.writeCommand(TUNER_OFF);
+  }
+
+  /** Reference pitch in Hz; re-sent as a tuner-on write while the tuner is running (Cortex Cloud does the same on every slider step). */
+  async setTunerReference(hz: number): Promise<void> {
+    const referenceHz = Math.min(TUNER_REFERENCE_MAX_HZ, Math.max(TUNER_REFERENCE_MIN_HZ, Math.round(hz)));
+    const t = this.store.get().tuner;
+    this.store.patch({ tuner: { ...t, referenceHz } });
+    if (t.on) await this.writeTunerOn();
+  }
+
+  /** The tuner's mute switch (outputs silent while tuning); re-sent like the reference. */
+  async setTunerMute(muted: boolean): Promise<void> {
+    const t = this.store.get().tuner;
+    this.store.patch({ tuner: { ...t, muted } });
+    if (t.on) await this.writeTunerOn();
+  }
+
+  private async writeTunerOn(): Promise<void> {
+    if (this.transport.status !== 'connected') throw new Error('Not connected');
+    const t = this.store.get().tuner;
+    const frame = tunerOnFrame(t.referenceHz, t.muted);
+    this.log('tx', `Tuner on · ${t.referenceHz} Hz${t.muted ? ' · muted' : ''}`, toHex(frame));
+    await this.transport.writeCommand(frame);
   }
 
   async nextPreset(): Promise<void> {

@@ -11,6 +11,7 @@ import {
   type FxSlot,
   type PresetLabelStyle,
 } from "../protocol/frames";
+import { TUNER_REFERENCE_MAX_HZ, TUNER_REFERENCE_MIN_HZ } from "../protocol/frames";
 import type { GigState } from "../state/store";
 import type { Store } from "../state/store";
 import type { LogLine } from "../transport/types";
@@ -25,6 +26,7 @@ import {
   Maximize,
   Menu,
   Minimize,
+  Music,
   Power,
   RefreshCw,
   ScrollText,
@@ -49,6 +51,11 @@ export interface GigViewActions {
   selectPreset(index: number): Promise<void>;
   /** Global "Mute Outputs 1/2"; works whenever connected, control mode or not. */
   setOutputsMuted(muted: boolean): Promise<void>;
+  /** Tuner: on/off, reference pitch, and its own mute switch. Works whenever connected. */
+  startTuner(): Promise<void>;
+  stopTuner(): Promise<void>;
+  setTunerReference(hz: number): Promise<void>;
+  setTunerMute(muted: boolean): Promise<void>;
   simulateDrop?(): void;
   setWritesEnabled(enabled: boolean): void;
   setSettings(patch: {
@@ -58,6 +65,7 @@ export interface GigViewActions {
     showFootswitches?: boolean;
     showPresetStrip?: boolean;
     autoRefreshNames?: boolean;
+    liveTuner?: boolean;
   }): void;
   /** PWA: show the browser's install dialog (only offered when the store says installable). */
   installApp?(): Promise<void>;
@@ -157,6 +165,13 @@ export class GigView {
   private readonly tempoText = el("span", "tempo-text", "");
   /** "1/2" + muted-speaker badge, shown only while the pedal reports outputs 1/2 muted. */
   private readonly muteBadge = el("span", "mute-badge");
+  // Live tuner in the top bar: flat dot · note in a ring · sharp dot.
+  private readonly liveTunerEl = el("button", "live-tuner");
+  private readonly liveTunerNote = el("span", "lt-note");
+  private readonly liveTunerLetter = el("span", "lt-letter", "_");
+  /** Accidental (#) drawn small and off to the side so the letter stays centred and nothing moves. */
+  private readonly liveTunerAcc = el("span", "lt-acc", "");
+  private liveTunerTimer: ReturnType<typeof setInterval> | null = null;
   private readonly tempoUnit = el("span", "tempo-unit", "BPM");
   private readonly slotEl = el("div", "preset-row");
   private readonly slotLabel = el("span", "slot-label");
@@ -169,6 +184,7 @@ export class GigView {
   private readonly footswitchCheck = el("input", "menu-check");
   private readonly stripCheck = el("input", "menu-check");
   private readonly autoNamesCheck = el("input", "menu-check");
+  private readonly liveTunerCheck = el("input", "menu-check");
   private readonly slotFs = el("span", "fs-badge", "");
   private presetEl: HTMLElement | null = null;
   private fitKey = "";
@@ -233,6 +249,15 @@ export class GigView {
   private readonly bankSelect = el("select", "menu-select");
   private readonly styleSelect = el("select", "menu-select");
   private readonly settingsBtn = el("button", "menu-item", "Settings");
+  private readonly tunerBtn = el("button", "menu-item", "Tuner");
+  // Tuner overlay: note, cents, a needle bar, reference and mute controls.
+  private readonly tunerOverlay = el("div", "overlay tuner");
+  private readonly tunerNote = el("div", "tuner-note", "—");
+  private readonly tunerCents = el("div", "tuner-cents", "");
+  private readonly tunerNeedle = el("div", "tuner-needle");
+  private readonly tunerRefValue = el("span", "tuner-ref-value", "440 Hz");
+  private readonly tunerMuteCheck = document.createElement("input");
+  private tunerSilenceTimer: ReturnType<typeof setInterval> | null = null;
   /** PWA install, in the menu (the connect screen has its own block); shown only while installable. */
   private readonly menuInstallBtn = el("button", "menu-item", "Install app");
   private readonly menuInstallSep = el("div", "menu-sep");
@@ -242,7 +267,7 @@ export class GigView {
   private readonly muteHint = el("p", "hint");
   /** Shown while auto-reconnecting: opens the device chooser like the main Connect button. */
   private readonly reconnectBtn = el("button", "primary", "Connect…");
-  private renderedLogCount = 0;
+  private lastRenderedLine: LogLine | null = null;
   private wakeLock: WakeLockSentinel | null = null;
   private lastState: GigState | null = null;
 
@@ -272,16 +297,24 @@ export class GigView {
     this.muteBadge.title = "Outputs 1/2 muted (Settings → Pedal)";
     this.muteBadge.setAttribute("aria-label", "Outputs 1/2 muted");
     this.muteBadge.hidden = true;
-    status.append(this.dot, this.statusText, this.tempoEl, this.muteBadge);
+    this.liveTunerNote.append(this.liveTunerLetter, this.liveTunerAcc);
+    this.liveTunerEl.append(el("i", "lt-dot lt-flat"), this.liveTunerNote, el("i", "lt-dot lt-sharp"));
+    this.liveTunerEl.title = "Live tuner: tap for the full tuner (Settings → Pedal to hide)";
+    this.liveTunerEl.setAttribute("aria-label", "Live tuner");
+    this.liveTunerEl.dataset.tune = "silent";
+    this.liveTunerEl.hidden = true;
+    this.liveTunerEl.addEventListener("click", () => this.openTuner());
+    status.append(this.dot, this.statusText, this.tempoEl, this.muteBadge, this.liveTunerEl);
     const actions = el("div", "actions");
     this.refreshBtn.addEventListener(
       "click",
       () => void this.actions.refresh().catch((e) => this.toast(e)),
     );
     this.fullscreenBtn.addEventListener("click", () => this.toggleFullscreen());
-    this.consoleBtn.addEventListener("click", () =>
-      this.consoleEl.classList.toggle("open"),
-    );
+    this.consoleBtn.addEventListener("click", () => {
+      this.consoleEl.classList.toggle("open");
+      this.renderLog(this.store.get().log); // catch up on what arrived while it was closed
+    });
     this.disconnectBtn.addEventListener(
       "click",
       () => void this.actions.disconnect(),
@@ -327,6 +360,7 @@ export class GigView {
     const items: [HTMLButtonElement, typeof Settings, string][] = [
       [this.settingsBtn, Settings, "Settings"],
       [this.refreshBtn, RefreshCw, "Refresh"],
+      [this.tunerBtn, Music, "Tuner"],
       [this.consoleBtn, ScrollText, "Log"],
       [this.disconnectBtn, LogOut, "Disconnect"],
       [this.menuInstallBtn, Download, "Install app"],
@@ -351,6 +385,7 @@ export class GigView {
     this.settingsBtn.addEventListener("click", () =>
       this.settingsOverlay.classList.add("open"),
     );
+    this.tunerBtn.addEventListener("click", () => this.openTuner());
     this.menuInfo.hidden = true;
     this.menu.append(el("div", "menu-sep strong"), this.menuInfo);
     document.addEventListener("click", (e) => {
@@ -358,7 +393,10 @@ export class GigView {
         this.menu.classList.remove("open");
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") this.menu.classList.remove("open");
+      if (e.key === "Escape") {
+        this.menu.classList.remove("open");
+        if (this.tunerOverlay.classList.contains("open")) this.closeTuner();
+      }
     });
     const menuWrap = el("div", "menu-wrap");
     menuWrap.append(this.menuBtn, this.menu);
@@ -510,7 +548,7 @@ export class GigView {
     clear.addEventListener("click", () => {
       this.store.patch({ log: [] });
       this.consoleBody.replaceChildren();
-      this.renderedLogCount = 0;
+      this.lastRenderedLine = null;
     });
     const copy = el("button", "", "copy");
     copy.addEventListener("click", () => {
@@ -636,15 +674,84 @@ export class GigView {
         });
       });
       muteRow.append(this.muteCheck);
+      const liveRow = el("label", "setting-row");
+      liveRow.append(el("span", "", "Live tuner in the top bar"));
+      this.liveTunerCheck.type = "checkbox";
+      this.liveTunerCheck.addEventListener("change", () =>
+        this.actions.setSettings({ liveTuner: this.liveTunerCheck.checked }),
+      );
+      liveRow.append(this.liveTunerCheck);
+      const liveHint = el(
+        "p",
+        "hint",
+        "Keeps the pedal's tuner on while connected and shows the note next to the status, flat and sharp dots either side. Sound passes through; Menu → Tuner still opens the big one.",
+      );
       const close = el("button", "primary", "Done");
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, close);
+      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, liveRow, liveHint, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
           this.settingsOverlay.classList.remove("open");
+      });
+    }
+
+    // Tuner overlay ---------------------------------------------------
+    {
+      const card = el("div", "card tuner-card");
+      card.append(el("h2", "", "Tuner"));
+      const bar = el("div", "tuner-bar");
+      const scale = el("div", "tuner-scale");
+      for (const c of [-50, -25, 0, 25, 50]) {
+        const tick = el("span", "tuner-tick", c === 0 ? "0" : `${c > 0 ? "+" : ""}${c}`);
+        tick.style.left = `${50 + c}%`;
+        scale.append(tick);
+      }
+      bar.append(el("div", "tuner-centre"), this.tunerNeedle);
+      const display = el("div", "tuner-display");
+      display.append(this.tunerNote, this.tunerCents);
+      card.append(display, bar, scale);
+
+      const refRow = el("div", "tuner-ctl tuner-ref");
+      refRow.append(el("span", "tuner-ctl-label", "Reference"));
+      const refCtl = el("div", "tuner-ref-ctl");
+      const minus = el("button", "icon-btn tuner-ref-btn", "−");
+      const plus = el("button", "icon-btn tuner-ref-btn", "+");
+      minus.setAttribute("aria-label", "Reference down 1 Hz");
+      plus.setAttribute("aria-label", "Reference up 1 Hz");
+      const step = (d: number) => {
+        const cur = this.lastState?.tuner.referenceHz ?? 440;
+        const next = Math.min(TUNER_REFERENCE_MAX_HZ, Math.max(TUNER_REFERENCE_MIN_HZ, cur + d));
+        void this.actions.setTunerReference(next).catch((e) => this.toast(e));
+      };
+      minus.addEventListener("click", () => step(-1));
+      plus.addEventListener("click", () => step(1));
+      refCtl.append(minus, this.tunerRefValue, plus);
+      refRow.append(refCtl);
+
+      const muteRow = el("label", "tuner-ctl tuner-mute");
+      muteRow.append(el("span", "tuner-ctl-label", "Mute while tuning"));
+      this.tunerMuteCheck.type = "checkbox";
+      this.tunerMuteCheck.className = "menu-check";
+      this.tunerMuteCheck.addEventListener("change", () => {
+        const muted = this.tunerMuteCheck.checked;
+        void this.actions.setTunerMute(muted).catch((e) => {
+          this.tunerMuteCheck.checked = !muted;
+          this.toast(e);
+        });
+      });
+      muteRow.append(this.tunerMuteCheck);
+
+      const controls = el("div", "tuner-controls");
+      controls.append(refRow, muteRow);
+      const done = el("button", "primary", "Done");
+      done.addEventListener("click", () => this.closeTuner());
+      card.append(controls, done);
+      this.tunerOverlay.append(card);
+      this.tunerOverlay.addEventListener("click", (e) => {
+        if (e.target === this.tunerOverlay) this.closeTuner();
       });
     }
 
@@ -780,11 +887,56 @@ export class GigView {
       this.updateBar,
       this.consoleEl,
       this.settingsOverlay,
+      this.tunerOverlay,
       this.overlay,
     );
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") void this.requestWakeLock();
     });
+  }
+
+  /** Tuner on, then the overlay; the pedal streams readings while it is open. */
+  private openTuner() {
+    this.tunerOverlay.classList.add("open");
+    this.renderTuner(this.lastState ?? this.store.get());
+    // The pedal sends nothing in silence, so the display is cleared on a timer, not on an event.
+    if (!this.tunerSilenceTimer) this.tunerSilenceTimer = setInterval(() => this.renderTuner(this.lastState ?? this.store.get()), 250);
+    void this.actions.startTuner().catch((e) => {
+      this.toast(e);
+      this.closeTuner();
+    });
+  }
+
+  private closeTuner() {
+    this.tunerOverlay.classList.remove("open");
+    if (this.tunerSilenceTimer) clearInterval(this.tunerSilenceTimer);
+    this.tunerSilenceTimer = null;
+    void this.actions.stopTuner().catch((e) => this.toast(e));
+  }
+
+  /** Readings older than this are treated as silence (the stream runs at ~30/s while a note sounds). */
+  private static readonly TUNER_SILENCE_MS = 600;
+
+  private renderTuner(s: GigState) {
+    const t = s.tuner;
+    this.tunerRefValue.textContent = `${t.referenceHz} Hz`;
+    this.tunerMuteCheck.checked = t.muted;
+    const fresh = t.reading && t.readingAt !== null && Date.now() - t.readingAt < GigView.TUNER_SILENCE_MS;
+    const card = this.tunerOverlay.firstElementChild as HTMLElement;
+    if (!fresh || !t.reading) {
+      this.tunerNote.textContent = "—";
+      this.tunerCents.textContent = t.on ? "play a string" : "";
+      card.dataset.tune = "silent";
+      this.tunerNeedle.style.left = "50%";
+      return;
+    }
+    const { note, cents, inTune } = t.reading;
+    this.tunerNote.textContent = note;
+    const rounded = Math.round(cents);
+    this.tunerCents.textContent = inTune ? "in tune" : `${rounded > 0 ? "+" : ""}${rounded} ct · ${cents < 0 ? "flat" : "sharp"}`;
+    card.dataset.tune = inTune ? "in" : cents < 0 ? "flat" : "sharp";
+    const clamped = Math.max(-50, Math.min(50, cents));
+    this.tunerNeedle.style.left = `${50 + clamped}%`;
   }
 
   private doConnect(acceptAll: boolean) {
@@ -961,8 +1113,31 @@ export class GigView {
     this.slotEl.style.fontSize = `${px}px`;
   }
 
+  /** State keys whose change alone needs no full re-render (high-frequency: tuner readings, log lines). */
+  private static readonly LIGHT_KEYS = new Set<keyof GigState>(["tuner", "lastEventAt", "log"]);
+
   private render(s: GigState) {
+    const prev = this.lastState;
     this.lastState = s;
+    // Light path: the tuner streams ~30 readings/s and every one reaches the store, and a
+    // full render measures text and rebuilds the preset strip. When only tuner / log /
+    // timestamp changed, touch just what shows them; the backlog otherwise ran seconds behind.
+    if (prev) {
+      let light = true;
+      for (const k of Object.keys(s) as (keyof GigState)[]) {
+        if (s[k] !== prev[k] && !GigView.LIGHT_KEYS.has(k)) {
+          light = false;
+          break;
+        }
+      }
+      if (light) {
+        this.renderSync(s);
+        if (this.tunerOverlay.classList.contains("open")) this.renderTuner(s);
+        this.renderLiveTuner(s);
+        this.renderLog(s.log);
+        return;
+      }
+    }
     // Connection ----------------------------------------------------
     this.dot.dataset.state = s.connection;
     this.statusText.textContent =
@@ -980,13 +1155,7 @@ export class GigView {
       .filter(Boolean)
       .join(" · ");
     this.menuDevice.hidden = this.menuDevice.textContent === "";
-    {
-      const parts: string[] = [];
-      if (s.lastStateSyncAt) parts.push(`state ${fmtTime(s.lastStateSyncAt)}`);
-      if (s.lastEventAt) parts.push(`event ${fmtTime(s.lastEventAt)}`);
-      this.menuSync.textContent = parts.join(" · ");
-      this.menuSync.hidden = parts.length === 0;
-    }
+    this.renderSync(s);
     this.menuInfo.hidden = false; // the version line is always there
     this.overlay.classList.toggle("open", s.connection === "disconnected");
     // A failed silent resume leaves its reason in lastError; show it on the connect screen.
@@ -998,6 +1167,12 @@ export class GigView {
     this.updateBar.hidden = !s.updateReady || this.updateDismissed;
     this.disconnectBtn.hidden = s.connection === "disconnected";
     this.refreshBtn.hidden = s.connection !== "connected";
+    this.tunerBtn.hidden = s.connection !== "connected";
+    if (this.tunerOverlay.classList.contains("open")) {
+      // Lost the link (or the engine dropped the tuner): the overlay closes with it.
+      if (s.connection !== "connected") this.closeTuner();
+      else this.renderTuner(s);
+    }
     this.menuBtn.hidden = s.connection === "disconnected";
     this.writesState.dataset.on = s.writesEnabled ? "true" : "false";
     this.writesBtn.classList.toggle("warn", s.writesEnabled);
@@ -1019,6 +1194,8 @@ export class GigView {
       this.tempoEl.hidden = bpm === null;
       this.muteBadge.hidden = !(s.connection === "connected" && s.outputsMuted.value === true);
     }
+    if (this.liveTunerCheck.checked !== s.liveTuner) this.liveTunerCheck.checked = s.liveTuner;
+    this.renderLiveTuner(s);
     const controlling = s.writesEnabled && s.connection === "connected";
     // Strip is always shown once connected; buttons only act in control mode.
     this.presetStrip.classList.toggle(
@@ -1167,6 +1344,48 @@ export class GigView {
     this.renderLog(s.log);
   }
 
+  /** Top-bar indicator: hidden unless connected with the live tuner on; dim in silence. */
+  private renderLiveTuner(s: GigState) {
+    const show = s.connection === "connected" && s.liveTuner && s.tuner.on;
+    this.liveTunerEl.hidden = !show;
+    if (!show) {
+      if (this.liveTunerTimer) clearInterval(this.liveTunerTimer);
+      this.liveTunerTimer = null;
+      return;
+    }
+    // Silence is the absence of readings: clear on a timer, not on an event.
+    if (!this.liveTunerTimer) this.liveTunerTimer = setInterval(() => this.renderLiveTuner(this.lastState ?? this.store.get()), 250);
+    const t = s.tuner;
+    const fresh = t.reading && t.readingAt !== null && Date.now() - t.readingAt < GigView.TUNER_SILENCE_MS;
+    if (!fresh || !t.reading) {
+      if (this.liveTunerEl.dataset.tune !== "silent") {
+        this.liveTunerEl.dataset.tune = "silent";
+        this.liveTunerEl.dataset.level = "";
+        this.liveTunerLetter.textContent = "_";
+        this.liveTunerAcc.textContent = "";
+      }
+      return;
+    }
+    const { note, cents, inTune } = t.reading;
+    const tune = inTune ? "in" : cents < 0 ? "flat" : "sharp";
+    const level = inTune ? "" : Math.abs(cents) < 10 ? "near" : "far";
+    if (this.liveTunerNote.textContent !== note) {
+      this.liveTunerLetter.textContent = note.charAt(0);
+      this.liveTunerAcc.textContent = note.slice(1);
+    }
+    if (this.liveTunerEl.dataset.tune !== tune) this.liveTunerEl.dataset.tune = tune;
+    if (this.liveTunerEl.dataset.level !== level) this.liveTunerEl.dataset.level = level;
+  }
+
+  private renderSync(s: GigState) {
+    const parts: string[] = [];
+    if (s.lastStateSyncAt) parts.push(`state ${fmtTime(s.lastStateSyncAt)}`);
+    if (s.lastEventAt) parts.push(`event ${fmtTime(s.lastEventAt)}`);
+    const text = parts.join(" · ");
+    if (this.menuSync.textContent !== text) this.menuSync.textContent = text;
+    this.menuSync.hidden = parts.length === 0;
+  }
+
   /** Window of PRESET_STRIP_COUNT presets centred on the active one, wrapping around the 64 slots. */
   private pageStrip(dir: -1 | 1) {
     const s = this.store.get();
@@ -1229,12 +1448,20 @@ export class GigView {
   }
 
   private renderLog(log: LogLine[]) {
-    if (log.length < this.renderedLogCount) {
-      this.consoleBody.replaceChildren();
-      this.renderedLogCount = 0;
+    // Lines are built only while the console is open (appending a node and scrolling it forces
+    // layout each time); opening it catches up from the store.
+    if (!this.consoleEl.classList.contains("open")) return;
+    // The store caps the log at 400 lines by dropping the oldest, so the length stops growing:
+    // find the last rendered line by identity instead, and rebuild if it has been dropped.
+    let start = 0;
+    if (this.lastRenderedLine) {
+      const at = log.lastIndexOf(this.lastRenderedLine);
+      if (at >= 0) start = at + 1;
+      else this.consoleBody.replaceChildren();
     }
+    if (start >= log.length) return;
     const frag = document.createDocumentFragment();
-    for (let i = this.renderedLogCount; i < log.length; i++) {
+    for (let i = start; i < log.length; i++) {
       const l = log[i]!;
       const line = el("div", "line");
       line.dataset.dir = l.dir;
@@ -1251,7 +1478,7 @@ export class GigView {
         this.consoleBody.removeChild(this.consoleBody.firstChild!);
       this.consoleBody.scrollTop = this.consoleBody.scrollHeight;
     }
-    this.renderedLogCount = log.length;
+    this.lastRenderedLine = log[log.length - 1] ?? null;
   }
 
   /** Test hook. */

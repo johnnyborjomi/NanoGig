@@ -177,6 +177,8 @@ export interface CurrentState {
   captureVolumeRaw: number | null;
   /** Preset tempo in BPM: field 56 (fixed32 float). Confirmed on hardware 2026-09-14 (follows tap tempo live). */
   tempoBpm: number | null;
+  /** Tuner reference pitch in Hz: field 46 (fixed32 float, 440.0 on the user's pedal). */
+  tunerReferenceHz: number | null;
   /** FX model IDs (uppercase hex, no spaces) from fields 48-52; null per slot when absent. */
   fxModelIds: Record<FxSlot, string | null>;
   firmware: string | null;
@@ -260,6 +262,10 @@ export function decodeCurrentState(bytes: Uint8Array): CurrentState | null {
       const v = firstFixed32Float(f, 56);
       return v !== null && Number.isFinite(v) && v >= 20 && v <= 400 ? v : null;
     })(),
+    tunerReferenceHz: (() => {
+      const v = firstFixed32Float(f, 46);
+      return v !== null && Number.isFinite(v) && v >= 400 && v <= 480 ? v : null;
+    })(),
     fxModelIds: {
       pre1: modelIdHex(f, 48),
       pre2: modelIdHex(f, 49),
@@ -317,6 +323,10 @@ export type DeviceEvent =
   | { kind: 'outputs-mute-ack'; hex: string; provisional: typeof PROVISIONAL }
   /** Ack to a c304 preset select (type 0x1E, `08 C0 08 01 20 01 1E 00 00 00`; 2026-09-19). */
   | { kind: 'preset-select-ack'; hex: string; provisional: typeof PROVISIONAL }
+  /** The pedal's reply to a tuner on/off write (type 0x7F back): field 4 = on, field 5 = reference Hz. */
+  | { kind: 'tuner-ack'; on: boolean; referenceHz: number | null; hex: string; provisional: typeof PROVISIONAL }
+  /** Tuner pitch reading (type 0x80), ~30/s while the tuner is on and a note is detected. */
+  | { kind: 'tuner'; reading: TunerReading; hex: string; provisional: typeof PROVISIONAL }
   | { kind: 'unknown'; msgType: number | null; hex: string; provisional: typeof PROVISIONAL };
 
 // ---------------------------------------------------------------------------
@@ -363,6 +373,31 @@ export function describeDeviceSettings(s: DeviceSettings): string {
 }
 
 const CONTROL_TYPES = new Set<number>([MSG.KNOB, MSG.ENCODER, MSG.EXPRESSION]);
+
+// ---------------------------------------------------------------------------
+// Tuner pitch event (type 0x80, captured 2026-09-19 from Cortex Cloud's tuner page)
+// ---------------------------------------------------------------------------
+
+export interface TunerReading {
+  /** Note name as the pedal spells it (`A`, `E`, …; only naturals seen so far). */
+  note: string;
+  /** Deviation from the note in cents, negative = flat. Seen from -1 to +14 on decaying strings. */
+  cents: number;
+  /** Field 7 = 1: the pedal's own "in tune" verdict (|cents| below about 2). */
+  inTune: boolean;
+}
+
+/**
+ * `10 C0 08 01 22 01 <note> 2D <f32 cents> 30 01 [38 01] 80 00 00 00`: field 4 = note name
+ * (ASCII), field 5 = cents (fixed32 float), field 6 = 1, field 7 present only when in tune.
+ */
+function decodeTunerReading(payload: Uint8Array): TunerReading | null {
+  const f = parseFields(payload);
+  const note = firstString(f, 4);
+  const cents = firstFixed32Float(f, 5);
+  if (!note || cents === null || !Number.isFinite(cents)) return null;
+  return { note, cents, inTune: firstVarint(f, 7) === 1 };
+}
 
 /** Locate the `C0 08 01` legacy event header at offset 0 or 1 (after a length byte). */
 function findLegacyHeader(data: Uint8Array): number {
@@ -419,6 +454,16 @@ export function decodeEvent(data: Uint8Array): DeviceEvent {
     }
     if (msgType === MSG.OUTPUTS_MUTE_ACK) return { kind: 'outputs-mute-ack', hex, provisional: PROVISIONAL };
     if (msgType === MSG.PRESET_ACK_REQUEST) return { kind: 'preset-select-ack', hex, provisional: PROVISIONAL };
+    if (msgType === MSG.TUNER_REQUEST) {
+      const f = parseFields(payload);
+      const ref = firstFixed32Float(f, 5);
+      return { kind: 'tuner-ack', on: firstVarint(f, 4) === 1, referenceHz: ref !== null && Number.isFinite(ref) ? ref : null, hex, provisional: PROVISIONAL };
+    }
+    if (msgType === MSG.TUNER_PITCH) {
+      const reading = decodeTunerReading(payload);
+      if (reading) return { kind: 'tuner', reading, hex, provisional: PROVISIONAL };
+      return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
+    }
     if (msgType !== null && CONTROL_TYPES.has(msgType)) return { kind: 'control', msgType, hex, provisional: PROVISIONAL };
     if (msgType !== null) return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
   }

@@ -202,6 +202,22 @@ export function buildMetadataBody(presets: MockPreset[], state?: MockDeviceState
   return Uint8Array.from(body);
 }
 
+/**
+ * Tuner pitch event in the hardware-observed shape (2026-09-19):
+ * `10 C0 08 01 22 01 <note> 2D <f32 cents> 30 01 [38 01] 80 00 00 00`.
+ */
+export function buildTunerPitchEvent(note: string, cents: number, inTune = Math.abs(cents) < 2): Uint8Array {
+  const body = [
+    ...varintField(1, 1),
+    ...stringField(4, note),
+    ...fixed32FloatField(5, cents),
+    ...varintField(6, 1),
+    ...(inTune ? varintField(7, 1) : []),
+    MSG.TUNER_PITCH, 0x00, 0x00, 0x00,
+  ];
+  return wrapSinglePacket(Uint8Array.from(body));
+}
+
 /** Preset-changed event in the hardware-observed shape: `10 C0 08 01 20 <p> 28 <IA> 30 <IB> 38 <IIA> 40 <IIB> 1D 00 00 00`. */
 export function buildPresetChangedEvent(preset: number, a = { ia: 3, ib: 5, iia: 20, iib: 14 }): Uint8Array {
   const body = [

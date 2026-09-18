@@ -42,6 +42,16 @@ export function parseFrameHeader(data: Uint8Array): FrameHeader | null {
   return { bodyLength, start: (raw & FLAG_START) !== 0, end: (raw & FLAG_END) !== 0 };
 }
 
+/**
+ * A single-packet tuner pitch reading (type 0x80, `.. C0 .. 80 00 00 00`). Streamed ~30/s
+ * while the tuner is on, so the transports keep it out of the hex log: it would push every
+ * useful line out of the 400-line history in about 13 seconds.
+ */
+export function isTunerPitchPacket(data: Uint8Array): boolean {
+  const n = data.length;
+  return n >= 8 && data[1] === 0xc0 && data[n - 4] === 0x80 && data[n - 3] === 0 && data[n - 2] === 0 && data[n - 1] === 0;
+}
+
 export function encodeFrameHeader(bodyLength: number, start: boolean, end: boolean): [number, number] {
   if (bodyLength < 0 || bodyLength > LENGTH_MASK) throw new RangeError(`body too long: ${bodyLength}`);
   const raw = bodyLength | (start ? FLAG_START : 0) | (end ? FLAG_END : 0);
@@ -95,6 +105,10 @@ export const MSG = {
   OUTPUTS_MUTE_REQUEST: 0x43,
   /** Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`. */
   OUTPUTS_MUTE_ACK: 0x44,
+  /** Tuner on/off write (we send this; Cortex Cloud does too). */
+  TUNER_REQUEST: 0x7f,
+  /** Tuner pitch event, streamed while a note is detected. */
+  TUNER_PITCH: 0x80,
 } as const;
 
 // ---------------------------------------------------------------------------

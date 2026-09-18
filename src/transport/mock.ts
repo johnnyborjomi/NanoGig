@@ -24,6 +24,7 @@ import {
   REAL_STATE_DUMP_PACKET,
   buildCurrentStateBody,
   buildPresetChangedEvent,
+  buildTunerPitchEvent,
   buildMetadataBody,
   defaultMockDeviceState,
   segmentStream,
@@ -34,6 +35,7 @@ import {
 import { HW_DEVICE_SETTINGS_REPLY, HW_DEVICE_SETTINGS_REPLY_UNMUTED, HW_OUTPUTS_MUTE_ACK } from '../fixtures/hardware-2026-09-15';
 import { HW_BYPASS_CHANGED } from '../fixtures/hardware-2026-09-12';
 import { HW_PRESET_SELECT_ACK } from '../fixtures/hardware-2026-09-19';
+import { TUNER_OFF } from '../protocol/frames';
 import {
   Emitter,
   type ConnectOptions,
@@ -75,6 +77,8 @@ export class MockTransport implements Transport {
   private readonly opts: Required<MockOptions>;
   private stateReplies = 0;
   private autoTimer: ReturnType<typeof setInterval> | null = null;
+  private tunerTimer: ReturnType<typeof setInterval> | null = null;
+  private tunerTick = 0;
   private pending: ReturnType<typeof setTimeout>[] = [];
   private autoEventCounter = 0;
 
@@ -131,6 +135,7 @@ export class MockTransport implements Transport {
   async disconnect(): Promise<void> {
     if (this.autoTimer) clearInterval(this.autoTimer);
     this.autoTimer = null;
+    this.stopTunerStream();
     for (const t of this.pending) clearTimeout(t);
     this.pending = [];
     this.setStatus('disconnected');
@@ -197,6 +202,15 @@ export class MockTransport implements Transport {
       }, this.opts.latencyMs);
       return;
     }
+    // Tuner on (0F C0 20 01 2D <f32> 30 01 38 <mute> 7F …) / off (06 C0 20 00 7F …), 2026-09-19.
+    if (bytesEqual(bytes, TUNER_OFF)) {
+      this.stopTunerStream();
+      return;
+    }
+    if (bytes.length === 17 && bytes[0] === 0x0f && bytes[1] === 0xc0 && bytes[2] === 0x20 && bytes[3] === 0x01 && bytes[13] === 0x7f) {
+      this.startTunerStream();
+      return;
+    }
     if (bytesEqual(bytes, DEVICE_SETTINGS_REQUEST)) {
       this.schedule(() => this.emit(this.device.outputsMuted ? HW_DEVICE_SETTINGS_REPLY : HW_DEVICE_SETTINGS_REPLY_UNMUTED), this.opts.latencyMs);
       return;
@@ -244,6 +258,27 @@ export class MockTransport implements Transport {
       return;
     }
     this.log('warn', 'mock: unrecognised MIDI bytes ignored', toHex(bytes));
+  }
+
+  /** Fake pitch stream: a new string every ~2 s, plucked sharp and settling towards in tune, ~30 readings/s. */
+  private startTunerStream() {
+    if (this.tunerTimer) return;
+    this.tunerTick = 0;
+    this.tunerTimer = setInterval(() => {
+      if (this._status !== 'connected') return;
+      const notes = ['E', 'A', 'D', 'G', 'B', 'E'];
+      const i = this.tunerTick++;
+      const phase = i % 60; // 60 ticks ≈ 2 s per string
+      if (phase >= 48) return; // a short silence between strings: the real pedal sends nothing then
+      const note = notes[Math.floor(i / 60) % notes.length]!;
+      const cents = 14 * Math.exp(-phase / 12) - 0.6 + 0.4 * Math.sin(i);
+      this.emit(buildTunerPitchEvent(note, cents));
+    }, 33);
+  }
+
+  private stopTunerStream() {
+    if (this.tunerTimer) clearInterval(this.tunerTimer);
+    this.tunerTimer = null;
   }
 
   private replyCurrentState() {

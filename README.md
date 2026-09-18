@@ -114,6 +114,19 @@ command Cortex Cloud's global setting does, handy when you monitor through a DAW
 works without control mode, shows the pedal's own report of the switch, and while muted a
 small _1/2_ badge sits next to the tempo in the top bar.
 
+## Tuner
+
+Menu → Tuner opens the pedal's tuner over Bluetooth: the note in large type, the offset in
+cents on a needle bar, the reference pitch (± 1 Hz) and the tuner's own "mute outputs while
+tuning" switch, all as Cortex Cloud sends them. Done (or Escape, or losing the link) turns the
+tuner off again. It works whenever connected: it changes no preset, so control mode is not
+needed.
+
+**Live tuner** (on by default, Settings → Pedal): the pedal's tuner stays on for the whole
+session and the top bar shows the note with a flat dot on the left and a sharp dot on the
+right. Green all round when in tune; the dot on the side you are off, and the note, go yellow
+within 10 cents and red beyond. Sound passes through. Tap it for the big tuner.
+
 ## Control mode
 
 Off by default. When on, taps write to the pedal: FX and gate tiles toggle their block, the
