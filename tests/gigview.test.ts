@@ -126,8 +126,18 @@ describe('GigView PWA install and update', () => {
     expect(block.textContent).toContain('home screen');
     block.querySelector('button')!.click();
     expect(calls).toEqual(['install']);
+    // The menu carries the same offer under Disconnect, with its own separator, while connected.
+    const menuInstall = Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Install app')!;
+    expect(menuInstall.hidden).toBe(false);
+    expect(menuInstall.previousElementSibling?.classList.contains('menu-sep')).toBe(true);
+    expect((menuInstall.previousElementSibling as HTMLElement).hidden).toBe(false);
+    expect(menuInstall.previousElementSibling?.previousElementSibling?.textContent).toBe('Disconnect');
+    menuInstall.click();
+    expect(calls).toEqual(['install', 'install']);
     store.patch({ installable: false });
     expect(block.hidden).toBe(true);
+    expect(menuInstall.hidden).toBe(true);
+    expect((menuInstall.previousElementSibling as HTMLElement).hidden).toBe(true);
 
     const bar = root.querySelector<HTMLElement>('.update-bar')!;
     expect(bar.hidden).toBe(true);
@@ -142,7 +152,7 @@ describe('GigView PWA install and update', () => {
     store.patch({ updateReady: true }); // a newer update shows again
     expect(bar.hidden).toBe(false);
     reload!.click();
-    expect(calls).toEqual(['install', 'update']);
+    expect(calls).toEqual(['install', 'install', 'update']);
     expect(root.querySelector('.menu-info')?.textContent).toMatch(/NanoGig v\d+\.\d+\.\d+/);
   });
 });
@@ -275,9 +285,12 @@ describe('GigView writes toggle and reconnect button', () => {
     expect(menu.classList.contains('open')).toBe(false);
     root.querySelector<HTMLButtonElement>('button[aria-label="Menu"]')!.click();
     expect(menu.classList.contains('open')).toBe(true);
-    expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Log', 'Disconnect']);
-    expect(menu.querySelectorAll('button svg').length).toBe(4); // an icon per item
-    expect(menu.querySelectorAll('.menu-sep').length).toBe(4); // between items + a stronger one above the info line
+    const install = menu.querySelector<HTMLButtonElement>('button:last-of-type')!;
+    expect(install.textContent).toBe('Install app');
+    expect(install.hidden).toBe(true); // only while the browser offers a prompt
+    expect(Array.from(menu.querySelectorAll('button')).filter((b) => b !== install).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Log', 'Disconnect']);
+    expect(menu.querySelectorAll('button svg').length).toBe(5); // an icon per item, the install one included
+    expect(Array.from(menu.querySelectorAll<HTMLElement>('.menu-sep')).filter((d) => !d.hidden).length).toBe(4); // between items + a stronger one above the info line
     expect(menu.lastElementChild?.classList.contains('menu-info')).toBe(true); // device/firmware info at the bottom
     expect(menu.querySelector('button.danger')?.textContent).toBe('Disconnect');
     // Settings opens its own popup with the two selects and closes the menu.

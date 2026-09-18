@@ -233,6 +233,9 @@ export class GigView {
   private readonly bankSelect = el("select", "menu-select");
   private readonly styleSelect = el("select", "menu-select");
   private readonly settingsBtn = el("button", "menu-item", "Settings");
+  /** PWA install, in the menu (the connect screen has its own block); shown only while installable. */
+  private readonly menuInstallBtn = el("button", "menu-item", "Install app");
+  private readonly menuInstallSep = el("div", "menu-sep");
   private readonly settingsOverlay = el("div", "overlay settings");
   private readonly settingsPreview = el("p", "hint");
   private readonly muteCheck = el("input", "menu-check");
@@ -326,6 +329,7 @@ export class GigView {
       [this.refreshBtn, RefreshCw, "Refresh"],
       [this.consoleBtn, ScrollText, "Log"],
       [this.disconnectBtn, LogOut, "Disconnect"],
+      [this.menuInstallBtn, Download, "Install app"],
     ];
     items.forEach(([b, icon, label], i) => {
       b.className = "menu-item";
@@ -334,10 +338,16 @@ export class GigView {
         el("span", "", label),
       );
       b.addEventListener("click", () => this.menu.classList.remove("open"));
-      if (i > 0) this.menu.append(el("div", "menu-sep"));
+      // The install item comes and goes with the browser's offer, so its separator is kept
+      // by hand and hidden along with it.
+      if (b === this.menuInstallBtn) this.menu.append(this.menuInstallSep);
+      else if (i > 0) this.menu.append(el("div", "menu-sep"));
       this.menu.append(b);
     });
     this.disconnectBtn.classList.add("danger");
+    this.menuInstallBtn.addEventListener("click", () => {
+      void this.actions.installApp?.().catch((e) => this.toast(e));
+    });
     this.settingsBtn.addEventListener("click", () =>
       this.settingsOverlay.classList.add("open"),
     );
@@ -982,6 +992,8 @@ export class GigView {
     // A failed silent resume leaves its reason in lastError; show it on the connect screen.
     if (s.connection === "disconnected" && s.lastError && s.syncPhase !== "error") this.overlayErr.textContent = s.lastError;
     this.installBlock.hidden = !s.installable;
+    this.menuInstallBtn.hidden = !s.installable;
+    this.menuInstallSep.hidden = !s.installable;
     if (!s.updateReady) this.updateDismissed = false;
     this.updateBar.hidden = !s.updateReady || this.updateDismissed;
     this.disconnectBtn.hidden = s.connection === "disconnected";
