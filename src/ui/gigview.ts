@@ -18,6 +18,7 @@ import type { LogLine } from "../transport/types";
 import {
   ChevronLeft,
   ChevronRight,
+  Coffee,
   Copy,
   Download,
   Lock,
@@ -35,6 +36,9 @@ import {
   createElement as lucideElement,
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
+
+/** Where a coffee goes. Also in the README's Sponsor section. */
+export const SUPPORT_URL = "https://buymeacoffee.com/johnnyborjomi";
 import { PRESET_COUNT } from "../protocol/frames";
 import type { FootswitchAssignments } from "../protocol/decode";
 
@@ -250,6 +254,7 @@ export class GigView {
   private readonly styleSelect = el("select", "menu-select");
   private readonly settingsBtn = el("button", "menu-item", "Settings");
   private readonly tunerBtn = el("button", "menu-item", "Tuner");
+  private readonly supportMenuBtn = el("button", "menu-item", "Support project");
   // Tuner overlay: note, cents, a needle bar, reference and mute controls.
   private readonly tunerOverlay = el("div", "overlay tuner");
   private readonly tunerNote = el("div", "tuner-note", "—");
@@ -382,6 +387,15 @@ export class GigView {
     this.menuInstallBtn.addEventListener("click", () => {
       void this.actions.installApp?.().catch((e) => this.toast(e));
     });
+    // Last in the list: the app is free, the coffee is not.
+    this.supportMenuBtn.className = "menu-item support";
+    this.supportMenuBtn.replaceChildren(lucideElement(Coffee, { "aria-hidden": "true" }), el("span", "", "Support project"));
+    this.supportMenuBtn.title = "Support NanoGig";
+    this.supportMenuBtn.addEventListener("click", () => {
+      this.menu.classList.remove("open");
+      window.open(SUPPORT_URL, "_blank", "noopener");
+    });
+    this.menu.append(el("div", "menu-sep"), this.supportMenuBtn);
     this.settingsBtn.addEventListener("click", () =>
       this.settingsOverlay.classList.add("open"),
     );
@@ -785,6 +799,7 @@ export class GigView {
     });
     row.append(this.connectBtn, this.connectAllBtn);
     if (this.opts.showMockButton) row.append(this.mockBtn);
+
     card.append(row);
 
     // Install (PWA): only shown while the browser offers a prompt and the app is not installed.
@@ -850,6 +865,29 @@ export class GigView {
         steps,
       );
       this.resumeTip.hidden = !(this.opts.bluetoothAvailable && this.opts.resumeAvailable === false);
+    // Support: a spare-time project; the coffee pays for the next feature.
+    {
+      const block = el("div", "support-block");
+      const text = el("div", "support-text");
+      text.append(
+        el("strong", "", "NanoGig is free, and built in spare time."),
+        el(
+          "span",
+          "",
+          " Bluetooth preset switching, the live tuner and the iPad app all came from evenings spent with a pedal on the bench, and more is on the list. If NanoGig earns its place on your board, chip in and help pay for the next feature.",
+        ),
+      );
+      const link = el("a", "coffee-btn");
+      link.href = SUPPORT_URL;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.append(lucideElement(Coffee, { "stroke-width": 2.2, "aria-hidden": "true" }), el("span", "", "Support project"));
+      const sub = el("span", "support-sub", "One-off, any amount, takes a minute.");
+      const cta = el("div", "support-cta");
+      cta.append(link, sub);
+      block.append(text, cta);
+      card.append(block);
+    }
       card.append(this.resumeTip);
     }
     card.append(

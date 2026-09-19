@@ -285,12 +285,15 @@ describe('GigView writes toggle and reconnect button', () => {
     expect(menu.classList.contains('open')).toBe(false);
     root.querySelector<HTMLButtonElement>('button[aria-label="Menu"]')!.click();
     expect(menu.classList.contains('open')).toBe(true);
-    const install = menu.querySelector<HTMLButtonElement>('button:last-of-type')!;
-    expect(install.textContent).toBe('Install app');
+    const buttons = Array.from(menu.querySelectorAll<HTMLButtonElement>('button'));
+    const install = buttons.find((b) => b.textContent === 'Install app')!;
     expect(install.hidden).toBe(true); // only while the browser offers a prompt
-    expect(Array.from(menu.querySelectorAll('button')).filter((b) => b !== install).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Tuner', 'Log', 'Disconnect']);
-    expect(menu.querySelectorAll('button svg').length).toBe(6); // an icon per item, the install one included
-    expect(Array.from(menu.querySelectorAll<HTMLElement>('.menu-sep')).filter((d) => !d.hidden).length).toBe(5); // between items + a stronger one above the info line
+    const coffee = buttons[buttons.length - 1]!;
+    expect(coffee.textContent).toBe('Support project'); // last in the list, always there
+    expect(coffee.hidden).toBe(false);
+    expect(buttons.filter((b) => b !== install && b !== coffee).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Tuner', 'Log', 'Disconnect']);
+    expect(menu.querySelectorAll('button svg').length).toBe(7); // an icon per item, install and coffee included
+    expect(Array.from(menu.querySelectorAll<HTMLElement>('.menu-sep')).filter((d) => !d.hidden).length).toBe(6); // between items + a stronger one above the info line
     expect(menu.lastElementChild?.classList.contains('menu-info')).toBe(true); // device/firmware info at the bottom
     expect(menu.querySelector('button.danger')?.textContent).toBe('Disconnect');
     // Settings opens its own popup with the two selects and closes the menu.
@@ -537,5 +540,31 @@ describe('GigView live tuner', () => {
     const settings = root.querySelector('.overlay.settings')!;
     const liveRow = Array.from(settings.querySelectorAll('label.setting-row')).find((r) => r.textContent?.includes('Live tuner'))!;
     expect((liveRow.querySelector('input') as HTMLInputElement).checked).toBe(false);
+  });
+});
+
+describe('GigView support', () => {
+  it('asks for support on the connect card, just before the resume tip, and last in the menu', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+    const card = root.querySelector('.overlay:not(.settings):not(.tuner) .card')!;
+    const block = card.querySelector('.support-block')!;
+    const link = block.querySelector<HTMLAnchorElement>('a.coffee-btn')!;
+    expect(link.href).toBe('https://buymeacoffee.com/johnnyborjomi');
+    expect(link.target).toBe('_blank');
+    expect(link.textContent).toContain('Support project');
+    expect(block.textContent).toContain('next feature');
+    // After the connect buttons, right before the "pick the pedal on every launch" tip.
+    const children = Array.from(card.children);
+    expect(children.indexOf(block)).toBeGreaterThan(children.findIndex((c) => c.classList.contains('row')));
+    expect(children[children.indexOf(block) + 1]?.classList.contains('resume-tip')).toBe(true);
+    const opened: string[] = [];
+    const orig = window.open;
+    window.open = ((url: string) => { opened.push(url); return null; }) as typeof window.open;
+    Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Support project')!.click();
+    window.open = orig;
+    expect(opened).toEqual(['https://buymeacoffee.com/johnnyborjomi']);
   });
 });
