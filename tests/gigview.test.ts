@@ -597,15 +597,25 @@ describe('GigView expression pedal', () => {
     expect(bar.classList.contains('visible')).toBe(true);
     expect(fill.style.height).toBe('50%');
     expect(post3.hidden).toBe(false);
-    expect(post3.querySelector('.t-exp-label')?.textContent).toBe('EXP 7–51%');
+    const band = post3.querySelector<HTMLElement>('.t-exp-range')!;
+    expect(band.style.left).toBe('6.7%'); // 17/255
+    expect(band.style.width).toBe('44.3%'); // (130-17)/255
     expect(post3.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('28.6%');
+    expect(post3.dataset.byp).toBe('');
     expect(root.querySelector<HTMLElement>('.tile[data-key="post2"] .t-exp')!.hidden).toBe(true);
     const post1 = root.querySelector<HTMLElement>('.tile[data-key="post1"] .t-exp')!;
     expect(post1.hidden).toBe(false);
-    expect(post1.querySelector('.t-exp-label')?.textContent).toBe('EXP BYP');
+    expect(post1.dataset.byp).toBe('ht');
+    expect(post1.querySelector<HTMLElement>('.t-exp-range')?.style.width).toBe('100%');
     expect(post1.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('0%');
     store.patch({ expression: { ...store.get().expression, values: { ranges: { post3: 73 }, bypasses: { post1: true } }, valuesAt: Date.now() } });
     expect(post1.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('100%');
+
+    // No values yet for this preset (the pedal sends none on load): derived from the position.
+    store.patch({ expression: { ...store.get().expression, values: { ranges: {}, bypasses: {} }, valuesAt: null, movedAt: Date.now() } });
+    expect(post3.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('28.8%'); // 17 + 127/254 * 113 = 73.5 → 28.8 % of 255
+    expect(post1.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('0%'); // 127 is the toe side of mid-travel
+    store.patch({ expression: { ...store.get().expression, values: { ranges: { post3: 73 }, bypasses: { post1: true } }, valuesAt: Date.now() } });
 
     // Stale (fade mode): gone. Persist: back.
     store.patch({ expression: { ...store.get().expression, movedAt: now - 10000, valuesAt: now - 10000 } });

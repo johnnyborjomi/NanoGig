@@ -210,7 +210,7 @@ export class GigView {
   private readonly irState = el("span", "sub-state");
   private readonly tiles = new Map<
     FxSlot | "gate" | "cab",
-    { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement; exp?: HTMLElement; expLabel?: HTMLElement; expFill?: HTMLElement }
+    { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement; exp?: HTMLElement; expRange?: HTMLElement; expFill?: HTMLElement }
   >();
   private readonly presetStrip = el("div", "preset-strip");
   private readonly presetGrid = el("div", "preset-grid");
@@ -492,13 +492,14 @@ export class GigView {
       tile.dataset.cat = key === "gate" || key === "cab" ? key : "none";
       tile.addEventListener("click", () => this.onTileTap(key));
       // Expression badge: label with the range, and a live fill of the mapped value.
+      // No text: a translucent band marks the assigned range, a solid fill the value inside it.
       const exp = el("div", "t-exp");
-      const expLabel = el("span", "t-exp-label", "EXP");
+      const expRange = el("div", "t-exp-range");
       const expFill = el("div", "t-exp-fill");
-      exp.append(expLabel, expFill);
+      exp.append(expRange, expFill);
       exp.hidden = true;
       if (key !== "gate" && key !== "cab") tile.append(exp);
-      this.tiles.set(key, { root: tile, name, category, exp, expLabel, expFill });
+      this.tiles.set(key, { root: tile, name, category, exp, expRange, expFill });
 
       if (key === "gate") {
         // Own line: "GATE" text followed by a small power button.
@@ -1445,15 +1446,23 @@ export class GigView {
       if (t.exp!.hidden !== !show) t.exp!.hidden = !show;
       if (!range && !bypass) continue;
       anyBadge = true;
-      const parts: string[] = [];
-      if (range) parts.push(`${Math.round((range.min / 255) * 100)}–${Math.round((range.max / 255) * 100)}%`);
-      if (bypass) parts.push(bypass.mode === 2 ? "BYP" : "BYP·SW");
-      const label = `EXP ${parts.join(" · ")}`;
-      if (t.expLabel!.textContent !== label) t.expLabel!.textContent = label;
-      // Fill: the amount the pedal produced; for a bypass-only assignment, full when engaged.
-      const v = range ? x.values.ranges[slot] : undefined;
-      const engaged = x.values.bypasses[slot];
-      const w = range ? (v === undefined ? "0%" : `${Math.round((v / 255) * 1000) / 10}%`) : engaged ? "100%" : "0%";
+      // Band = the set range (whole width for a bypass); fill = the value the pedal produced,
+      // which already sits inside the range. A bypass-only tile fills fully when engaged.
+      const pct = (v: number) => `${Math.round((v / 255) * 1000) / 10}%`;
+      const left = range ? pct(range.min) : "0%";
+      const width = range ? pct(range.max - range.min) : "100%";
+      if (t.expRange!.style.left !== left) t.expRange!.style.left = left;
+      if (t.expRange!.style.width !== width) t.expRange!.style.width = width;
+      const mode = bypass ? (bypass.mode === 2 ? "ht" : "sw") : "";
+      if (t.exp!.dataset.byp !== mode) t.exp!.dataset.byp = mode;
+      // The pedal sends values only while moving, not on preset load: until the first event of
+      // this preset, derive them from the last position exactly as the pedal maps it (linear into
+      // the range; heel-toe bypass flag = 1 on the heel side of mid-travel, as captured).
+      const pos = x.position;
+      const derived = range && pos !== null ? range.min + (pos / 254) * (range.max - range.min) : undefined;
+      const v = range ? (x.values.ranges[slot] ?? derived) : undefined;
+      const engaged = x.values.bypasses[slot] ?? (pos !== null ? pos < 127 : undefined);
+      const w = range ? (v === undefined ? "0%" : pct(v)) : engaged ? "100%" : "0%";
       if (t.expFill!.style.width !== w) t.expFill!.style.width = w;
     }
     // Fading is the absence of events: run a timer while something is shown and may fade.

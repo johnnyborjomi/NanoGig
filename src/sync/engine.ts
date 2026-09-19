@@ -30,8 +30,7 @@ import {
   describeDeviceSettings,
   inferActivePreset,
   type CurrentState,
-  type Metadata,
-} from '../protocol/decode';
+  type Metadata, EMPTY_EXPRESSION_VALUES } from '../protocol/decode';
 import {
   CURRENT_STATE_REQUEST,
   DEVICE_SETTINGS_REQUEST,
@@ -425,7 +424,9 @@ export class SyncEngine {
         const bypasses = Object.entries(ev.assignments.bypasses).map(([t, b]) => `${t} bypass (mode ${b.mode}${b.delayMs ? `, ${b.delayMs} ms` : ''})`);
         const all = [...ranges, ...bypasses];
         this.log('info', `Expression assignments${preset !== null ? ` of preset ${preset + 1}` : ''}: ${all.length ? all.join(', ') : 'none'}`, toHex(pkt.data));
-        this.store.patch({ expression: { ...x, assignments: ev.assignments, assignmentsPreset: preset } });
+        // Values belong to a preset's targets: a new preset starts without the old ones.
+        const values = preset === x.assignmentsPreset ? x.values : EMPTY_EXPRESSION_VALUES;
+        this.store.patch({ expression: { ...x, assignments: ev.assignments, assignmentsPreset: preset, values, valuesAt: preset === x.assignmentsPreset ? x.valuesAt : null } });
         return;
       }
       case 'expression-assign-ack':

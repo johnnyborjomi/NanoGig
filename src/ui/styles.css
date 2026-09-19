@@ -1178,8 +1178,8 @@ button.warn {
   bottom: 0;
   height: 0;
   border-radius: 2px;
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent);
+  background: var(--warn);
+  /* box-shadow: 0 0 8px var(--warn); */
   transition: height 60ms linear;
 }
 @media (max-height: 460px) {
@@ -1188,43 +1188,51 @@ button.warn {
     bottom: max(6px, env(safe-area-inset-bottom));
   }
 }
-/* EXP badge on an assigned FX tile: range label and a fill of the produced value along the bottom. */
+/* EXP indicator on an assigned FX tile: a black track; a translucent orange band marks the range
+   set in Cortex Cloud, a solid orange fill the value the pedal produces (which lives inside the
+   band). A bypass-only assignment spans the whole track and fills fully when engaged; the
+   switch/stop modes (toe switch) draw the band dashed. No text. */
 .tile .t-exp {
   position: absolute;
-  left: 6px;
-  right: 6px;
-  bottom: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  height: 10px;
+  box-sizing: border-box;
+  background: #000;
+  border-radius: 6px;
   pointer-events: none;
   opacity: 1;
   transition: opacity 400ms ease;
-      background: black;
-    border-radius: 50px;
-    padding: 1px 9px;
+  box-shadow: 0 0 0 2px black;
+  overflow: hidden;
 }
 .tile .t-exp[hidden] {
-  display: flex;
+  display: block;
   opacity: 0;
   transition: opacity 400ms ease;
 }
-.tile .t-exp-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--accent);
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.tile .t-exp-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: var(--warn);
+  opacity: 0.28;
+}
+.tile .t-exp[data-byp='sw'] .t-exp-range {
+  background: repeating-linear-gradient(90deg, var(--warn) 0 4px, transparent 4px 7px);
 }
 .tile .t-exp-fill {
-  height: 3px;
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
   width: 0;
-  border-radius: 2px;
-  background: var(--accent);
-  box-shadow: 0 0 6px var(--accent);
+  max-width: calc(100%);
+  border-radius: 3px;
+  background: var(--warn);
+  box-shadow: 0 0 2px var(--warn);
   transition: width 60ms linear;
 }
 .tile {
