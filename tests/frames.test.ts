@@ -22,10 +22,11 @@ import {
   programChange,
   tunerOnFrame,
   TUNER_OFF,
+  expressionAssignmentsRequest,
 } from '../src/protocol/frames';
 import { toHex } from '../src/protocol/hex';
 import { HW_DEVICE_SETTINGS_REQUEST, HW_OUTPUTS_MUTE_WRITES } from '../src/fixtures/hardware-2026-09-15';
-import { HW_PRESET_SELECT_0, HW_PRESET_SELECT_9, HW_TUNER_OFF, HW_TUNER_ON_440, HW_TUNER_ON_440_MUTED, HW_TUNER_ON_462 } from '../src/fixtures/hardware-2026-09-19';
+import { HW_EXP_ASSIGN_REQUEST_58, HW_PRESET_SELECT_0, HW_PRESET_SELECT_9, HW_TUNER_OFF, HW_TUNER_ON_440, HW_TUNER_ON_440_MUTED, HW_TUNER_ON_462 } from '../src/fixtures/hardware-2026-09-19';
 
 describe('request frames (byte-exact against the reference tables)', () => {
   it('metadata dump request', () => {
@@ -171,6 +172,13 @@ describe('tuner frames (Cortex Cloud HCI capture 2026-09-19)', () => {
   it('rejects a reference outside the slider range', () => {
     expect(() => tunerOnFrame(300)).toThrow(RangeError);
     expect(() => tunerOnFrame(500)).toThrow(RangeError);
+  });
+});
+
+describe('expression assignments request (Cortex Cloud HCI capture 2026-09-19)', () => {
+  it('is byte-identical to the captured read for preset 58', () => {
+    expect(toHex(expressionAssignmentsRequest(58))).toBe(toHex(HW_EXP_ASSIGN_REQUEST_58));
+    expect(() => expressionAssignmentsRequest(64)).toThrow(RangeError);
   });
 });
 

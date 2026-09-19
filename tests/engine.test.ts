@@ -819,3 +819,35 @@ describe('live tuner', () => {
     engine.dispose();
   });
 });
+
+describe('expression pedal', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('reads the assignments of the active preset after sync and follows position / values events', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(4000);
+    // Demo preset 7 is odd → the mock answers "nothing assigned".
+    expect(store.get().expression.assignmentsPreset).toBe(7);
+    expect(store.get().expression.assignments?.ranges.post3).toBeUndefined();
+    expect(store.get().log.some((l) => l.dir === 'tx' && l.hex === '08 C0 08 03 18 07 3C 00 00 00')).toBe(true);
+
+    mock.pressFootswitch(4); // even → post 3, 17–130
+    await flush(1500);
+    expect(store.get().expression.assignmentsPreset).toBe(4);
+    expect(store.get().expression.assignments?.ranges.post3).toEqual({ min: 17, max: 130, flag: 0 });
+    expect(store.get().log.filter((l) => l.dir === 'tx' && /3C 00 00 00$/.test(l.hex ?? '') && l.text.startsWith('Expression')).length).toBe(2); // once per preset
+
+    mock.sweepExpression(4, 50);
+    await flush(120);
+    const x = store.get().expression;
+    expect(x.position).toBeGreaterThan(0);
+    expect(x.movedAt).not.toBeNull();
+    expect(x.values.ranges.post3).toBeGreaterThanOrEqual(17);
+    expect(store.get().log.filter((l) => /Undocumented event/.test(l.text))).toHaveLength(0);
+    await flush(1000);
+    expect(store.get().expression.position).toBe(0); // back at heel
+    engine.dispose();
+  });
+});

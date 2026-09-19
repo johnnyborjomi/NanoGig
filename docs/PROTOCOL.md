@@ -108,7 +108,9 @@ every mute ack to confirm the switch against the pedal's report.
 | `0x1F` | Bypass changed                                                                                       | re-read state                          |
 | `0x1C` | Footswitch encoder turned (capture / cab scrolling), same `18 <sel> 20 <val>` shape as slot writes   | debounced re-read (~400 ms)            |
 | `0x1A` | Knob (also tap tempo)                                                                                | debounced re-read (~400 ms)            |
-| `0x40` | Expression pedal (quantised heel / centre / toe)                                                     | ignored                                |
+| `0x40` | Expression pedal position: `0B C0 08 01 18 02 20 <0–254> 40 00 00 00`, field 4 absent at heel; ~20/s while moving | side bar                    |
+| `0xAA` | Values the expression produced for its assigned slots (see "Expression pedal")                        | EXP badge fill on the tile             |
+| `0x3D` | Reply to our expression-assignments request (see "Expression pedal")                                 | EXP badges                             |
 | `0x73` | Generic "something changed" notice; also the ack to capture / cab slot writes                         | debounced re-read                      |
 | `0x42` | Device-settings reply (see above)                                                                    | log the fields                         |
 | `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
@@ -203,6 +205,49 @@ pedal judges the note in tune, which in the capture meant |cents| below about 2.
 
 Also seen at connect: Cortex Cloud sends `06 C0 08 03 36 00 00 00` and the pedal answers
 `08 C0 08 03 18 01 37 00 00 00` (field 3 = 1). Purpose unknown.
+
+## Expression pedal
+
+Captured 2026-09-19 from an Android HCI snoop log of Cortex Cloud's Expression Pedal page; the
+pedal was rocked through an Mvave Chocolate over MIDI, which changes nothing on the Bluetooth side.
+
+**Position** (type `0x40`), about 20 per second while the pedal moves: `0B C0 08 01 18 02 20
+<pos> 40 00 00 00`, field 3 = 2 (controller), field 4 = 0–254, omitted at heel (`08 C0 08 01 18
+02 40 00 00 00`).
+
+**Values** (type `0xAA`), sent with every position: one varint field per assigned target — the
+parameter value after the range is applied (0–255) for ranges, 0/1 for bypasses. Field numbers:
+gain 4, bass 5, mid 6, treble 7, level 8, pre 1 … post 3 = 9–13, an unnamed eleventh range 14;
+bypass capture 15, IR 16, pre 1 … post 3 = 17–21, an unnamed eighth bypass 22. With post 3
+assigned 17–130 the values ran 17…129. An empty `06 C0 08 01 AA 00 00 00` follows a preset load
+with nothing assigned.
+
+**Assignments are per preset.** Read: `08 C0 08 03 18 <preset> 3C 00 00 00`; reply (type
+`0x3D`) `08 01` then one sub-message per assigned target; the pedal acks writes with
+`08 C0 08 01 18 01 3F 00 00 00`. Cortex Cloud writes the whole list with type `0x3E` after
+`18 <preset>`; the "assign everything" capture (preset 6, targets added in Cortex Cloud's list
+order) gives the write numbering, which NanoGig treats as canonical:
+
+| Write field | Target                | Values field |
+| ----------- | --------------------- | ------------ |
+| 4 5 6 7     | gain bass mid treble  | 4 5 6 7      |
+| 21          | level                 | 8            |
+| 8 … 12      | pre 1 pre 2 post 1 post 2 post 3 amount | 9 … 13 |
+| 13          | ? (listed after post 3) | 14         |
+| 14 15       | capture / IR bypass   | 15 16        |
+| 16 … 20     | pre 1 … post 3 bypass | 17 … 21      |
+| 22          | ? bypass (listed third, gate?) | 22  |
+
+A range sub-message is `{1: flag, 2: min, 3: max}` (`08 00 10 00 18 FF 01` = 0–100 %). A bypass
+sub-message's key is the mode: `{2: {1:0, 2:0}}` is heel-toe (its values flag flips at
+mid-travel), `{1: {1:0, 2:600}}` and `{3: {1:600}}` carry a delay in ms and never fired without
+a toe switch (switch / stop, order unknown). The reply was only seen with post 3, at field 11 =
+write − 1; the decoder applies that rule to every target and logs the result, so the first
+read of a fully assigned preset will confirm or correct it.
+
+NanoGig requests the assignments after every state dump whose preset differs from the last
+request, remembers which preset it asked for (the reply carries none), and shows a bar at the
+right edge for the position plus an `EXP min–max %` badge with a value fill on each assigned tile.
 
 ## Fixtures
 

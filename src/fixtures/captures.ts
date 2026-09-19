@@ -218,6 +218,24 @@ export function buildTunerPitchEvent(note: string, cents: number, inTune = Math.
   return wrapSinglePacket(Uint8Array.from(body));
 }
 
+/** Expression position event (2026-09-19): `0B C0 08 01 18 02 20 <pos> 40 00 00 00`, field 4 absent at heel. */
+export function buildExpressionPositionEvent(position: number): Uint8Array {
+  const body = [...varintField(1, 1), ...varintField(3, 2), ...(position > 0 ? varintField(4, position) : []), MSG.EXPRESSION, 0x00, 0x00, 0x00];
+  return wrapSinglePacket(Uint8Array.from(body));
+}
+
+/** Expression values event (2026-09-19): FX amounts at fields 9–13 (pre 1 … post 3), confirmed by the "assign everything" capture. */
+export function buildExpressionValuesEvent(values: Partial<Record<FxSlot, number>>): Uint8Array {
+  const fieldOf: Record<FxSlot, number> = { pre1: 9, pre2: 10, post1: 11, post2: 12, post3: 13 };
+  const body = [...varintField(1, 1)];
+  for (const slot of FX_SLOTS) {
+    const v = values[slot];
+    if (v !== undefined) body.push(...varintField(fieldOf[slot], v));
+  }
+  body.push(MSG.EXPRESSION_VALUES, 0x00, 0x00, 0x00);
+  return wrapSinglePacket(Uint8Array.from(body));
+}
+
 /** Preset-changed event in the hardware-observed shape: `10 C0 08 01 20 <p> 28 <IA> 30 <IB> 38 <IIA> 40 <IIB> 1D 00 00 00`. */
 export function buildPresetChangedEvent(preset: number, a = { ia: 3, ib: 5, iia: 20, iib: 14 }): Uint8Array {
   const body = [

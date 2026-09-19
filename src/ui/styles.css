@@ -1152,6 +1152,85 @@ button.warn {
   }
 }
 
+/* ---------- expression pedal ---------- */
+/* Position bar in the app's right padding: 4 px wide, from the top padding to the bottom one. */
+.exp-bar {
+  position: fixed;
+  right: max(6px, calc(env(safe-area-inset-right) + 2px));
+  top: max(10px, env(safe-area-inset-top));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  width: 4px;
+  border-radius: 2px;
+  background: #1b2028;
+  opacity: 0;
+  transition: opacity 400ms ease;
+  pointer-events: none;
+  z-index: 5;
+}
+.exp-bar.visible {
+  opacity: 1;
+  transition: opacity 80ms ease;
+}
+.exp-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  transition: height 60ms linear;
+}
+@media (max-height: 460px) {
+  .exp-bar {
+    top: max(6px, env(safe-area-inset-top));
+    bottom: max(6px, env(safe-area-inset-bottom));
+  }
+}
+/* EXP badge on an assigned FX tile: range label and a fill of the produced value along the bottom. */
+.tile .t-exp {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 400ms ease;
+      background: black;
+    border-radius: 50px;
+    padding: 1px 9px;
+}
+.tile .t-exp[hidden] {
+  display: flex;
+  opacity: 0;
+  transition: opacity 400ms ease;
+}
+.tile .t-exp-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile .t-exp-fill {
+  height: 3px;
+  width: 0;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  transition: width 60ms linear;
+}
+.tile {
+  position: relative; /* anchors .t-exp */
+}
+
 /* ---------- tuner ---------- */
 .tuner-card {
   max-width: 640px;

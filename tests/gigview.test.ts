@@ -302,7 +302,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(6); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(7); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner, expression persist
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
@@ -566,5 +566,58 @@ describe('GigView support', () => {
     Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Support project')!.click();
     window.open = orig;
     expect(opened).toEqual(['https://buymeacoffee.com/johnnyborjomi']);
+  });
+});
+
+describe('GigView expression pedal', () => {
+  it('shows the side bar and EXP badges while recent or persisted, hides them once stale', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+    const bar = root.querySelector<HTMLElement>('.exp-bar')!;
+    const fill = bar.querySelector<HTMLElement>('.exp-fill')!;
+    const post3 = root.querySelector<HTMLElement>('.tile[data-key="post3"] .t-exp')!;
+    expect(bar.classList.contains('visible')).toBe(false);
+    expect(post3.hidden).toBe(true);
+
+    store.patch({ connection: 'connected', transportName: 'ble' });
+    store.setField('activePreset', 4, 'dump');
+    const now = Date.now();
+    store.patch({
+      expression: {
+        position: 127,
+        movedAt: now,
+        values: { ranges: { post3: 73 }, bypasses: {} },
+        valuesAt: now,
+        assignments: { ranges: { post3: { min: 17, max: 130, flag: 0 } }, bypasses: { post1: { mode: 2, delayMs: 0 } } },
+        assignmentsPreset: 4,
+      },
+    });
+    expect(bar.classList.contains('visible')).toBe(true);
+    expect(fill.style.height).toBe('50%');
+    expect(post3.hidden).toBe(false);
+    expect(post3.querySelector('.t-exp-label')?.textContent).toBe('EXP 7–51%');
+    expect(post3.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('28.6%');
+    expect(root.querySelector<HTMLElement>('.tile[data-key="post2"] .t-exp')!.hidden).toBe(true);
+    const post1 = root.querySelector<HTMLElement>('.tile[data-key="post1"] .t-exp')!;
+    expect(post1.hidden).toBe(false);
+    expect(post1.querySelector('.t-exp-label')?.textContent).toBe('EXP BYP');
+    expect(post1.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('0%');
+    store.patch({ expression: { ...store.get().expression, values: { ranges: { post3: 73 }, bypasses: { post1: true } }, valuesAt: Date.now() } });
+    expect(post1.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('100%');
+
+    // Stale (fade mode): gone. Persist: back.
+    store.patch({ expression: { ...store.get().expression, movedAt: now - 10000, valuesAt: now - 10000 } });
+    expect(bar.classList.contains('visible')).toBe(false);
+    expect(post3.hidden).toBe(true);
+    store.patch({ expressionPersist: true });
+    expect(bar.classList.contains('visible')).toBe(true);
+    expect(post3.hidden).toBe(false);
+
+    // Another preset's assignments do not apply until re-read.
+    store.setField('activePreset', 5, 'dump');
+    expect(post3.hidden).toBe(true);
+    expect(bar.classList.contains('visible')).toBe(true); // the position is still known
   });
 });

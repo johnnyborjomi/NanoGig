@@ -70,6 +70,7 @@ export interface GigViewActions {
     showPresetStrip?: boolean;
     autoRefreshNames?: boolean;
     liveTuner?: boolean;
+    expressionPersist?: boolean;
   }): void;
   /** PWA: show the browser's install dialog (only offered when the store says installable). */
   installApp?(): Promise<void>;
@@ -189,6 +190,11 @@ export class GigView {
   private readonly stripCheck = el("input", "menu-check");
   private readonly autoNamesCheck = el("input", "menu-check");
   private readonly liveTunerCheck = el("input", "menu-check");
+  private readonly expPersistCheck = el("input", "menu-check");
+  // Expression pedal: a thin vertical bar at the app's right edge, and a badge per assigned FX tile.
+  private readonly expBar = el("div", "exp-bar");
+  private readonly expFill = el("div", "exp-fill");
+  private expTimer: ReturnType<typeof setInterval> | null = null;
   private readonly slotFs = el("span", "fs-badge", "");
   private presetEl: HTMLElement | null = null;
   private fitKey = "";
@@ -204,7 +210,7 @@ export class GigView {
   private readonly irState = el("span", "sub-state");
   private readonly tiles = new Map<
     FxSlot | "gate" | "cab",
-    { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement }
+    { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement; exp?: HTMLElement; expLabel?: HTMLElement; expFill?: HTMLElement }
   >();
   private readonly presetStrip = el("div", "preset-strip");
   private readonly presetGrid = el("div", "preset-grid");
@@ -485,7 +491,14 @@ export class GigView {
       const category = el("div", "t-cat", "");
       tile.dataset.cat = key === "gate" || key === "cab" ? key : "none";
       tile.addEventListener("click", () => this.onTileTap(key));
-      this.tiles.set(key, { root: tile, name, category });
+      // Expression badge: label with the range, and a live fill of the mapped value.
+      const exp = el("div", "t-exp");
+      const expLabel = el("span", "t-exp-label", "EXP");
+      const expFill = el("div", "t-exp-fill");
+      exp.append(expLabel, expFill);
+      exp.hidden = true;
+      if (key !== "gate" && key !== "cab") tile.append(exp);
+      this.tiles.set(key, { root: tile, name, category, exp, expLabel, expFill });
 
       if (key === "gate") {
         // Own line: "GATE" text followed by a small power button.
@@ -700,11 +713,23 @@ export class GigView {
         "hint",
         "Keeps the pedal's tuner on while connected and shows the note next to the status, flat and sharp dots either side. Sound passes through; Menu → Tuner still opens the big one.",
       );
+      const expRow = el("label", "setting-row");
+      expRow.append(el("span", "", "Keep expression pedal indicators on screen"));
+      this.expPersistCheck.type = "checkbox";
+      this.expPersistCheck.addEventListener("change", () =>
+        this.actions.setSettings({ expressionPersist: this.expPersistCheck.checked }),
+      );
+      expRow.append(this.expPersistCheck);
+      const expHint = el(
+        "p",
+        "hint",
+        "The position bar at the right edge and the EXP badges on the FX blocks it controls. Off: they fade out a few seconds after the pedal stops moving.",
+      );
       const close = el("button", "primary", "Done");
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, liveRow, liveHint, close);
+      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, liveRow, liveHint, expRow, expHint, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -927,7 +952,11 @@ export class GigView {
       this.settingsOverlay,
       this.tunerOverlay,
       this.overlay,
+      this.expBar,
     );
+    this.expBar.append(this.expFill);
+    this.expBar.title = "Expression pedal position";
+    this.expBar.setAttribute("aria-hidden", "true");
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") void this.requestWakeLock();
     });
@@ -1152,7 +1181,7 @@ export class GigView {
   }
 
   /** State keys whose change alone needs no full re-render (high-frequency: tuner readings, log lines). */
-  private static readonly LIGHT_KEYS = new Set<keyof GigState>(["tuner", "lastEventAt", "log"]);
+  private static readonly LIGHT_KEYS = new Set<keyof GigState>(["tuner", "expression", "lastEventAt", "log"]);
 
   private render(s: GigState) {
     const prev = this.lastState;
@@ -1172,6 +1201,7 @@ export class GigView {
         this.renderSync(s);
         if (this.tunerOverlay.classList.contains("open")) this.renderTuner(s);
         this.renderLiveTuner(s);
+        this.renderExpression(s);
         this.renderLog(s.log);
         return;
       }
@@ -1233,7 +1263,9 @@ export class GigView {
       this.muteBadge.hidden = !(s.connection === "connected" && s.outputsMuted.value === true);
     }
     if (this.liveTunerCheck.checked !== s.liveTuner) this.liveTunerCheck.checked = s.liveTuner;
+    if (this.expPersistCheck.checked !== s.expressionPersist) this.expPersistCheck.checked = s.expressionPersist;
     this.renderLiveTuner(s);
+    this.renderExpression(s);
     const controlling = s.writesEnabled && s.connection === "connected";
     // Strip is always shown once connected; buttons only act in control mode.
     this.presetStrip.classList.toggle(
@@ -1380,6 +1412,57 @@ export class GigView {
 
     // Console ------------------------------------------------------
     this.renderLog(s.log);
+  }
+
+  /** Indicators fade this long after the pedal last moved (unless "keep on screen" is set). */
+  private static readonly EXP_FADE_MS = 2500;
+
+  /**
+   * Expression pedal: the side bar shows the position; each assigned FX tile carries an EXP badge
+   * with its range and a fill of the value the pedal produced. Both persist or fade per setting.
+   */
+  private renderExpression(s: GigState) {
+    const x = s.expression;
+    const connected = s.connection === "connected";
+    const lastAt = Math.max(x.movedAt ?? 0, x.valuesAt ?? 0);
+    const recent = lastAt > 0 && Date.now() - lastAt < GigView.EXP_FADE_MS;
+    const live = connected && (s.expressionPersist || recent);
+    // Bar: needs a position at all (the pedal has moved on this link).
+    const showBar = live && x.position !== null;
+    this.expBar.classList.toggle("visible", showBar);
+    if (x.position !== null) {
+      const pct = `${Math.round((x.position / 254) * 1000) / 10}%`;
+      if (this.expFill.style.height !== pct) this.expFill.style.height = pct;
+    }
+    // Badges: an assignment for the shown preset.
+    const assigned = connected && x.assignments !== null && x.assignmentsPreset === s.activePreset.value ? x.assignments : null;
+    let anyBadge = false;
+    for (const slot of FX_SLOTS) {
+      const t = this.tiles.get(slot)!;
+      const range = assigned?.ranges[slot] ?? null;
+      const bypass = assigned?.bypasses[slot] ?? null;
+      const show = (range !== null || bypass !== null) && live;
+      if (t.exp!.hidden !== !show) t.exp!.hidden = !show;
+      if (!range && !bypass) continue;
+      anyBadge = true;
+      const parts: string[] = [];
+      if (range) parts.push(`${Math.round((range.min / 255) * 100)}–${Math.round((range.max / 255) * 100)}%`);
+      if (bypass) parts.push(bypass.mode === 2 ? "BYP" : "BYP·SW");
+      const label = `EXP ${parts.join(" · ")}`;
+      if (t.expLabel!.textContent !== label) t.expLabel!.textContent = label;
+      // Fill: the amount the pedal produced; for a bypass-only assignment, full when engaged.
+      const v = range ? x.values.ranges[slot] : undefined;
+      const engaged = x.values.bypasses[slot];
+      const w = range ? (v === undefined ? "0%" : `${Math.round((v / 255) * 1000) / 10}%`) : engaged ? "100%" : "0%";
+      if (t.expFill!.style.width !== w) t.expFill!.style.width = w;
+    }
+    // Fading is the absence of events: run a timer while something is shown and may fade.
+    const needTimer = !s.expressionPersist && (showBar || anyBadge);
+    if (needTimer && !this.expTimer) this.expTimer = setInterval(() => this.renderExpression(this.lastState ?? this.store.get()), 250);
+    if (!needTimer && this.expTimer) {
+      clearInterval(this.expTimer);
+      this.expTimer = null;
+    }
   }
 
   /** Top-bar indicator: hidden unless connected with the live tuner on; dim in silence. */

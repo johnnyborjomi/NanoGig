@@ -47,6 +47,7 @@ import {
   WEB_MIDI_STRATEGY,
   cabIrSlotFrame,
   captureBypassFrame,
+  expressionAssignmentsRequest,
   captureSelectFrame,
   fxBlockBypassFrame,
   gateBypassFrame,
@@ -193,6 +194,7 @@ export class SyncEngine {
       this.settingsRequestedThisLink = false;
       this.liveTunerStartedThisLink = false;
       this.tunerOverlayOpen = false;
+      this.expAssignRequested = null;
       this.settlePresetWaiters(-1);
       this.settleMuteWaiter();
       if (status === 'disconnected' || status === 'reconnecting') this.store.clearDeviceState();
@@ -388,6 +390,17 @@ export class SyncEngine {
       this.store.patch({ lastEventAt: pkt.at, tuner: { ...t, reading: ev.reading, readingAt: pkt.at } });
       return;
     }
+    if (ev.kind === 'expression') {
+      // ~20/s while the pedal moves, with a values event alongside: one update each, nothing logged.
+      const x = this.store.get().expression;
+      this.store.patch({ lastEventAt: pkt.at, expression: { ...x, position: ev.position, movedAt: pkt.at } });
+      return;
+    }
+    if (ev.kind === 'expression-values') {
+      const x = this.store.get().expression;
+      this.store.patch({ lastEventAt: pkt.at, expression: { ...x, values: ev.values, valuesAt: pkt.at } });
+      return;
+    }
     this.store.patch({ lastEventAt: pkt.at });
     switch (ev.kind) {
       case 'program-change':
@@ -404,6 +417,19 @@ export class SyncEngine {
       case 'bypass-changed':
         this.log('info', 'Bypass changed on device; re-reading state', toHex(pkt.data));
         this.scheduleConfirm(150);
+        return;
+      case 'expression-assignments': {
+        const preset = this.expAssignRequested;
+        const x = this.store.get().expression;
+        const ranges = Object.entries(ev.assignments.ranges).map(([t, r]) => `${t} ${r.min}–${r.max}`);
+        const bypasses = Object.entries(ev.assignments.bypasses).map(([t, b]) => `${t} bypass (mode ${b.mode}${b.delayMs ? `, ${b.delayMs} ms` : ''})`);
+        const all = [...ranges, ...bypasses];
+        this.log('info', `Expression assignments${preset !== null ? ` of preset ${preset + 1}` : ''}: ${all.length ? all.join(', ') : 'none'}`, toHex(pkt.data));
+        this.store.patch({ expression: { ...x, assignments: ev.assignments, assignmentsPreset: preset } });
+        return;
+      }
+      case 'expression-assign-ack':
+        this.log('info', 'Expression assignment write acknowledged', toHex(pkt.data));
         return;
       case 'tuner-ack':
         // The pedal echoes the tuner write; nothing to re-read (the preset is untouched).
@@ -552,6 +578,16 @@ export class SyncEngine {
     }
     this.store.patch({ lastStateSyncAt: at, syncPhase: 'ready' });
     this.validateCachedNames(state);
+    // Expression assignments are per preset: read them once per preset (Cortex Cloud's 0x3C).
+    if (state.activePreset !== null && state.activePreset !== this.store.get().expression.assignmentsPreset && state.activePreset !== this.expAssignRequested) {
+      this.expAssignRequested = state.activePreset;
+      const req = expressionAssignmentsRequest(state.activePreset);
+      this.log('tx', `Expression assignments request · preset ${state.activePreset + 1}`, toHex(req));
+      void this.transport.writeCommand(req).catch((err) => {
+        this.expAssignRequested = null;
+        this.log('warn', `Expression assignments request failed: ${(err as Error).message}`);
+      });
+    }
     this.armIdleTimer();
     if (!this.settingsRequestedThisLink) {
       this.settingsRequestedThisLink = true;
@@ -808,6 +844,8 @@ export class SyncEngine {
   // -------------------------------------------------------------------------
 
   private liveTunerStartedThisLink = false;
+  /** Preset whose expression assignments were last requested (the reply carries no index). */
+  private expAssignRequested: number | null = null;
   /** The full-screen tuner is open (it may mute; the live tuner never does). */
   private tunerOverlayOpen = false;
 

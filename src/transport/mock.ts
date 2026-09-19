@@ -25,6 +25,8 @@ import {
   buildCurrentStateBody,
   buildPresetChangedEvent,
   buildTunerPitchEvent,
+  buildExpressionPositionEvent,
+  buildExpressionValuesEvent,
   buildMetadataBody,
   defaultMockDeviceState,
   segmentStream,
@@ -34,7 +36,7 @@ import {
 } from '../fixtures/captures';
 import { HW_DEVICE_SETTINGS_REPLY, HW_DEVICE_SETTINGS_REPLY_UNMUTED, HW_OUTPUTS_MUTE_ACK } from '../fixtures/hardware-2026-09-15';
 import { HW_BYPASS_CHANGED } from '../fixtures/hardware-2026-09-12';
-import { HW_PRESET_SELECT_ACK } from '../fixtures/hardware-2026-09-19';
+import { HW_EXP_ASSIGN_REPLY_58, HW_PRESET_SELECT_ACK } from '../fixtures/hardware-2026-09-19';
 import { TUNER_OFF } from '../protocol/frames';
 import {
   Emitter,
@@ -211,6 +213,12 @@ export class MockTransport implements Transport {
       this.startTunerStream();
       return;
     }
+    // Expression assignments read: 08 C0 08 03 18 <preset> 3C … → the demo has post 3 (17–130) on even presets.
+    if (bytes.length === 10 && bytes[0] === 0x08 && bytes[1] === 0xc0 && bytes[2] === 0x08 && bytes[3] === 0x03 && bytes[4] === 0x18 && bytes[6] === 0x3c) {
+      const preset = bytes[5]!;
+      this.schedule(() => this.emit(preset % 2 === 0 ? HW_EXP_ASSIGN_REPLY_58 : Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x3d, 0x00, 0x00, 0x00])), this.opts.latencyMs);
+      return;
+    }
     if (bytesEqual(bytes, DEVICE_SETTINGS_REQUEST)) {
       this.schedule(() => this.emit(this.device.outputsMuted ? HW_DEVICE_SETTINGS_REPLY : HW_DEVICE_SETTINGS_REPLY_UNMUTED), this.opts.latencyMs);
       return;
@@ -258,6 +266,18 @@ export class MockTransport implements Transport {
       return;
     }
     this.log('warn', 'mock: unrecognised MIDI bytes ignored', toHex(bytes));
+  }
+
+  /** Rock the fake expression pedal heel → toe → heel over ~1 s, with post 3 mapped into 17–130 like the capture. */
+  sweepExpression(steps = 20, stepMs = 50): void {
+    for (let i = 0; i <= steps * 2; i++) {
+      const pos = Math.round((i <= steps ? i / steps : (2 * steps - i) / steps) * 254);
+      const value = Math.round(17 + (pos / 254) * (130 - 17));
+      this.schedule(() => {
+        this.emit(buildExpressionPositionEvent(pos));
+        this.emit(buildExpressionValuesEvent({ post3: value }));
+      }, i * stepMs);
+    }
   }
 
   /** Fake pitch stream: a new string every ~2 s, plucked sharp and settling towards in tune, ~30 readings/s. */

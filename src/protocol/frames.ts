@@ -135,6 +135,18 @@ export function tunerOnFrame(referenceHz = TUNER_REFERENCE_DEFAULT_HZ, mute = fa
   return new Uint8Array([0x0f, 0xc0, 0x20, 0x01, 0x2d, f[0]!, f[1]!, f[2]!, f[3]!, 0x30, 0x01, 0x38, mute ? 0x01 : 0x00, 0x7f, 0x00, 0x00, 0x00]);
 }
 
+/**
+ * Read the expression-pedal assignments of a preset (type 0x3C, Cortex Cloud's request on its
+ * Expression Pedal page, captured 2026-09-19): `08 C0 08 03 18 <preset> 3C 00 00 00`. The reply
+ * (0x3D) carries one `{2: min, 3: max}` sub-message per assigned FX slot, min/max on 0–255.
+ */
+export function expressionAssignmentsRequest(presetIndex: number): Uint8Array {
+  if (!Number.isInteger(presetIndex) || presetIndex < 0 || presetIndex >= PRESET_COUNT) {
+    throw new RangeError(`preset index out of range: ${presetIndex}`);
+  }
+  return new Uint8Array([0x08, 0xc0, 0x08, 0x03, 0x18, presetIndex, 0x3c, 0x00, 0x00, 0x00]);
+}
+
 /** Tuner off (type 0x7F, field 4 = 0), captured 2026-09-19 when the tuner page closed. */
 export const TUNER_OFF: Uint8Array = fromHex('06 C0 20 00 7F 00 00 00');
 

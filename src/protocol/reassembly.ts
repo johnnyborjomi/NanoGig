@@ -95,8 +95,18 @@ export const MSG = {
   PRESET_ACK_REQUEST: 0x1e,
   /** FX / gate bypass changed. */
   BYPASS_CHANGED: 0x1f,
-  /** Expression pedal zone. */
+  /** Expression pedal position, ~20/s while moving: field 3 = 2, field 4 = 0–254 (2026-09-19). */
   EXPRESSION: 0x40,
+  /** Read a preset's expression assignments (we send this; Cortex Cloud does too). */
+  EXP_ASSIGN_REQUEST: 0x3c,
+  /** Reply: a sub-message `{2: min, 3: max}` per assigned slot. */
+  EXP_ASSIGN_REPLY: 0x3d,
+  /** Write a preset's expression assignments (Cortex Cloud; not sent by NanoGig). */
+  EXP_ASSIGN_WRITE: 0x3e,
+  /** Ack to the assignment write. */
+  EXP_ASSIGN_ACK: 0x3f,
+  /** Parameter values produced by the expression pedal, one field per assigned slot. */
+  EXPRESSION_VALUES: 0xaa,
   /** Device-settings request (we send this; Cortex Cloud does too). */
   SETTINGS_REQUEST: 0x41,
   /** Reply to the device-settings request (60 B on 2.2.1). */

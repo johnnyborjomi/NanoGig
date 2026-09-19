@@ -127,6 +127,13 @@ session and the top bar shows the note with a flat dot on the left and a sharp d
 right. Green all round when in tune; the dot on the side you are off, and the note, go yellow
 within 10 cents and red beyond. Sound passes through. Tap it for the big tuner.
 
+## Expression pedal
+
+A thin bar at the right edge follows the expression pedal, and every FX block the pedal is
+assigned to in the current preset carries an `EXP 7–51%` badge with a fill that tracks the value
+the pedal produces. Assignments are read from the pedal after each preset change. By default the
+indicators fade out a few seconds after the pedal stops; Settings → Pedal can keep them on screen.
+
 ## Control mode
 
 Off by default. When on, taps write to the pedal: FX and gate tiles toggle their block, the

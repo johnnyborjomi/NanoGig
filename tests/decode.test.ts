@@ -6,9 +6,26 @@ import {
   inferActivePreset,
   isInternalIdentifier,
   sanitizeName,
+  decodeExpressionAssignments,
 } from '../src/protocol/decode';
 import { fromHex } from '../src/protocol/hex';
-import { HW_TUNER_ON_ACK, HW_TUNER_PITCH_A_PLUS_14, HW_TUNER_PITCH_D_MINUS_0_5, HW_TUNER_PITCH_G_PLUS_2_3 } from '../src/fixtures/hardware-2026-09-19';
+import {
+  HW_EXP_ASSIGN_ACK,
+  HW_EXP_ASSIGN_REPLY_2,
+  HW_EXP_ASSIGN_REPLY_58,
+  HW_EXP_ASSIGN_WRITE_ALL,
+  HW_EXP_VALUES_ALL_96,
+  HW_EXP_POSITION_138,
+  HW_EXP_POSITION_HEEL,
+  HW_EXP_POSITION_TOE,
+  HW_EXP_VALUES_NONE,
+  HW_EXP_VALUES_POST2_POST3,
+  HW_EXP_VALUES_POST3,
+  HW_TUNER_ON_ACK,
+  HW_TUNER_PITCH_A_PLUS_14,
+  HW_TUNER_PITCH_D_MINUS_0_5,
+  HW_TUNER_PITCH_G_PLUS_2_3,
+} from '../src/fixtures/hardware-2026-09-19';
 import { bytesField, stringField } from '../src/protocol/proto';
 import { DEMO_PRESETS, REAL_EVENTS, REAL_STATE_DUMP_PACKET, buildFootswitchSelectEvent, buildMetadataBody, buildPresetChangedEvent } from '../src/fixtures/captures';
 
@@ -206,7 +223,7 @@ describe('hardware 2026-09-12: preset-changed event', () => {
   });
   it('classifies knob / expression / encoder telemetry as control, not unknown', () => {
     expect(decodeEvent(REAL_EVENTS.gainKnob)).toMatchObject({ kind: 'control', msgType: 0x1a });
-    expect(decodeEvent(REAL_EVENTS.expressionToe)).toMatchObject({ kind: 'control', msgType: 0x40 });
+    expect(decodeEvent(REAL_EVENTS.expressionToe)).toMatchObject({ kind: 'expression', position: 255 }); // now decoded, not telemetry
     expect(decodeEvent(REAL_EVENTS.encoderI)).toMatchObject({ kind: 'control', msgType: 0x1c });
   });
 });
@@ -329,5 +346,60 @@ describe('device settings (type 0x42) and outputs-mute ack (type 0x44)', async (
       expect(g.reading.cents).toBeCloseTo(2.341, 2);
       expect(g.reading.inTune).toBe(false);
     } else throw new Error(g.kind);
+  });
+});
+
+describe('expression pedal (Cortex Cloud HCI capture 2026-09-19)', () => {
+  it('position events: 138, heel (field absent) and toe', () => {
+    for (const [pkt, pos] of [[HW_EXP_POSITION_138, 138], [HW_EXP_POSITION_HEEL, 0], [HW_EXP_POSITION_TOE, 254]] as const) {
+      const ev = decodeEvent(pkt);
+      expect(ev.kind).toBe('expression');
+      if (ev.kind === 'expression') expect(ev.position).toBe(pos);
+    }
+    const c = decodeEvent(REAL_EVENTS.expressionCenter); // the rixrix fixtures decode the same way
+    if (c.kind === 'expression') expect(c.position).toBe(128);
+    else throw new Error(c.kind);
+  });
+  it('values events: post 3 alone, post 2 + post 3, none', () => {
+    const a = decodeEvent(HW_EXP_VALUES_POST3);
+    if (a.kind === 'expression-values') expect(a.values).toEqual({ ranges: { post3: 78 }, bypasses: {} });
+    else throw new Error(a.kind);
+    const b = decodeEvent(HW_EXP_VALUES_POST2_POST3);
+    if (b.kind === 'expression-values') expect(b.values).toEqual({ ranges: { post2: 224, post3: 224 }, bypasses: {} });
+    else throw new Error(b.kind);
+    const n = decodeEvent(HW_EXP_VALUES_NONE);
+    if (n.kind === 'expression-values') expect(n.values).toEqual({ ranges: {}, bypasses: {} });
+    else throw new Error(n.kind);
+    // Everything assigned, pedal at 96: all eleven ranges at 96, the six heel-toe bypasses engaged.
+    const all = decodeEvent(HW_EXP_VALUES_ALL_96);
+    if (all.kind === 'expression-values') {
+      expect(all.values.ranges).toEqual({ gain: 96, bass: 96, mid: 96, treble: 96, level: 96, pre1: 96, pre2: 96, post1: 96, post2: 96, post3: 96, range13: 96 });
+      expect(all.values.bypasses).toEqual({ pre1: true, pre2: true, post1: true, post2: true, post3: true, bypass22: true });
+    } else throw new Error(all.kind);
+  });
+  it('assignment replies: post 3 17–130 (preset 58) and 15–127 (preset 2); the ack', () => {
+    const r = decodeEvent(HW_EXP_ASSIGN_REPLY_58);
+    if (r.kind === 'expression-assignments') expect(r.assignments).toEqual({ ranges: { post3: { min: 17, max: 130, flag: 0 } }, bypasses: {} });
+    else throw new Error(r.kind);
+    const r2 = decodeEvent(HW_EXP_ASSIGN_REPLY_2);
+    if (r2.kind === 'expression-assignments') expect(r2.assignments.ranges.post3).toEqual({ min: 15, max: 127, flag: 0 });
+    else throw new Error(r2.kind);
+    expect(decodeEvent(HW_EXP_ASSIGN_ACK).kind).toBe('expression-assign-ack');
+  });
+  it("Cortex Cloud's 'assign everything' write decodes to the full map (write numbering)", () => {
+    const { payload } = splitTrailer(HW_EXP_ASSIGN_WRITE_ALL.subarray(2));
+    const a = decodeExpressionAssignments(payload, 0);
+    expect(Object.keys(a.ranges).sort()).toEqual(['bass', 'gain', 'level', 'mid', 'post1', 'post2', 'post3', 'pre1', 'pre2', 'range13', 'treble']);
+    expect(a.ranges.level).toEqual({ min: 0, max: 255, flag: 0 });
+    expect(a.bypasses).toEqual({
+      capture: { mode: 1, delayMs: 600 },
+      ir: { mode: 3, delayMs: 600 },
+      pre1: { mode: 2, delayMs: 0 },
+      pre2: { mode: 2, delayMs: 0 },
+      post1: { mode: 2, delayMs: 0 },
+      post2: { mode: 2, delayMs: 0 },
+      post3: { mode: 2, delayMs: 0 },
+      bypass22: { mode: 2, delayMs: 0 },
+    });
   });
 });
