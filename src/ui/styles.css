@@ -1180,6 +1180,7 @@ button.warn {
   border-radius: 2px;
   background: var(--warn);
   /* box-shadow: 0 0 8px var(--warn); */
+  opacity: 0.7;
   transition: height 60ms linear;
 }
 @media (max-height: 460px) {
@@ -1188,8 +1189,8 @@ button.warn {
     bottom: max(6px, env(safe-area-inset-bottom));
   }
 }
-/* EXP indicator on an assigned FX tile: a black track; a translucent orange band marks the range
-   set in Cortex Cloud, a solid orange fill the value the pedal produces (which lives inside the
+/* EXP indicator on an assigned FX tile: a black track; a translucent band in the block's own
+   category colour marks the range set in Cortex Cloud, a solid fill the value the pedal produces (which lives inside the
    band). A bypass-only assignment spans the whole track and fills fully when engaged; the
    switch/stop modes (toe switch) draw the band dashed. No text. */
 .tile .t-exp {
@@ -1218,11 +1219,14 @@ button.warn {
   bottom: 0;
   left: 0;
   width: 100%;
-  background: var(--warn);
-  opacity: 0.28;
+  background: var(--fx);
+  opacity: 0.25;
+}
+.tile[data-on='true'] .t-exp-range {
+  opacity: 0.4; /* the lit tile needs a stronger band to read against its own colour */
 }
 .tile .t-exp[data-byp='sw'] .t-exp-range {
-  background: repeating-linear-gradient(90deg, var(--warn) 0 4px, transparent 4px 7px);
+  background: repeating-linear-gradient(90deg, var(--fx) 0 4px, transparent 4px 7px);
 }
 .tile .t-exp-fill {
   position: absolute;
@@ -1231,9 +1235,13 @@ button.warn {
   width: 0;
   max-width: calc(100%);
   border-radius: 3px;
-  background: var(--warn);
-  box-shadow: 0 0 2px var(--warn);
-  transition: width 60ms linear;
+  background: var(--fx);
+  box-shadow: 0 0 2px var(--fx);
+  opacity: 0.7;
+  transition: width 60ms linear, opacity 120ms ease;
+}
+.tile[data-on='true'] .t-exp-fill {
+  opacity: 1;
 }
 .tile {
   position: relative; /* anchors .t-exp */
