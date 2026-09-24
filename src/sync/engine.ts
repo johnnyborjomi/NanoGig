@@ -855,9 +855,10 @@ export class SyncEngine {
   // -------------------------------------------------------------------------
   // Tuner (works whenever connected: it changes no preset)
   //
-  // Only the full-screen tuner switches the pedal's tuner on and off. The live tuner in the top
-  // bar is passive: it shows whatever the pedal streams, whether the tuner was started here or
-  // on the pedal itself, so toggling the setting never changes the pedal's screen.
+  // Only the full-screen tuner switches the pedal's tuner on. The live tuner in the top bar is
+  // passive: it shows whatever the pedal streams, whether the tuner was started here or on the
+  // pedal itself, so toggling the setting never changes the pedal's screen. Its one effect on
+  // the pedal: with it on, closing the full-screen tuner leaves the pedal in tuner mode.
   // -------------------------------------------------------------------------
 
   /** Preset whose expression assignments were last requested (the reply carries no index). */
@@ -877,9 +878,21 @@ export class SyncEngine {
     await this.writeTunerOn();
   }
 
-  /** Full-screen tuner closed: the pedal's tuner goes off and the reading is cleared. */
+  /**
+   * Full-screen tuner closed. With the live tuner setting on, the pedal stays in tuner mode
+   * (unmuted, so sound passes) and the top bar keeps showing the note; otherwise the pedal's
+   * tuner goes off and the reading is cleared.
+   */
   async stopTuner(): Promise<void> {
     this.tunerOverlayOpen = false;
+    const t = this.store.get().tuner;
+    if (this.store.get().liveTuner && t.on && this.transport.status === 'connected') {
+      if (t.muted) {
+        this.store.patch({ tuner: { ...t, muted: false } });
+        await this.writeTunerOn();
+      }
+      return;
+    }
     await this.tunerOff();
   }
 

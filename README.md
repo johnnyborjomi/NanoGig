@@ -119,15 +119,16 @@ small _1/2_ badge sits next to the tempo in the top bar.
 Menu → Tuner opens the pedal's tuner over Bluetooth: the note in large type, the offset in
 cents on a needle bar, the reference pitch (± 1 Hz) and the tuner's own "mute outputs while
 tuning" switch, all as Cortex Cloud sends them. Done (or Escape, or losing the link) turns the
-tuner off again. It works whenever connected: it changes no preset, so control mode is not
+tuner off again, unless the live tuner setting is on (see below). It works whenever connected: it changes no preset, so control mode is not
 needed.
 
 **Live tuner** (experimental, on by default, Settings → Pedal): only while the pedal itself is
 in tuner mode, entered by holding Footswitch II on the pedal or from Menu → Tuner, the top bar shows the note with a flat dot
 on the left and a sharp dot on the right. Green all round when in tune; the dot on the side
 you are off, and the note, go yellow within 10 cents and red beyond. It is passive: it never
-switches the pedal's tuner on, so the pedal's screen stays as you left it. Tap it for the big
-tuner.
+switches the pedal's tuner on. While it is checked, closing the big tuner leaves the pedal in
+tuner mode (tap Footswitch II on the pedal to exit); unchecked, Done turns the tuner off. Tap
+the widget for the big tuner.
 
 ## Expression pedal
 

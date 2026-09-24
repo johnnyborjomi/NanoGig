@@ -75,7 +75,8 @@ export interface GigState {
   /**
    * User setting: show a compact note / flat / sharp indicator in the top bar whenever the
    * pedal's tuner is running (started on the pedal or from Menu → Tuner). Passive: it never
-   * switches the pedal's tuner on or off itself.
+   * switches the pedal's tuner on; with it on, closing the full-screen tuner leaves the pedal
+   * in tuner mode.
    */
   liveTuner: boolean;
   /** User setting: keep the expression-pedal indicators on screen (false = fade out a few seconds after it stops). */

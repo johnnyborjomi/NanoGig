@@ -784,7 +784,7 @@ describe('live tuner', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('is passive: sync and the setting never write tuner-on; the big tuner alone drives the pedal and always turns it off on close', async () => {
+  it('is passive: sync and the setting never write tuner-on; the big tuner alone drives the pedal, and with the setting on it stays on (unmuted) after close', async () => {
     const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2 });
     const store = new Store(); // liveTuner defaults to on
     const engine = new SyncEngine(mock, store, { writesEnabled: false, confirmDelayMs: 50 });
@@ -799,11 +799,22 @@ describe('live tuner', () => {
     await flush(200);
     expect(tx().some((h) => h?.startsWith('0F C0 20 01'))).toBe(false);
 
-    // Big tuner: on while open, off when closed, even with the live tuner setting on.
+    // Big tuner with the setting on: mute, close → the pedal stays in tuner mode, unmuted.
     await engine.startTuner();
     expect(store.get().tuner.on).toBe(true);
     await flush(400);
     expect(store.get().tuner.reading).not.toBeNull();
+    await engine.setTunerMute(true);
+    expect(tx()).toContain('0F C0 20 01 2D 00 00 DC 43 30 01 38 01 7F 00 00 00');
+    await engine.stopTuner();
+    expect(store.get().tuner.on).toBe(true);
+    expect(store.get().tuner.muted).toBe(false);
+    expect(tx().at(-1)).toBe('0F C0 20 01 2D 00 00 DC 43 30 01 38 00 7F 00 00 00');
+    expect(tx()).not.toContain('06 C0 20 00 7F 00 00 00');
+
+    // Setting off: Done turns the pedal's tuner off.
+    store.patch({ liveTuner: false });
+    await engine.startTuner();
     await engine.stopTuner();
     expect(store.get().tuner.on).toBe(false);
     expect(store.get().tuner.reading).toBeNull();

@@ -712,7 +712,7 @@ export class GigView {
       const liveHint = el(
         "p",
         "hint",
-        "Experimental. Only works while the pedal itself is in tuner mode (hold Footswitch II on the pedal, or Menu → Tuner): then the note shows next to the status with flat and sharp dots either side. Otherwise it stays dimmed with a \"_\". It never switches the pedal's tuner on by itself.",
+        "Experimental. Only works while the pedal itself is in tuner mode (hold Footswitch II on the pedal, or Menu → Tuner): then the note shows next to the status with flat and sharp dots either side. Otherwise it stays dimmed with a \"_\". It never switches the pedal's tuner on by itself, but while checked, closing the big tuner leaves the pedal in tuner mode; tap Footswitch II on the pedal to exit.",
       );
       const expRow = el("label", "setting-row");
       expRow.append(el("span", "", "Keep expression pedal indicators on screen"));
