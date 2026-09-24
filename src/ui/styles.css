@@ -417,6 +417,17 @@ button.warn {
 .setting-row .menu-select {
   max-width: 60%;
 }
+/* Experimental settings: the checkbox and its tag go warning-yellow while on. */
+.setting-row .experimental {
+  font-style: normal;
+  color: var(--muted);
+}
+.setting-row:has(.menu-check.experimental:checked) .experimental {
+  color: var(--warn);
+}
+.menu-check.experimental:checked {
+  accent-color: var(--warn);
+}
 .menu-check {
   width: 24px;
   height: 24px;

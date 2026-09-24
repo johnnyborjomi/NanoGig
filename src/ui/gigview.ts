@@ -703,8 +703,11 @@ export class GigView {
       });
       muteRow.append(this.muteCheck);
       const liveRow = el("label", "setting-row");
-      liveRow.append(el("span", "", "Live tuner in the top bar (experimental)"));
+      const liveLabel = el("span", "", "Live tuner in the top bar ");
+      liveLabel.append(el("em", "experimental", "(experimental)"));
+      liveRow.append(liveLabel);
       this.liveTunerCheck.type = "checkbox";
+      this.liveTunerCheck.classList.add("experimental");
       this.liveTunerCheck.addEventListener("change", () =>
         this.actions.setSettings({ liveTuner: this.liveTunerCheck.checked }),
       );
