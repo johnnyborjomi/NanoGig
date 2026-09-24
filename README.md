@@ -119,13 +119,23 @@ small _1/2_ badge sits next to the tempo in the top bar.
 Menu → Tuner opens the pedal's tuner over Bluetooth: the note in large type, the offset in
 cents on a needle bar, the reference pitch (± 1 Hz) and the tuner's own "mute outputs while
 tuning" switch, all as Cortex Cloud sends them. Done (or Escape, or losing the link) turns the
-tuner off again. It works whenever connected: it changes no preset, so control mode is not
+tuner off again, unless the live tuner setting is on (see below). It works whenever connected: it changes no preset, so control mode is not
 needed.
 
-**Live tuner** (on by default, Settings → Pedal): the pedal's tuner stays on for the whole
-session and the top bar shows the note with a flat dot on the left and a sharp dot on the
-right. Green all round when in tune; the dot on the side you are off, and the note, go yellow
-within 10 cents and red beyond. Sound passes through. Tap it for the big tuner.
+**Live tuner** (experimental, on by default, Settings → Pedal): only while the pedal itself is
+in tuner mode, entered by holding Footswitch II on the pedal or from Menu → Tuner, the top bar shows the note with a flat dot
+on the left and a sharp dot on the right. Green all round when in tune; the dot on the side
+you are off, and the note, go yellow within 10 cents and red beyond. It is passive: it never
+switches the pedal's tuner on. While it is checked, closing the big tuner leaves the pedal in
+tuner mode (tap Footswitch II on the pedal to exit); unchecked, Done turns the tuner off. Tap
+the widget for the big tuner.
+
+## Expression pedal
+
+A thin bar at the right edge follows the expression pedal, and every FX block the pedal is
+assigned to in the current preset carries an `EXP 7–51%` badge with a fill that tracks the value
+the pedal produces. Assignments are read from the pedal after each preset change. By default the
+indicators fade out a few seconds after the pedal stops; Settings → Pedal can keep them on screen.
 
 ## Control mode
 
@@ -179,7 +189,8 @@ a squint on stage, you can keep the coffee (and the test presets) coming:
 
 ## Privacy, support, license
 
-- No backend, no analytics, no telemetry: [PRIVACY.md](PRIVACY.md).
+- No backend, no account. The released app sends anonymous, cookieless usage counts (opens,
+  connects, installs, support taps) to Umami, nothing about your pedal: [PRIVACY.md](PRIVACY.md).
 - Best-effort support through [GitHub issues](https://github.com/johnnyborjomi/NanoGig/issues):
   [SUPPORT.md](SUPPORT.md). For pedal problems, use Neural DSP's own support.
 - MIT license: [LICENSE](LICENSE). Not an official Neural DSP product; no Neural DSP code,

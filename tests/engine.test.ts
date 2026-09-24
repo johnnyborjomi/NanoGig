@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HW_PRESET_SELECT_0 } from '../src/fixtures/hardware-2026-09-19';
+import { HW_PRESET_SELECT_0, HW_TUNER_OFF_REPORT, HW_TUNER_ON_ACK, HW_TUNER_PITCH_A_PLUS_14 } from '../src/fixtures/hardware-2026-09-19';
 import { MockTransport } from '../src/transport/mock';
 import { Store } from '../src/state/store';
 import { SyncEngine } from '../src/sync/engine';
@@ -784,38 +784,119 @@ describe('live tuner', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('turns the tuner on after sync, keeps it on (unmuted) when the big tuner closes, and off when the setting goes off', async () => {
+  it('is passive: sync and the setting never write tuner-on; the big tuner alone drives the pedal, and with the setting on it stays on (unmuted) after close', async () => {
     const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2 });
     const store = new Store(); // liveTuner defaults to on
     const engine = new SyncEngine(mock, store, { writesEnabled: false, confirmDelayMs: 50 });
     await connect(mock);
     await flush(4000);
     const tx = () => store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
-    expect(store.get().tuner.on).toBe(true);
-    const onWrites = () => store.get().log.filter((l) => l.dir === 'tx' && l.text.startsWith('Tuner on'));
-    expect(onWrites()).toHaveLength(1); // the transport logs the same hex again as 'TX c304'
-    await flush(400);
-    expect(store.get().tuner.reading).not.toBeNull(); // the mock streams readings
+    expect(store.get().tuner.on).toBe(false);
+    expect(tx().some((h) => h?.startsWith('0F C0 20 01'))).toBe(false);
 
-    // Big tuner: mute, then close → back to on + unmuted, never off.
+    store.patch({ liveTuner: false });
+    store.patch({ liveTuner: true });
+    await flush(200);
+    expect(tx().some((h) => h?.startsWith('0F C0 20 01'))).toBe(false);
+
+    // Big tuner with the setting on: mute, close → the pedal stays in tuner mode, unmuted.
     await engine.startTuner();
+    expect(store.get().tuner.on).toBe(true);
+    await flush(400);
+    expect(store.get().tuner.reading).not.toBeNull();
     await engine.setTunerMute(true);
     expect(tx()).toContain('0F C0 20 01 2D 00 00 DC 43 30 01 38 01 7F 00 00 00');
     await engine.stopTuner();
     expect(store.get().tuner.on).toBe(true);
     expect(store.get().tuner.muted).toBe(false);
+    expect(tx().at(-1)).toBe('0F C0 20 01 2D 00 00 DC 43 30 01 38 00 7F 00 00 00');
     expect(tx()).not.toContain('06 C0 20 00 7F 00 00 00');
-    expect(onWrites().length).toBeGreaterThanOrEqual(2);
 
-    // A preset change on the pedal re-arms the tuner.
+    // Setting off: Done turns the pedal's tuner off.
+    store.patch({ liveTuner: false });
+    await engine.startTuner();
+    await engine.stopTuner();
+    expect(store.get().tuner.on).toBe(false);
+    expect(store.get().tuner.reading).toBeNull();
+    expect(tx()).toContain('06 C0 20 00 7F 00 00 00');
+    // A reading still in flight right after tuner-off does not switch it back on.
+    mock.inject(HW_TUNER_PITCH_A_PLUS_14);
+    await flush(50);
+    expect(store.get().tuner.on).toBe(false);
+    await flush(600);
+    mock.inject(HW_TUNER_PITCH_A_PLUS_14);
+    await flush(50);
+    expect(store.get().tuner.on).toBe(true);
+    mock.inject(HW_TUNER_OFF_REPORT);
+    await flush(50);
+    expect(store.get().tuner.on).toBe(false);
+
+    // A preset change on the pedal re-arms nothing while the big tuner is closed.
     const before = tx().length;
     mock.pressFootswitch(2);
     await flush(300);
-    expect(tx().slice(before)).toContain('0F C0 20 01 2D 00 00 DC 43 30 01 38 00 7F 00 00 00');
+    expect(tx().slice(before).some((h) => h?.startsWith('0F C0 20 01'))).toBe(false);
+    engine.dispose();
+  });
 
-    await engine.setLiveTuner(false);
+  it('mirrors a tuner started on the pedal: a pitch reading or an on-report sets on, an off-report clears it', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2 });
+    const store = new Store();
+    const engine = new SyncEngine(mock, store, { writesEnabled: false, confirmDelayMs: 50 });
+    await connect(mock);
+    await flush(4000);
     expect(store.get().tuner.on).toBe(false);
-    expect(tx()).toContain('06 C0 20 00 7F 00 00 00');
+
+    mock.inject(HW_TUNER_PITCH_A_PLUS_14);
+    await flush(50);
+    expect(store.get().tuner.on).toBe(true);
+    expect(store.get().tuner.reading?.note).toBe('A');
+    expect(store.get().log.some((l) => l.text === 'Tuner running on the pedal')).toBe(true);
+    expect(store.get().log.filter((l) => l.dir === 'tx').some((h) => h.hex?.startsWith('0F C0 20 01'))).toBe(false);
+
+    // Pedal reports off (type 0x7F, field 4 absent; captured from a footswitch tap 2026-09-24): tuner off, reading cleared.
+    mock.inject(HW_TUNER_OFF_REPORT);
+    await flush(50);
+    expect(store.get().tuner.on).toBe(false);
+    expect(store.get().tuner.reading).toBeNull();
+
+    // Pedal reports on at 462 Hz: tuner on, reference taken.
+    mock.inject(HW_TUNER_ON_ACK);
+    await flush(50);
+    expect(store.get().tuner.on).toBe(true);
+    expect(store.get().tuner.referenceHz).toBe(440);
+    engine.dispose();
+  });
+});
+
+describe('expression pedal', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('reads the assignments of the active preset after sync and follows position / values events', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(4000);
+    // Demo preset 7 is odd → the mock answers "nothing assigned".
+    expect(store.get().expression.assignmentsPreset).toBe(7);
+    expect(store.get().expression.assignments?.ranges.post3).toBeUndefined();
+    expect(store.get().log.some((l) => l.dir === 'tx' && l.hex === '08 C0 08 03 18 07 3C 00 00 00')).toBe(true);
+
+    mock.pressFootswitch(4); // even → post 3, 17–130
+    await flush(1500);
+    expect(store.get().expression.assignmentsPreset).toBe(4);
+    expect(store.get().expression.assignments?.ranges.post3).toEqual({ min: 17, max: 130, flag: 0 });
+    expect(store.get().log.filter((l) => l.dir === 'tx' && /3C 00 00 00$/.test(l.hex ?? '') && l.text.startsWith('Expression')).length).toBe(2); // once per preset
+
+    mock.sweepExpression(4, 50);
+    await flush(120);
+    const x = store.get().expression;
+    expect(x.position).toBeGreaterThan(0);
+    expect(x.movedAt).not.toBeNull();
+    expect(x.values.ranges.post3).toBeGreaterThanOrEqual(17);
+    expect(store.get().log.filter((l) => /Undocumented event/.test(l.text))).toHaveLength(0);
+    await flush(1000);
+    expect(store.get().expression.position).toBe(0); // back at heel
     engine.dispose();
   });
 });

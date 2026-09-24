@@ -186,6 +186,9 @@ button.warn {
   border-radius: 15px;
   cursor: pointer;
 }
+.status .live-tuner[data-on='false'] {
+  opacity: 0.45;
+}
 .status .live-tuner[hidden] {
   display: none;
 }
@@ -413,6 +416,17 @@ button.warn {
 }
 .setting-row .menu-select {
   max-width: 60%;
+}
+/* Experimental settings: the checkbox and its tag go warning-yellow while on. */
+.setting-row .experimental {
+  font-style: normal;
+  color: var(--muted);
+}
+.setting-row:has(.menu-check.experimental:checked) .experimental {
+  color: var(--warn);
+}
+.menu-check.experimental:checked {
+  accent-color: var(--warn);
 }
 .menu-check {
   width: 24px;
@@ -1150,6 +1164,101 @@ button.warn {
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+/* ---------- expression pedal ---------- */
+/* Position bar in the app's right padding: 4 px wide, from the top padding to the bottom one. */
+.exp-bar {
+  position: fixed;
+  right: max(6px, calc(env(safe-area-inset-right) + 2px));
+  top: max(10px, env(safe-area-inset-top));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  width: 4px;
+  border-radius: 2px;
+  background: #1b2028;
+  opacity: 0;
+  transition: opacity 400ms ease;
+  pointer-events: none;
+  z-index: 5;
+}
+.exp-bar.visible {
+  opacity: 1;
+  transition: opacity 80ms ease;
+}
+.exp-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  border-radius: 2px;
+  background: var(--warn);
+  /* box-shadow: 0 0 8px var(--warn); */
+  opacity: 0.7;
+  transition: height 60ms linear;
+}
+@media (max-height: 460px) {
+  .exp-bar {
+    top: max(6px, env(safe-area-inset-top));
+    bottom: max(6px, env(safe-area-inset-bottom));
+  }
+}
+/* EXP indicator on an assigned FX tile: a black track; a translucent band in the block's own
+   category colour marks the range set in Cortex Cloud, a solid fill the value the pedal produces (which lives inside the
+   band). A bypass-only assignment spans the whole track and fills fully when engaged; the
+   switch/stop modes (toe switch) draw the band dashed. No text. */
+.tile .t-exp {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  height: 10px;
+  box-sizing: border-box;
+  background: #000;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 400ms ease;
+  box-shadow: 0 0 0 2px black;
+  overflow: hidden;
+}
+.tile .t-exp[hidden] {
+  display: block;
+  opacity: 0;
+  transition: opacity 400ms ease;
+}
+.tile .t-exp-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: var(--fx);
+  opacity: 0.25;
+}
+.tile[data-on='true'] .t-exp-range {
+  opacity: 0.4; /* the lit tile needs a stronger band to read against its own colour */
+}
+.tile .t-exp[data-byp='sw'] .t-exp-range {
+  background: repeating-linear-gradient(90deg, var(--fx) 0 4px, transparent 4px 7px);
+}
+.tile .t-exp-fill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 0;
+  max-width: calc(100%);
+  border-radius: 3px;
+  background: var(--fx);
+  box-shadow: 0 0 2px var(--fx);
+  opacity: 0.7;
+  transition: width 60ms linear, opacity 120ms ease;
+}
+.tile[data-on='true'] .t-exp-fill {
+  opacity: 1;
+}
+.tile {
+  position: relative; /* anchors .t-exp */
 }
 
 /* ---------- tuner ---------- */

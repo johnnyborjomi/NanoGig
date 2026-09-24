@@ -125,6 +125,8 @@ export const TUNER_REFERENCE_DEFAULT_HZ = 440;
  * (meaning unknown). While the tuner is on the pedal streams type-0x80 pitch events.
  * The mute polarity (1 = outputs silenced while tuning) is inferred from the capture
  * order: first write 0, then alternating from the user's first toggle.
+ * Field 6 is a constant 1 in every capture. Sending 0 (tried 2026-09-24) changes nothing: the
+ * pedal acks and streams the same and still shows its tuner screen.
  */
 export function tunerOnFrame(referenceHz = TUNER_REFERENCE_DEFAULT_HZ, mute = false): Uint8Array {
   if (!Number.isFinite(referenceHz) || referenceHz < TUNER_REFERENCE_MIN_HZ || referenceHz > TUNER_REFERENCE_MAX_HZ) {
@@ -133,6 +135,18 @@ export function tunerOnFrame(referenceHz = TUNER_REFERENCE_DEFAULT_HZ, mute = fa
   const f = new Uint8Array(4);
   new DataView(f.buffer).setFloat32(0, referenceHz, true);
   return new Uint8Array([0x0f, 0xc0, 0x20, 0x01, 0x2d, f[0]!, f[1]!, f[2]!, f[3]!, 0x30, 0x01, 0x38, mute ? 0x01 : 0x00, 0x7f, 0x00, 0x00, 0x00]);
+}
+
+/**
+ * Read the expression-pedal assignments of a preset (type 0x3C, Cortex Cloud's request on its
+ * Expression Pedal page, captured 2026-09-19): `08 C0 08 03 18 <preset> 3C 00 00 00`. The reply
+ * (0x3D) carries one `{2: min, 3: max}` sub-message per assigned FX slot, min/max on 0–255.
+ */
+export function expressionAssignmentsRequest(presetIndex: number): Uint8Array {
+  if (!Number.isInteger(presetIndex) || presetIndex < 0 || presetIndex >= PRESET_COUNT) {
+    throw new RangeError(`preset index out of range: ${presetIndex}`);
+  }
+  return new Uint8Array([0x08, 0xc0, 0x08, 0x03, 0x18, presetIndex, 0x3c, 0x00, 0x00, 0x00]);
 }
 
 /** Tuner off (type 0x7F, field 4 = 0), captured 2026-09-19 when the tuner page closed. */

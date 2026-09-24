@@ -6,7 +6,7 @@
 import { DEFAULT_LABEL_STYLE, DEFAULT_PRESETS_PER_BANK, PRESET_COUNT, TUNER_REFERENCE_DEFAULT_HZ, type FxSlot, type PresetLabelStyle } from '../protocol/frames';
 import type { LogLine, TransportStatus } from '../transport/types';
 import type { FxModelsBySlot } from '../protocol/models';
-import type { FootswitchAssignments, TunerReading } from '../protocol/decode';
+import { EMPTY_EXPRESSION_VALUES, type ExpressionAssignments, type ExpressionValues, type FootswitchAssignments, type TunerReading } from '../protocol/decode';
 
 /** 'cache' = restored from the last session's metadata, pending a background refresh. */
 export type FieldSource = 'none' | 'dump' | 'metadata' | 'cache' | 'event' | 'inferred' | 'optimistic';
@@ -20,11 +20,28 @@ export interface Field<T> {
 
 export type SyncPhase = 'idle' | 'metadata' | 'state' | 'ready' | 'error';
 
-/** Tuner as the app drives it (protocol captured 2026-09-19; see docs/PROTOCOL.md "Tuner"). */
+/** Expression pedal as the pedal reports it (see docs/PROTOCOL.md "Expression pedal"). */
+export interface ExpressionState {
+  /** Last position 0–254 and when it moved; null until the pedal has moved on this link. */
+  position: number | null;
+  movedAt: number | null;
+  /** What the pedal produced for the assigned targets (ranges 0–255, bypasses on/off), with their time. */
+  values: ExpressionValues;
+  valuesAt: number | null;
+  /** Assignments of `assignmentsPreset` (read after every preset change); null until read. */
+  assignments: ExpressionAssignments | null;
+  assignmentsPreset: number | null;
+}
+
+/** The pedal's tuner as far as the app knows (protocol captured 2026-09-19; see docs/PROTOCOL.md "Tuner"). */
 export interface TunerState {
-  /** The app sent tuner-on and not yet tuner-off. */
+  /**
+   * The pedal's tuner is running: set by our tuner-on write, by the pedal's tuner report
+   * (type 0x7F, also sent for its own footswitch tuner) or by an incoming pitch reading;
+   * cleared by our tuner-off write or the pedal reporting off.
+   */
   on: boolean;
-  /** Reference pitch sent with the last tuner-on write; seeded from state field 46 when known. */
+  /** Reference pitch: from the last tuner-on write or the pedal's report; seeded from state field 46 when known. */
   referenceHz: number;
   /** The tuner's own mute switch (field 7 of the tuner-on write). */
   muted: boolean;
@@ -56,10 +73,14 @@ export interface GigState {
    */
   autoRefreshNames: boolean;
   /**
-   * User setting: keep the pedal's tuner on for the whole session and show a compact note /
-   * flat / sharp indicator in the top bar. Sound passes through (the tuner's mute stays off).
+   * User setting: show a compact note / flat / sharp indicator in the top bar whenever the
+   * pedal's tuner is running (started on the pedal or from Menu → Tuner). Passive: it never
+   * switches the pedal's tuner on; with it on, closing the full-screen tuner leaves the pedal
+   * in tuner mode.
    */
   liveTuner: boolean;
+  /** User setting: keep the expression-pedal indicators on screen (false = fade out a few seconds after it stops). */
+  expressionPersist: boolean;
   /** A metadata (names) stream is in flight on a live link; footswitch events queue behind it. */
   namesRefreshing: boolean;
   /** PWA: the browser offered an install prompt and the app is not installed yet. */
@@ -93,6 +114,7 @@ export interface GigState {
    */
   outputsMuted: Field<boolean | null>;
   tuner: TunerState;
+  expression: ExpressionState;
 
   lastStateSyncAt: number | null;
   lastMetadataAt: number | null;
@@ -101,6 +123,17 @@ export interface GigState {
 }
 
 export const LOG_CAP = 400;
+
+export function emptyExpression(): ExpressionState {
+  return {
+    position: null,
+    movedAt: null,
+    values: EMPTY_EXPRESSION_VALUES,
+    valuesAt: null,
+    assignments: null,
+    assignmentsPreset: null,
+  };
+}
 
 function field<T>(value: T): Field<T> {
   return { value, provisional: true, source: 'none', updatedAt: null };
@@ -121,6 +154,7 @@ export function initialState(transportName = 'none'): GigState {
     showPresetStrip: true,
     autoRefreshNames: true,
     liveTuner: true,
+    expressionPersist: false,
     namesRefreshing: false,
     installable: false,
     updateReady: false,
@@ -140,6 +174,7 @@ export function initialState(transportName = 'none'): GigState {
     footswitches: field<FootswitchAssignments | null>(null),
     outputsMuted: field<boolean | null>(null),
     tuner: { on: false, referenceHz: TUNER_REFERENCE_DEFAULT_HZ, muted: false, reading: null, readingAt: null },
+    expression: emptyExpression(),
     lastStateSyncAt: null,
     lastMetadataAt: null,
     lastEventAt: null,
@@ -206,6 +241,7 @@ export class Store {
       cabSlotKnown: s.cabSlotKnown,
       outputsMuted: s.outputsMuted,
       tuner: { ...this.state.tuner, on: false, reading: null, readingAt: null },
+      expression: emptyExpression(),
       namesRefreshing: false,
       syncPhase: 'idle',
     };

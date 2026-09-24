@@ -302,7 +302,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(6); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(7); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner, expression persist
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
@@ -514,9 +514,11 @@ describe('GigView live tuner', () => {
     const lt = root.querySelector<HTMLElement>('.status .live-tuner')!;
     expect(lt.hidden).toBe(true);
     store.patch({ connection: 'connected', transportName: 'ble' });
-    expect(lt.hidden).toBe(true); // tuner not on yet
+    expect(lt.hidden).toBe(false); // a dimmed skeleton while the pedal's tuner is off
+    expect(lt.dataset.on).toBe('false');
+    expect(lt.dataset.tune).toBe('silent');
     store.patch({ tuner: { ...store.get().tuner, on: true } });
-    expect(lt.hidden).toBe(false);
+    expect(lt.dataset.on).toBe('true');
     expect(lt.dataset.tune).toBe('silent');
     expect(lt.querySelector('.lt-note')?.textContent).toBe('_');
 
@@ -530,6 +532,13 @@ describe('GigView live tuner', () => {
     store.patch({ tuner: { ...store.get().tuner, reading: { note: 'E', cents: 0.3, inTune: true }, readingAt: Date.now() } });
     expect(lt.dataset.tune).toBe('in');
     expect(lt.dataset.level).toBe('');
+
+    // The pedal's tuner goes off: back to the skeleton, not hidden.
+    store.patch({ tuner: { ...store.get().tuner, on: false, reading: null, readingAt: null } });
+    expect(lt.hidden).toBe(false);
+    expect(lt.dataset.on).toBe('false');
+    expect(lt.querySelector('.lt-note')?.textContent).toBe('_');
+    store.patch({ tuner: { ...store.get().tuner, on: true } });
 
     lt.click(); // tap → the full tuner
     expect(opened).toEqual(['start']);
@@ -548,7 +557,10 @@ describe('GigView support', () => {
     const root = document.createElement('div');
     document.body.append(root);
     const store = new Store();
-    new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+    const taps: string[] = [];
+    const seen: string[] = [];
+    new GigView(root, store, { ...noopActions(), onSupportClick: (source) => taps.push(source), onSupportSeen: (source) => seen.push(source) }, { bluetoothAvailable: true, showMockButton: false });
+    expect(seen).toEqual(['card']); // the connect card is on screen from the start
     const card = root.querySelector('.overlay:not(.settings):not(.tuner) .card')!;
     const block = card.querySelector('.support-block')!;
     const link = block.querySelector<HTMLAnchorElement>('a.coffee-btn')!;
@@ -566,5 +578,80 @@ describe('GigView support', () => {
     Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Support project')!.click();
     window.open = orig;
     expect(opened).toEqual(['https://buymeacoffee.com/johnnyborjomi']);
+    // Both buttons report a tap for the anonymous stats, each with its source.
+    link.addEventListener('click', (e) => e.preventDefault()); // jsdom: no navigation
+    link.click();
+    expect(taps).toEqual(['menu', 'card']);
+    // "Seen" is reported once per source: opening the menu (and again) and re-showing the card.
+    const menuBtn = root.querySelector<HTMLButtonElement>('button[aria-haspopup="true"]')!;
+    menuBtn.click();
+    menuBtn.click();
+    menuBtn.click();
+    store.patch({ connection: 'connected', transportName: 'ble' });
+    store.patch({ connection: 'disconnected' });
+    expect(seen).toEqual(['card', 'menu']);
+  });
+});
+
+describe('GigView expression pedal', () => {
+  it('shows the side bar and EXP badges while recent or persisted, hides them once stale', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+    const bar = root.querySelector<HTMLElement>('.exp-bar')!;
+    const fill = bar.querySelector<HTMLElement>('.exp-fill')!;
+    const post3 = root.querySelector<HTMLElement>('.tile[data-key="post3"] .t-exp')!;
+    expect(bar.classList.contains('visible')).toBe(false);
+    expect(post3.hidden).toBe(true);
+
+    store.patch({ connection: 'connected', transportName: 'ble' });
+    store.setField('activePreset', 4, 'dump');
+    const now = Date.now();
+    store.patch({
+      expression: {
+        position: 127,
+        movedAt: now,
+        values: { ranges: { post3: 73 }, bypasses: {} },
+        valuesAt: now,
+        assignments: { ranges: { post3: { min: 17, max: 130, flag: 0 } }, bypasses: { post1: { mode: 2, delayMs: 0 } } },
+        assignmentsPreset: 4,
+      },
+    });
+    expect(bar.classList.contains('visible')).toBe(true);
+    expect(fill.style.height).toBe('50%');
+    expect(post3.hidden).toBe(false);
+    const band = post3.querySelector<HTMLElement>('.t-exp-range')!;
+    expect(band.style.left).toBe('6.7%'); // 17/255
+    expect(band.style.width).toBe('44.3%'); // (130-17)/255
+    expect(post3.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('28.6%');
+    expect(post3.dataset.byp).toBe('');
+    expect(root.querySelector<HTMLElement>('.tile[data-key="post2"] .t-exp')!.hidden).toBe(true);
+    const post1 = root.querySelector<HTMLElement>('.tile[data-key="post1"] .t-exp')!;
+    expect(post1.hidden).toBe(false);
+    expect(post1.dataset.byp).toBe('ht');
+    expect(post1.querySelector<HTMLElement>('.t-exp-range')?.style.width).toBe('100%');
+    expect(post1.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('0%');
+    store.patch({ expression: { ...store.get().expression, values: { ranges: { post3: 73 }, bypasses: { post1: true } }, valuesAt: Date.now() } });
+    expect(post1.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('100%');
+
+    // No values yet for this preset (the pedal sends none on load): derived from the position.
+    store.patch({ expression: { ...store.get().expression, values: { ranges: {}, bypasses: {} }, valuesAt: null, movedAt: Date.now() } });
+    expect(post3.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('28.8%'); // 17 + 127/254 * 113 = 73.5 → 28.8 % of 255
+    expect(post1.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('0%'); // 127 is the toe side of mid-travel
+    store.patch({ expression: { ...store.get().expression, values: { ranges: { post3: 73 }, bypasses: { post1: true } }, valuesAt: Date.now() } });
+
+    // Stale (fade mode): gone. Persist: back.
+    store.patch({ expression: { ...store.get().expression, movedAt: now - 10000, valuesAt: now - 10000 } });
+    expect(bar.classList.contains('visible')).toBe(false);
+    expect(post3.hidden).toBe(true);
+    store.patch({ expressionPersist: true });
+    expect(bar.classList.contains('visible')).toBe(true);
+    expect(post3.hidden).toBe(false);
+
+    // Another preset's assignments do not apply until re-read.
+    store.setField('activePreset', 5, 'dump');
+    expect(post3.hidden).toBe(true);
+    expect(bar.classList.contains('visible')).toBe(true); // the position is still known
   });
 });

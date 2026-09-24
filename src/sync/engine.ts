@@ -30,8 +30,7 @@ import {
   describeDeviceSettings,
   inferActivePreset,
   type CurrentState,
-  type Metadata,
-} from '../protocol/decode';
+  type Metadata, EMPTY_EXPRESSION_VALUES } from '../protocol/decode';
 import {
   CURRENT_STATE_REQUEST,
   DEVICE_SETTINGS_REQUEST,
@@ -47,6 +46,7 @@ import {
   WEB_MIDI_STRATEGY,
   cabIrSlotFrame,
   captureBypassFrame,
+  expressionAssignmentsRequest,
   captureSelectFrame,
   fxBlockBypassFrame,
   gateBypassFrame,
@@ -191,8 +191,8 @@ export class SyncEngine {
       this.stopIdleTimer();
       this.stateRequestInFlightSince = 0; // never coalesce the first request of a new link
       this.settingsRequestedThisLink = false;
-      this.liveTunerStartedThisLink = false;
       this.tunerOverlayOpen = false;
+      this.expAssignRequested = null;
       this.settlePresetWaiters(-1);
       this.settleMuteWaiter();
       if (status === 'disconnected' || status === 'reconnecting') this.store.clearDeviceState();
@@ -383,9 +383,26 @@ export class SyncEngine {
     const ev = decodeEvent(pkt.data);
     this.armIdleTimer(); // any pedal activity restarts the idle clock
     if (ev.kind === 'tuner') {
-      // ~30/s while a note sounds: one store update per reading, nothing logged.
+      // ~30/s while a note sounds: one store update per reading, nothing logged. A reading
+      // also proves the pedal's tuner is running, however it was started (footswitch or app).
       const t = this.store.get().tuner;
-      this.store.patch({ lastEventAt: pkt.at, tuner: { ...t, reading: ev.reading, readingAt: pkt.at } });
+      if (!t.on) {
+        // A reading in flight when we wrote tuner-off does not mean the pedal is still tuning.
+        if (pkt.at - this.tunerOffSentAt < SyncEngine.TUNER_OFF_GRACE_MS) return;
+        this.log('info', 'Tuner running on the pedal', toHex(pkt.data));
+      }
+      this.store.patch({ lastEventAt: pkt.at, tuner: { ...t, on: true, reading: ev.reading, readingAt: pkt.at } });
+      return;
+    }
+    if (ev.kind === 'expression') {
+      // ~20/s while the pedal moves, with a values event alongside: one update each, nothing logged.
+      const x = this.store.get().expression;
+      this.store.patch({ lastEventAt: pkt.at, expression: { ...x, position: ev.position, movedAt: pkt.at } });
+      return;
+    }
+    if (ev.kind === 'expression-values') {
+      const x = this.store.get().expression;
+      this.store.patch({ lastEventAt: pkt.at, expression: { ...x, values: ev.values, valuesAt: pkt.at } });
       return;
     }
     this.store.patch({ lastEventAt: pkt.at });
@@ -398,17 +415,44 @@ export class SyncEngine {
         if (ev.assignments) this.store.setField('footswitches', ev.assignments, 'event', pkt.at);
         this.settlePresetWaiters(ev.preset);
         this.scheduleConfirm(150);
-        // Whether a preset change on the pedal ends its tuner is unknown: re-arm it to be safe.
-        if (this.store.get().tuner.on) void this.writeTunerOn().catch((err) => this.log('warn', `Tuner re-arm failed: ${(err as Error).message}`));
+        // Whether a preset change on the pedal ends its tuner is unknown: re-arm the big tuner to be safe.
+        if (this.tunerOverlayOpen) void this.writeTunerOn().catch((err) => this.log('warn', `Tuner re-arm failed: ${(err as Error).message}`));
         return;
       case 'bypass-changed':
         this.log('info', 'Bypass changed on device; re-reading state', toHex(pkt.data));
         this.scheduleConfirm(150);
         return;
-      case 'tuner-ack':
-        // The pedal echoes the tuner write; nothing to re-read (the preset is untouched).
-        this.log('info', `Tuner ${ev.on ? 'on' : 'off'} acknowledged${ev.referenceHz !== null ? ` · ${ev.referenceHz} Hz` : ''}`, toHex(pkt.data));
+      case 'expression-assignments': {
+        const preset = this.expAssignRequested;
+        const x = this.store.get().expression;
+        const ranges = Object.entries(ev.assignments.ranges).map(([t, r]) => `${t} ${r.min}–${r.max}`);
+        const bypasses = Object.entries(ev.assignments.bypasses).map(([t, b]) => `${t} bypass (mode ${b.mode}${b.delayMs ? `, ${b.delayMs} ms` : ''})`);
+        const all = [...ranges, ...bypasses];
+        this.log('info', `Expression assignments${preset !== null ? ` of preset ${preset + 1}` : ''}: ${all.length ? all.join(', ') : 'none'}`, toHex(pkt.data));
+        // Values belong to a preset's targets: a new preset starts without the old ones.
+        const values = preset === x.assignmentsPreset ? x.values : EMPTY_EXPRESSION_VALUES;
+        this.store.patch({ expression: { ...x, assignments: ev.assignments, assignmentsPreset: preset, values, valuesAt: preset === x.assignmentsPreset ? x.valuesAt : null } });
         return;
+      }
+      case 'expression-assign-ack':
+        this.log('info', 'Expression assignment write acknowledged', toHex(pkt.data));
+        return;
+      case 'tuner-ack': {
+        // The pedal reports its tuner state (echoing our write, or its own footswitch tuner):
+        // mirror it, nothing to re-read (the preset is untouched).
+        this.log('info', `Tuner ${ev.on ? 'on' : 'off'} reported by the pedal${ev.referenceHz !== null ? ` · ${ev.referenceHz} Hz` : ''}`, toHex(pkt.data));
+        const t = this.store.get().tuner;
+        this.store.patch({
+          tuner: {
+            ...t,
+            on: ev.on,
+            referenceHz: ev.referenceHz ?? t.referenceHz,
+            reading: ev.on ? t.reading : null,
+            readingAt: ev.on ? t.readingAt : null,
+          },
+        });
+        return;
+      }
       case 'preset-select-ack':
         // The pedal's reply to a c304 preset select (2026-09-19). Cortex Cloud requests the
         // state right after it; field 13 there is what settles the switch.
@@ -552,15 +596,20 @@ export class SyncEngine {
     }
     this.store.patch({ lastStateSyncAt: at, syncPhase: 'ready' });
     this.validateCachedNames(state);
+    // Expression assignments are per preset: read them once per preset (Cortex Cloud's 0x3C).
+    if (state.activePreset !== null && state.activePreset !== this.store.get().expression.assignmentsPreset && state.activePreset !== this.expAssignRequested) {
+      this.expAssignRequested = state.activePreset;
+      const req = expressionAssignmentsRequest(state.activePreset);
+      this.log('tx', `Expression assignments request · preset ${state.activePreset + 1}`, toHex(req));
+      void this.transport.writeCommand(req).catch((err) => {
+        this.expAssignRequested = null;
+        this.log('warn', `Expression assignments request failed: ${(err as Error).message}`);
+      });
+    }
     this.armIdleTimer();
     if (!this.settingsRequestedThisLink) {
       this.settingsRequestedThisLink = true;
       setTimeout(() => void this.requestDeviceSettings().catch((err) => this.log('warn', `Settings request failed: ${(err as Error).message}`)), this.opts.confirmDelayMs);
-    }
-    if (!this.liveTunerStartedThisLink && this.store.get().liveTuner) {
-      // Live tuner: keep the pedal's tuner on for the session (after the settings request has gone out).
-      this.liveTunerStartedThisLink = true;
-      setTimeout(() => void this.setLiveTuner(true).catch((err) => this.log('warn', `Live tuner start failed: ${(err as Error).message}`)), this.opts.confirmDelayMs * 2);
     }
     const on = FX_SLOTS.map((s) => `${s}=${models[s]?.name ?? 'empty'}:${state.fxOn ? (state.fxOn[s] ? 'on' : 'off') : '?'}`).join(' ');
     this.log(
@@ -805,11 +854,20 @@ export class SyncEngine {
 
   // -------------------------------------------------------------------------
   // Tuner (works whenever connected: it changes no preset)
+  //
+  // Only the full-screen tuner switches the pedal's tuner on. The live tuner in the top bar is
+  // passive: it shows whatever the pedal streams, whether the tuner was started here or on the
+  // pedal itself, so toggling the setting never changes the pedal's screen. Its one effect on
+  // the pedal: with it on, closing the full-screen tuner leaves the pedal in tuner mode.
   // -------------------------------------------------------------------------
 
-  private liveTunerStartedThisLink = false;
+  /** Preset whose expression assignments were last requested (the reply carries no index). */
+  private expAssignRequested: number | null = null;
   /** The full-screen tuner is open (it may mute; the live tuner never does). */
   private tunerOverlayOpen = false;
+  /** When tuner-off was last written; readings still in flight for a moment after are ignored. */
+  private tunerOffSentAt = 0;
+  private static readonly TUNER_OFF_GRACE_MS = 500;
 
   /** Full-screen tuner opened: tuner on with the current reference and mute; the pedal streams readings. */
   async startTuner(): Promise<void> {
@@ -821,31 +879,21 @@ export class SyncEngine {
   }
 
   /**
-   * Full-screen tuner closed. With the live tuner on, the pedal's tuner stays on but unmuted;
-   * otherwise it is switched off and the reading cleared.
+   * Full-screen tuner closed. With the live tuner setting on, the pedal stays in tuner mode
+   * (unmuted, so sound passes) and the top bar keeps showing the note; otherwise the pedal's
+   * tuner goes off and the reading is cleared.
    */
   async stopTuner(): Promise<void> {
     this.tunerOverlayOpen = false;
     const t = this.store.get().tuner;
-    if (this.store.get().liveTuner && this.transport.status === 'connected') {
-      this.store.patch({ tuner: { ...t, muted: false } });
-      if (t.muted || !t.on) await this.writeTunerOn();
+    if (this.store.get().liveTuner && t.on && this.transport.status === 'connected') {
+      if (t.muted) {
+        this.store.patch({ tuner: { ...t, muted: false } });
+        await this.writeTunerOn();
+      }
       return;
     }
     await this.tunerOff();
-  }
-
-  /** Live tuner setting: on = keep the pedal's tuner running (unmuted) while connected. */
-  async setLiveTuner(on: boolean): Promise<void> {
-    if (this.transport.status !== 'connected') return;
-    const t = this.store.get().tuner;
-    if (on) {
-      if (t.on) return;
-      this.store.patch({ tuner: { ...t, on: true, muted: false, reading: null, readingAt: null } });
-      await this.writeTunerOn();
-    } else if (t.on && !this.tunerOverlayOpen) {
-      await this.tunerOff();
-    }
   }
 
   private async tunerOff(): Promise<void> {
@@ -853,6 +901,7 @@ export class SyncEngine {
     this.store.patch({ tuner: { ...t, on: false, reading: null, readingAt: null } });
     if (this.transport.status !== 'connected') return;
     this.log('tx', 'Tuner off', toHex(TUNER_OFF));
+    this.tunerOffSentAt = Date.now();
     await this.transport.writeCommand(TUNER_OFF);
   }
 
