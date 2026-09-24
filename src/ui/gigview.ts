@@ -310,7 +310,7 @@ export class GigView {
     this.muteBadge.hidden = true;
     this.liveTunerNote.append(this.liveTunerLetter, this.liveTunerAcc);
     this.liveTunerEl.append(el("i", "lt-dot lt-flat"), this.liveTunerNote, el("i", "lt-dot lt-sharp"));
-    this.liveTunerEl.title = "Live tuner: tap for the full tuner (Settings → Pedal to hide)";
+    this.liveTunerEl.title = "Live tuner: shows the pedal's tuner when it runs; tap for the full tuner (Settings → Pedal to hide)";
     this.liveTunerEl.setAttribute("aria-label", "Live tuner");
     this.liveTunerEl.dataset.tune = "silent";
     this.liveTunerEl.hidden = true;
@@ -703,7 +703,7 @@ export class GigView {
       });
       muteRow.append(this.muteCheck);
       const liveRow = el("label", "setting-row");
-      liveRow.append(el("span", "", "Live tuner in the top bar"));
+      liveRow.append(el("span", "", "Live tuner in the top bar (experimental)"));
       this.liveTunerCheck.type = "checkbox";
       this.liveTunerCheck.addEventListener("change", () =>
         this.actions.setSettings({ liveTuner: this.liveTunerCheck.checked }),
@@ -712,7 +712,7 @@ export class GigView {
       const liveHint = el(
         "p",
         "hint",
-        "Keeps the pedal's tuner on while connected and shows the note next to the status, flat and sharp dots either side. Sound passes through; Menu → Tuner still opens the big one.",
+        "Experimental. Only works while the pedal itself is in tuner mode (hold Footswitch II on the pedal, or Menu → Tuner): then the note shows next to the status with flat and sharp dots either side. Otherwise it stays dimmed with a \"_\". It never switches the pedal's tuner on by itself.",
       );
       const expRow = el("label", "setting-row");
       expRow.append(el("span", "", "Keep expression pedal indicators on screen"));
@@ -1476,11 +1476,21 @@ export class GigView {
 
   /** Top-bar indicator: hidden unless connected with the live tuner on; dim in silence. */
   private renderLiveTuner(s: GigState) {
-    const show = s.connection === "connected" && s.liveTuner && s.tuner.on;
+    // Visible whenever the setting is on and the pedal is connected; a dimmed skeleton while
+    // the pedal's tuner is off, so it is clear where the note will appear.
+    const show = s.connection === "connected" && s.liveTuner;
     this.liveTunerEl.hidden = !show;
-    if (!show) {
+    const on = String(show && s.tuner.on);
+    if (this.liveTunerEl.dataset.on !== on) this.liveTunerEl.dataset.on = on;
+    if (!show || !s.tuner.on) {
       if (this.liveTunerTimer) clearInterval(this.liveTunerTimer);
       this.liveTunerTimer = null;
+      if (this.liveTunerEl.dataset.tune !== "silent") {
+        this.liveTunerEl.dataset.tune = "silent";
+        this.liveTunerEl.dataset.level = "";
+        this.liveTunerLetter.textContent = "_";
+        this.liveTunerAcc.textContent = "";
+      }
       return;
     }
     // Silence is the absence of readings: clear on a timer, not on an event.

@@ -129,7 +129,7 @@ every mute ack to confirm the switch against the pedal's report.
 | Cab / IR slot select       | `08 C0 18 03 20 <slot 1..5> 1C 00 00 00`         | 2026-09-13 |
 | Mute outputs 1/2 (global)  | `08 C0 08 01 68 <1 mute / 0 outputs on> 43 00 00 00` | 2026-09-15 (captured from Cortex Cloud, polarity by ear) |
 | Preset select              | `36 C0 18 00 20 <preset> 28 <-1> 30 <-1> 38 <-1> 40 <-1> 48 04 1D 00 00 00`, `<-1>` = `FF FF FF FF FF FF FF FF FF 01` | 2026-09-19 (captured from Cortex Cloud, verified on the pedal) |
-| Tuner on                   | `0F C0 20 01 2D <f32 reference Hz> 30 01 38 <0 / 1 mute> 7F 00 00 00` | 2026-09-19 (captured from Cortex Cloud; pedal test pending) |
+| Tuner on                   | `0F C0 20 01 2D <f32 reference Hz> 30 01 38 <0 / 1 mute> 7F 00 00 00` | 2026-09-19 (captured from Cortex Cloud), verified on the pedal 2026-09-20 |
 | Tuner off                  | `06 C0 20 00 7F 00 00 00`                        | 2026-09-19 (captured) |
 
 Re-enabling a capture or cab needs its slot index, which NanoGig can only get by matching the
@@ -180,10 +180,21 @@ Field 4 = 1 (on), field 5 = reference pitch as a little-endian float (`00 00 DC 
 the slider went up to `00 00 E7 43` = 462.0), field 6 = 1 (constant, meaning unknown), field 7
 = the tuner's own mute switch. The first write of the session carried 0 and the user's toggles
 alternated 1 / 0 from there, so 1 = outputs muted while tuning is the working assumption.
+**Field 6** (`30 01`) is a constant 1 in every capture. Tried with 0 on the pedal (2026-09-24):
+acked and streamed exactly the same, and the pedal still showed its tuner screen. There is no
+known way to get pitch readings without the pedal being in tuner mode, which is why the app's
+live tuner is passive (see README).
+
 **Tuner off**: `06 C0 20 00 7F 00 00 00` (field 4 = 0), written when the page closes.
 The pedal replies to tuner-on with the same type back, `0D C0 08 01 20 01 2D <f32 Hz> 7F 00 00
 00` (field 4 = 1, field 5 = the reference it took), about 1.6 s later on 2.2.1; nothing else
-changes, so NanoGig only logs it.
+changes. The pedal sends the same report when its tuner ends on the pedal itself (a footswitch
+tap, captured 2026-09-24): `0B C0 08 01 2D <f32 Hz> 7F 00 00 00`, field 4 absent = off. NanoGig
+mirrors these reports into its tuner state (on/off, reference) and also treats any incoming
+pitch reading as proof that the tuner is running (ignoring readings still in flight for 500 ms
+after its own tuner-off write). A tuner already running on the pedal streams to a fresh
+subscriber, so reconnecting shows it; a tuner started on the pedal mid-link has not been seen to
+stream (no packet observed yet).
 
 **Subscribe to `c305` only.** Cortex Cloud never enables `c306`, the *indicate* mirror. With both
 subscribed the pitch stream lagged 3–5 s behind the pedal: every indication is acknowledged one

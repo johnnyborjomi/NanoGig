@@ -124,7 +124,6 @@ const view = new GigView(
     setSettings: (patch) => {
       store.patch(patch);
       saveSettings();
-      if (typeof patch.liveTuner === 'boolean') void engine?.setLiveTuner(patch.liveTuner).catch((e) => store.appendLog({ at: Date.now(), dir: 'warn', text: `Live tuner: ${(e as Error).message}` }));
     },
     installApp: () => installPrompt.install(),
     applyUpdate: () => updater.apply(),

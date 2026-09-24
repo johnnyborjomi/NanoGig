@@ -514,9 +514,11 @@ describe('GigView live tuner', () => {
     const lt = root.querySelector<HTMLElement>('.status .live-tuner')!;
     expect(lt.hidden).toBe(true);
     store.patch({ connection: 'connected', transportName: 'ble' });
-    expect(lt.hidden).toBe(true); // tuner not on yet
+    expect(lt.hidden).toBe(false); // a dimmed skeleton while the pedal's tuner is off
+    expect(lt.dataset.on).toBe('false');
+    expect(lt.dataset.tune).toBe('silent');
     store.patch({ tuner: { ...store.get().tuner, on: true } });
-    expect(lt.hidden).toBe(false);
+    expect(lt.dataset.on).toBe('true');
     expect(lt.dataset.tune).toBe('silent');
     expect(lt.querySelector('.lt-note')?.textContent).toBe('_');
 
@@ -530,6 +532,13 @@ describe('GigView live tuner', () => {
     store.patch({ tuner: { ...store.get().tuner, reading: { note: 'E', cents: 0.3, inTune: true }, readingAt: Date.now() } });
     expect(lt.dataset.tune).toBe('in');
     expect(lt.dataset.level).toBe('');
+
+    // The pedal's tuner goes off: back to the skeleton, not hidden.
+    store.patch({ tuner: { ...store.get().tuner, on: false, reading: null, readingAt: null } });
+    expect(lt.hidden).toBe(false);
+    expect(lt.dataset.on).toBe('false');
+    expect(lt.querySelector('.lt-note')?.textContent).toBe('_');
+    store.patch({ tuner: { ...store.get().tuner, on: true } });
 
     lt.click(); // tap → the full tuner
     expect(opened).toEqual(['start']);

@@ -33,11 +33,15 @@ export interface ExpressionState {
   assignmentsPreset: number | null;
 }
 
-/** Tuner as the app drives it (protocol captured 2026-09-19; see docs/PROTOCOL.md "Tuner"). */
+/** The pedal's tuner as far as the app knows (protocol captured 2026-09-19; see docs/PROTOCOL.md "Tuner"). */
 export interface TunerState {
-  /** The app sent tuner-on and not yet tuner-off. */
+  /**
+   * The pedal's tuner is running: set by our tuner-on write, by the pedal's tuner report
+   * (type 0x7F, also sent for its own footswitch tuner) or by an incoming pitch reading;
+   * cleared by our tuner-off write or the pedal reporting off.
+   */
   on: boolean;
-  /** Reference pitch sent with the last tuner-on write; seeded from state field 46 when known. */
+  /** Reference pitch: from the last tuner-on write or the pedal's report; seeded from state field 46 when known. */
   referenceHz: number;
   /** The tuner's own mute switch (field 7 of the tuner-on write). */
   muted: boolean;
@@ -69,8 +73,9 @@ export interface GigState {
    */
   autoRefreshNames: boolean;
   /**
-   * User setting: keep the pedal's tuner on for the whole session and show a compact note /
-   * flat / sharp indicator in the top bar. Sound passes through (the tuner's mute stays off).
+   * User setting: show a compact note / flat / sharp indicator in the top bar whenever the
+   * pedal's tuner is running (started on the pedal or from Menu → Tuner). Passive: it never
+   * switches the pedal's tuner on or off itself.
    */
   liveTuner: boolean;
   /** User setting: keep the expression-pedal indicators on screen (false = fade out a few seconds after it stops). */

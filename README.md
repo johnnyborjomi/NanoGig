@@ -122,10 +122,12 @@ tuning" switch, all as Cortex Cloud sends them. Done (or Escape, or losing the l
 tuner off again. It works whenever connected: it changes no preset, so control mode is not
 needed.
 
-**Live tuner** (on by default, Settings → Pedal): the pedal's tuner stays on for the whole
-session and the top bar shows the note with a flat dot on the left and a sharp dot on the
-right. Green all round when in tune; the dot on the side you are off, and the note, go yellow
-within 10 cents and red beyond. Sound passes through. Tap it for the big tuner.
+**Live tuner** (experimental, on by default, Settings → Pedal): only while the pedal itself is
+in tuner mode, entered by holding Footswitch II on the pedal or from Menu → Tuner, the top bar shows the note with a flat dot
+on the left and a sharp dot on the right. Green all round when in tune; the dot on the side
+you are off, and the note, go yellow within 10 cents and red beyond. It is passive: it never
+switches the pedal's tuner on, so the pedal's screen stays as you left it. Tap it for the big
+tuner.
 
 ## Expression pedal
 

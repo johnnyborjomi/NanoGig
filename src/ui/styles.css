@@ -186,6 +186,9 @@ button.warn {
   border-radius: 15px;
   cursor: pointer;
 }
+.status .live-tuner[data-on='false'] {
+  opacity: 0.45;
+}
 .status .live-tuner[hidden] {
   display: none;
 }

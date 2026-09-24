@@ -45,6 +45,8 @@ export const HW_TUNER_ON_462 = fromHex('0F C0 20 01 2D 00 00 E7 43 30 01 38 00 7
  * back with field 4 = 1 and field 5 = the reference it took (440.0). No state change follows.
  */
 export const HW_TUNER_ON_ACK = fromHex('0D C0 08 01 20 01 2D 00 00 DC 43 7F 00 00 00');
+/** The pedal's tuner-off report (NanoGig log 2026-09-24): sent when a footswitch tap ends its tuner; field 4 absent = off. */
+export const HW_TUNER_OFF_REPORT = fromHex('0B C0 08 01 2D 00 00 DC 43 7F 00 00 00');
 /** Tuner OFF, written when the tuner page closes: field 4 = 0. */
 export const HW_TUNER_OFF = fromHex('06 C0 20 00 7F 00 00 00');
 

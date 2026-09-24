@@ -125,6 +125,8 @@ export const TUNER_REFERENCE_DEFAULT_HZ = 440;
  * (meaning unknown). While the tuner is on the pedal streams type-0x80 pitch events.
  * The mute polarity (1 = outputs silenced while tuning) is inferred from the capture
  * order: first write 0, then alternating from the user's first toggle.
+ * Field 6 is a constant 1 in every capture. Sending 0 (tried 2026-09-24) changes nothing: the
+ * pedal acks and streams the same and still shows its tuner screen.
  */
 export function tunerOnFrame(referenceHz = TUNER_REFERENCE_DEFAULT_HZ, mute = false): Uint8Array {
   if (!Number.isFinite(referenceHz) || referenceHz < TUNER_REFERENCE_MIN_HZ || referenceHz > TUNER_REFERENCE_MAX_HZ) {
