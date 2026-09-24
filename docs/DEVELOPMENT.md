@@ -57,6 +57,11 @@ Production deploys from the tag itself, so installed apps see "A NanoGig update 
 when a version is released. Run the workflow by hand to redeploy the highest final release tag
 (pre-release tags such as `v1.2.0-rc1` are skipped).
 
+Usage stats (`src/analytics.ts`, Umami Cloud, website id in `src/main.ts`) are only active in
+production-channel builds off localhost, and in the native app. Staging and `npm run dev` never
+load the tracker. Events: `launch`, `connect`, `sync`, `feature`, `session-end`, `pwa-installed`, `support-seen`,
+`support-click` (PRIVACY.md; types in `src/analytics.ts`).
+
 Staging is built with `NANOGIG_CHANNEL=staging` (`vite.config.ts`): its manifest is named
 "NanoGig β" so it installs next to the production app, the connect screen shows a _beta_ tag,
 the page title says "staging", and Menu → info shows `· staging`. It lives in its own

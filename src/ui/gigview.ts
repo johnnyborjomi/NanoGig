@@ -72,6 +72,10 @@ export interface GigViewActions {
     liveTuner?: boolean;
     expressionPersist?: boolean;
   }): void;
+  /** A "Support project" button was tapped (for anonymous stats). */
+  onSupportClick?(source: "card" | "menu"): void;
+  /** A "Support project" button came on screen, reported once per session per source (for anonymous stats). */
+  onSupportSeen?(source: "card" | "menu"): void;
   /** PWA: show the browser's install dialog (only offered when the store says installable). */
   installApp?(): Promise<void>;
   /** PWA: activate the waiting service worker and reload. */
@@ -190,6 +194,7 @@ export class GigView {
   private readonly stripCheck = el("input", "menu-check");
   private readonly autoNamesCheck = el("input", "menu-check");
   private readonly liveTunerCheck = el("input", "menu-check");
+  private readonly supportSeen = new Set<"card" | "menu">();
   private readonly expPersistCheck = el("input", "menu-check");
   // Expression pedal: a thin vertical bar at the app's right edge, and a badge per assigned FX tile.
   private readonly expBar = el("div", "exp-bar");
@@ -366,6 +371,7 @@ export class GigView {
     this.menuBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.menu.classList.toggle("open");
+      if (this.menu.classList.contains("open")) this.noteSupportSeen("menu");
     });
     // Items: icon on the left, label, separators between; device info at the bottom.
     const items: [HTMLButtonElement, typeof Settings, string][] = [
@@ -399,6 +405,7 @@ export class GigView {
     this.supportMenuBtn.title = "Support NanoGig";
     this.supportMenuBtn.addEventListener("click", () => {
       this.menu.classList.remove("open");
+      this.actions.onSupportClick?.("menu");
       window.open(SUPPORT_URL, "_blank", "noopener");
     });
     this.menu.append(el("div", "menu-sep"), this.supportMenuBtn);
@@ -910,6 +917,7 @@ export class GigView {
       link.href = SUPPORT_URL;
       link.target = "_blank";
       link.rel = "noopener";
+      link.addEventListener("click", () => this.actions.onSupportClick?.("card"));
       link.append(lucideElement(Coffee, { "stroke-width": 2.2, "aria-hidden": "true" }), el("span", "", "Support project"));
       const sub = el("span", "support-sub", "One-off, any amount, takes a minute.");
       const cta = el("div", "support-cta");
@@ -1230,6 +1238,7 @@ export class GigView {
     this.renderSync(s);
     this.menuInfo.hidden = false; // the version line is always there
     this.overlay.classList.toggle("open", s.connection === "disconnected");
+    if (s.connection === "disconnected") this.noteSupportSeen("card");
     // A failed silent resume leaves its reason in lastError; show it on the connect screen.
     if (s.connection === "disconnected" && s.lastError && s.syncPhase !== "error") this.overlayErr.textContent = s.lastError;
     this.installBlock.hidden = !s.installable;
@@ -1478,6 +1487,12 @@ export class GigView {
   }
 
   /** Top-bar indicator: hidden unless connected with the live tuner on; dim in silence. */
+  private noteSupportSeen(source: "card" | "menu") {
+    if (this.supportSeen.has(source)) return;
+    this.supportSeen.add(source);
+    this.actions.onSupportSeen?.(source);
+  }
+
   private renderLiveTuner(s: GigState) {
     // Visible whenever the setting is on and the pedal is connected; a dimmed skeleton while
     // the pedal's tuner is off, so it is clear where the note will appear.

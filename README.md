@@ -189,7 +189,8 @@ a squint on stage, you can keep the coffee (and the test presets) coming:
 
 ## Privacy, support, license
 
-- No backend, no analytics, no telemetry: [PRIVACY.md](PRIVACY.md).
+- No backend, no account. The released app sends anonymous, cookieless usage counts (opens,
+  connects, installs, support taps) to Umami, nothing about your pedal: [PRIVACY.md](PRIVACY.md).
 - Best-effort support through [GitHub issues](https://github.com/johnnyborjomi/NanoGig/issues):
   [SUPPORT.md](SUPPORT.md). For pedal problems, use Neural DSP's own support.
 - MIT license: [LICENSE](LICENSE). Not an official Neural DSP product; no Neural DSP code,

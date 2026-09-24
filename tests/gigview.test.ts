@@ -557,7 +557,10 @@ describe('GigView support', () => {
     const root = document.createElement('div');
     document.body.append(root);
     const store = new Store();
-    new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+    const taps: string[] = [];
+    const seen: string[] = [];
+    new GigView(root, store, { ...noopActions(), onSupportClick: (source) => taps.push(source), onSupportSeen: (source) => seen.push(source) }, { bluetoothAvailable: true, showMockButton: false });
+    expect(seen).toEqual(['card']); // the connect card is on screen from the start
     const card = root.querySelector('.overlay:not(.settings):not(.tuner) .card')!;
     const block = card.querySelector('.support-block')!;
     const link = block.querySelector<HTMLAnchorElement>('a.coffee-btn')!;
@@ -575,6 +578,18 @@ describe('GigView support', () => {
     Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Support project')!.click();
     window.open = orig;
     expect(opened).toEqual(['https://buymeacoffee.com/johnnyborjomi']);
+    // Both buttons report a tap for the anonymous stats, each with its source.
+    link.addEventListener('click', (e) => e.preventDefault()); // jsdom: no navigation
+    link.click();
+    expect(taps).toEqual(['menu', 'card']);
+    // "Seen" is reported once per source: opening the menu (and again) and re-showing the card.
+    const menuBtn = root.querySelector<HTMLButtonElement>('button[aria-haspopup="true"]')!;
+    menuBtn.click();
+    menuBtn.click();
+    menuBtn.click();
+    store.patch({ connection: 'connected', transportName: 'ble' });
+    store.patch({ connection: 'disconnected' });
+    expect(seen).toEqual(['card', 'menu']);
   });
 });
 
