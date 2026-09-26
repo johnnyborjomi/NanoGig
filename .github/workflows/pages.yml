@@ -2,6 +2,11 @@
 # Deployed when a release tag vX.Y.Z is pushed, so installed apps only see an update on a
 # release. Can also be run by hand, which redeploys the highest final release tag. The head of
 # main goes to the separate staging site instead (staging.yml).
+#
+# Every release also stays reachable at its own path, https://johnnyborjomi.github.io/NanoGig/vX.Y.Z/,
+# unpacked from the web zip the Release workflow attached to it (so it is byte-for-byte what
+# shipped, no rebuild). Builds use relative paths and a per-folder service worker, so each
+# copy runs on its own; only the root is the installed app.
 name: Deploy to GitHub Pages
 
 on:
@@ -58,6 +63,21 @@ jobs:
       - run: npm run build
         env:
           NANOGIG_CHANNEL: production
+      - name: Add every release at its own path (dist/vX.Y.Z/ from the release zips)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p zips
+          for TAG in $(gh api --paginate repos/${GITHUB_REPOSITORY}/releases -q '.[] | select(.draft | not) | .tag_name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$'); do
+            if gh release download "$TAG" --pattern "nanogig-$TAG-web.zip" --dir zips --clobber 2>/dev/null; then
+              mkdir -p "dist/$TAG"
+              unzip -qo "zips/nanogig-$TAG-web.zip" -d "dist/$TAG"
+              echo "added $TAG"
+            else
+              echo "no web zip on $TAG, skipped"
+            fi
+          done
+          ls -d dist/v* || true
       - uses: actions/configure-pages@v5
         with:
           enablement: true
