@@ -105,6 +105,8 @@ export interface GigState {
   firmware: Field<string | null>;
   /** Preset tempo in BPM (state field 56, provisional). */
   tempo: Field<number | null>;
+  /** The pedal is in its tap tempo mode (event 0x91 with field 3, or state field 60). */
+  tapTempo: boolean;
   /** Preset index assigned to each of the pedal's footswitches (state dump fields 14/15/38/39, event 0x1D). */
   footswitches: Field<FootswitchAssignments | null>;
   /**
@@ -171,6 +173,7 @@ export function initialState(transportName = 'none'): GigState {
     cabSlotKnown: field<boolean | null>(null),
     firmware: field<string | null>(null),
     tempo: field<number | null>(null),
+    tapTempo: false,
     footswitches: field<FootswitchAssignments | null>(null),
     outputsMuted: field<boolean | null>(null),
     tuner: { on: false, referenceHz: TUNER_REFERENCE_DEFAULT_HZ, muted: false, reading: null, readingAt: null },

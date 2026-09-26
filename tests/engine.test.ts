@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HW_PRESET_SELECT_0, HW_TUNER_OFF_REPORT, HW_TUNER_ON_ACK, HW_TUNER_PITCH_A_PLUS_14 } from '../src/fixtures/hardware-2026-09-19';
-import { HW_STATE_PRESET_1 } from '../src/fixtures/hardware-2026-09-26';
+import { HW_STATE_PRESET_1, HW_TAP_TEMPO_EXIT_99, HW_TAP_TEMPO_TAP_135, HW_TEMPO_SET_99 } from '../src/fixtures/hardware-2026-09-26';
 import { MockTransport } from '../src/transport/mock';
 import { Store } from '../src/state/store';
 import { SyncEngine } from '../src/sync/engine';
@@ -898,6 +898,57 @@ describe('expression pedal', () => {
     expect(store.get().log.filter((l) => /Undocumented event/.test(l.text))).toHaveLength(0);
     await flush(1000);
     expect(store.get().expression.position).toBe(0); // back at heel
+    engine.dispose();
+  });
+});
+
+describe('tap tempo (screen firmware findings 2026-09-26)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('taps update the tempo live and mark the mode; the exit takes the final value and re-reads state', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(4000);
+    expect(store.get().tempo.value).toBe(120);
+    const before = store.get().log.filter((l) => l.dir === 'tx').length;
+    mock.inject(HW_TAP_TEMPO_TAP_135);
+    await flush(10);
+    expect(store.get().tempo.value).toBe(135);
+    expect(store.get().tempo.source).toBe('event');
+    expect(store.get().tapTempo).toBe(true);
+    mock.inject(HW_TAP_TEMPO_EXIT_99);
+    await flush(10);
+    expect(store.get().tempo.value).toBe(99);
+    expect(store.get().tapTempo).toBe(false);
+    await flush(400);
+    const tx = store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
+    expect(tx.length).toBeGreaterThan(before); // the state re-read after the exit
+    expect(tx[tx.length - 1]).toBe('0C C0 08 03 18 01 20 01 28 01 01 00 00 00');
+    engine.dispose();
+  });
+
+  it('setTempo writes the per-tap frame then the exit frame and confirms with a state re-read', async () => {
+    const { mock, store, engine } = setup({ writes: true });
+    await connect(mock);
+    await flush(4000);
+    const p = engine.setTempo(99);
+    await flush(50);
+    await p;
+    const tx = store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
+    expect(tx).toContain(toHex(HW_TEMPO_SET_99));
+    expect(tx).toContain(toHex(HW_TAP_TEMPO_EXIT_99));
+    expect(mock.device.tempoBpm).toBe(99);
+    expect(mock.device.tapTempo).toBe(false);
+    expect(store.get().tempo.value).toBe(99);
+    engine.dispose();
+  });
+
+  it('setTempo is a control-mode write', async () => {
+    const { mock, engine } = setup({ writes: false });
+    await connect(mock);
+    await flush(4000);
+    await expect(engine.setTempo(99)).rejects.toThrow(/Writes are disabled/);
     engine.dispose();
   });
 });

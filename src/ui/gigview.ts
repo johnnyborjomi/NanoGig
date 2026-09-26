@@ -1280,6 +1280,8 @@ export class GigView {
       const bpm = s.connection === "connected" ? s.tempo.value : null;
       this.tempoText.textContent = bpm === null ? "" : String(Math.round(bpm * 10) / 10);
       this.tempoEl.hidden = bpm === null;
+      this.tempoEl.classList.toggle("tapping", s.tapTempo && bpm !== null);
+      this.tempoUnit.textContent = s.tapTempo && bpm !== null ? "TAP" : "BPM";
       this.muteBadge.hidden = !(s.connection === "connected" && s.outputsMuted.value === true);
     }
     if (this.liveTunerCheck.checked !== s.liveTuner) this.liveTunerCheck.checked = s.liveTuner;

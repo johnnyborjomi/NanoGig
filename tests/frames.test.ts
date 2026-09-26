@@ -22,11 +22,14 @@ import {
   programChange,
   tunerOnFrame,
   TUNER_OFF,
+  tempoExitFrame,
+  tempoSetFrame,
   expressionAssignmentsRequest,
 } from '../src/protocol/frames';
 import { toHex } from '../src/protocol/hex';
 import { HW_DEVICE_SETTINGS_REQUEST, HW_OUTPUTS_MUTE_WRITES } from '../src/fixtures/hardware-2026-09-15';
 import { HW_EXP_ASSIGN_REQUEST_58, HW_PRESET_SELECT_0, HW_PRESET_SELECT_9, HW_TUNER_OFF, HW_TUNER_ON_440, HW_TUNER_ON_440_MUTED, HW_TUNER_ON_462 } from '../src/fixtures/hardware-2026-09-19';
+import { HW_TAP_TEMPO_EXIT_99, HW_TEMPO_SET_99 } from '../src/fixtures/hardware-2026-09-26';
 
 describe('request frames (byte-exact against the reference tables)', () => {
   it('metadata dump request', () => {
@@ -80,6 +83,20 @@ describe('capture / cab-IR slot frames (web editor selectCaptureSlot / setCaptur
     expect(toHex(cabIrSlotFrame(0))).toBe('08 C0 18 03 20 00 1C 00 00 00');
     expect(toHex(cabIrSlotFrame(3))).toBe('08 C0 18 03 20 03 1C 00 00 00');
     expect(() => cabIrSlotFrame(6)).toThrow(RangeError);
+  });
+});
+
+describe('tempo frames (found by trial on the pedal 2026-09-26)', () => {
+  it('tempo set is the per-tap shape with the BPM as a float', () => {
+    expect(toHex(tempoSetFrame(99))).toBe(toHex(HW_TEMPO_SET_99));
+    expect(tempoSetFrame(99)[0]).toBe(tempoSetFrame(99).length - 2);
+  });
+  it('tap mode exit is the pedal\'s exit shape', () => {
+    expect(toHex(tempoExitFrame(99))).toBe(toHex(HW_TAP_TEMPO_EXIT_99));
+  });
+  it('rejects tempos outside 40..300', () => {
+    expect(() => tempoSetFrame(10)).toThrow(RangeError);
+    expect(() => tempoExitFrame(1000)).toThrow(RangeError);
   });
 });
 

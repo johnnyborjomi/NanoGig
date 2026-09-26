@@ -179,6 +179,11 @@ export interface CurrentState {
   tempoBpm: number | null;
   /** Tuner reference pitch in Hz: field 46 (fixed32 float, 440.0 on the user's pedal). */
   tunerReferenceHz: number | null;
+  /**
+   * Field 60 = 1 while the pedal is in its tap tempo mode (screen firmware 2026-09-26: a
+   * reconnect during the mode carried it; dumps outside the mode do not). Absent = false.
+   */
+  tapTempoMode: boolean;
   /** FX model IDs (uppercase hex, no spaces) from fields 48-52; null per slot when absent. */
   fxModelIds: Record<FxSlot, string | null>;
   firmware: string | null;
@@ -266,6 +271,7 @@ export function decodeCurrentState(bytes: Uint8Array): CurrentState | null {
       const v = firstFixed32Float(f, 46);
       return v !== null && Number.isFinite(v) && v >= 400 && v <= 480 ? v : null;
     })(),
+    tapTempoMode: firstVarint(f, 60) === 1,
     fxModelIds: {
       pre1: modelIdHex(f, 48),
       pre2: modelIdHex(f, 49),
@@ -337,6 +343,11 @@ export type DeviceEvent =
   | { kind: 'expression-assign-ack'; hex: string; provisional: typeof PROVISIONAL }
   /** Tuner pitch reading (type 0x80), ~30/s while the tuner is on and a note is detected. */
   | { kind: 'tuner'; reading: TunerReading; hex: string; provisional: typeof PROVISIONAL }
+  /**
+   * Tap tempo (type 0x91, 2026-09-26): one per tap with the current tempo while the pedal's tap
+   * tempo mode is on (`active`), and one more with `active` false and the final tempo on exit.
+   */
+  | { kind: 'tap-tempo'; active: boolean; bpm: number; hex: string; provisional: typeof PROVISIONAL }
   | { kind: 'unknown'; msgType: number | null; hex: string; provisional: typeof PROVISIONAL };
 
 // ---------------------------------------------------------------------------
@@ -569,6 +580,15 @@ export function decodeEvent(data: Uint8Array): DeviceEvent {
     if (msgType === MSG.TUNER_PITCH) {
       const reading = decodeTunerReading(payload);
       if (reading) return { kind: 'tuner', reading, hex, provisional: PROVISIONAL };
+      return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
+    }
+    if (msgType === MSG.TAP_TEMPO) {
+      // `0D C0 08 01 18 01 2D <f32> 91 …` per tap (field 3 = 1); `0B C0 08 01 2D <f32> 91 …` on exit.
+      const f = parseFields(payload);
+      const bpm = firstFixed32Float(f, 5);
+      if (bpm !== null && Number.isFinite(bpm) && bpm >= 20 && bpm <= 400) {
+        return { kind: 'tap-tempo', active: firstVarint(f, 3) === 1, bpm, hex, provisional: PROVISIONAL };
+      }
       return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
     }
     if (msgType !== null && CONTROL_TYPES.has(msgType)) return { kind: 'control', msgType, hex, provisional: PROVISIONAL };

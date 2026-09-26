@@ -52,6 +52,8 @@ import {
   gateBypassFrame,
   midiStrategyById,
   outputsMuteFrame,
+  tempoExitFrame,
+  tempoSetFrame,
   presetSelectFrame,
   programChange,
   tunerOnFrame,
@@ -453,6 +455,15 @@ export class SyncEngine {
         });
         return;
       }
+      case 'tap-tempo':
+        // One message per tap with the running tempo; the exit carries the final value. The exit
+        // is not always followed by a change notice, so the tempo is taken from the message and
+        // the state re-read (screen firmware finding 2026-09-26).
+        this.log('info', ev.active ? `Tap tempo: ${Math.round(ev.bpm)} BPM` : `Tap tempo left at ${Math.round(ev.bpm)} BPM; re-reading state`, toHex(pkt.data));
+        this.store.setField('tempo', ev.bpm, 'event', pkt.at);
+        this.store.patch({ tapTempo: ev.active });
+        if (!ev.active) this.scheduleConfirm(150);
+        return;
       case 'preset-select-ack':
         // The pedal's reply to a c304 preset select (2026-09-19). Cortex Cloud requests the
         // state right after it; field 13 there is what settles the switch.
@@ -575,6 +586,7 @@ export class SyncEngine {
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
     if (state.footswitchAssignments) this.store.setField('footswitches', state.footswitchAssignments, 'dump', at);
     this.store.setField('tempo', state.tempoBpm, 'dump', at);
+    this.store.patch({ tapTempo: state.tapTempoMode });
     // The pedal's saved reference pitch seeds the tuner while the app is not driving it.
     if (state.tunerReferenceHz !== null && !this.store.get().tuner.on && this.store.get().tuner.referenceHz !== state.tunerReferenceHz) {
       this.store.patch({ tuner: { ...this.store.get().tuner, referenceHz: state.tunerReferenceHz } });
@@ -640,6 +652,21 @@ export class SyncEngine {
     const next = !current;
     this.store.setField('fxOn', { ...this.store.get().fxOn.value, [slot]: next }, 'optimistic');
     await this.transport.writeCommand(fxBlockBypassFrame(slot, next));
+    this.scheduleConfirm();
+  }
+
+  /**
+   * Set the preset tempo: the pedal's per-tap message written back (enters its tap tempo mode),
+   * then the exit shape so the pedal returns to normal with the new tempo (both found by trial on
+   * the pedal with the NanoGig Screen firmware, 2026-09-26). The state re-read (field 56) confirms.
+   */
+  async setTempo(bpm: number): Promise<void> {
+    this.assertWrites();
+    const rounded = Math.round(bpm);
+    this.store.setField('tempo', rounded, 'optimistic');
+    await this.transport.writeCommand(tempoSetFrame(rounded));
+    await this.transport.writeCommand(tempoExitFrame(rounded));
+    this.store.patch({ tapTempo: false });
     this.scheduleConfirm();
   }
 

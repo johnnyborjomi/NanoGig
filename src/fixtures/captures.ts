@@ -91,6 +91,10 @@ export interface MockDeviceState {
   firmware: string;
   /** Global "Mute Outputs 1/2" switch (not part of the state dump). */
   outputsMuted: boolean;
+  /** Preset tempo the mock reports and accepts (0x91 frames, 2026-09-26). */
+  tempoBpm: number;
+  /** The mock pedal is in tap tempo mode (after a tempo-set write, until the exit frame). */
+  tapTempo: boolean;
 }
 
 export function defaultMockDeviceState(): MockDeviceState {
@@ -105,6 +109,8 @@ export function defaultMockDeviceState(): MockDeviceState {
     captureVolumeRaw: 127,
     firmware: '2.2.1',
     outputsMuted: false,
+    tempoBpm: 120,
+    tapTempo: false,
   };
 }
 

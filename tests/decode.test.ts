@@ -11,6 +11,7 @@ import {
 import { fromHex, toHex } from '../src/protocol/hex';
 import { parseFields } from '../src/protocol/proto';
 import { HW_STATE_PRESET_1 } from '../src/fixtures/hardware-2026-09-26';
+import { HW_TAP_TEMPO_EXIT_99, HW_TAP_TEMPO_TAP_135 } from '../src/fixtures/hardware-2026-09-26';
 import {
   HW_EXP_ASSIGN_ACK,
   HW_EXP_ASSIGN_REPLY_2,
@@ -403,6 +404,29 @@ describe('expression pedal (Cortex Cloud HCI capture 2026-09-19)', () => {
       post3: { mode: 2, delayMs: 0 },
       bypass22: { mode: 2, delayMs: 0 },
     });
+  });
+});
+
+describe('tap tempo (screen firmware log 2026-09-26)', () => {
+  it('a tap carries the running tempo with the mode flag', () => {
+    const ev = decodeEvent(HW_TAP_TEMPO_TAP_135);
+    expect(ev.kind).toBe('tap-tempo');
+    if (ev.kind === 'tap-tempo') {
+      expect(ev.active).toBe(true);
+      expect(ev.bpm).toBe(135);
+    }
+  });
+  it('leaving the mode carries the final tempo without the flag', () => {
+    const ev = decodeEvent(HW_TAP_TEMPO_EXIT_99);
+    expect(ev.kind).toBe('tap-tempo');
+    if (ev.kind === 'tap-tempo') {
+      expect(ev.active).toBe(false);
+      expect(ev.bpm).toBe(99);
+    }
+  });
+  it('state field 60 is absent outside the mode', () => {
+    const st = decodeCurrentState(HW_STATE_SINGLE.subarray(2));
+    expect(st?.tapTempoMode).toBe(false);
   });
 });
 

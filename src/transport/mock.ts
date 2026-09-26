@@ -213,6 +213,13 @@ export class MockTransport implements Transport {
       this.startTunerStream();
       return;
     }
+    // Tempo set (per-tap shape, enters tap mode) / tap mode exit (2026-09-26): silent on the real pedal.
+    if ((bytes.length === 15 && bytes[0] === 0x0d && bytes[4] === 0x18 && bytes[6] === 0x2d && bytes[11] === 0x91) || (bytes.length === 13 && bytes[0] === 0x0b && bytes[4] === 0x2d && bytes[9] === 0x91)) {
+      const off = bytes.length === 15 ? 7 : 5;
+      this.device.tempoBpm = new DataView(bytes.buffer, bytes.byteOffset + off, 4).getFloat32(0, true);
+      this.device.tapTempo = bytes.length === 15;
+      return;
+    }
     // Expression assignments read: 08 C0 08 03 18 <preset> 3C … → the demo has post 3 (17–130) on even presets.
     if (bytes.length === 10 && bytes[0] === 0x08 && bytes[1] === 0xc0 && bytes[2] === 0x08 && bytes[3] === 0x03 && bytes[4] === 0x18 && bytes[6] === 0x3c) {
       const preset = bytes[5]!;

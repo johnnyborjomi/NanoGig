@@ -132,6 +132,10 @@ button.warn {
 .status .tempo[hidden] {
   display: none;
 }
+/* The pedal is in its tap tempo mode: the value follows every tap. */
+.status .tempo.tapping {
+  color: var(--warn);
+}
 .status .tempo svg {
   width: 14px;
   height: 14px;

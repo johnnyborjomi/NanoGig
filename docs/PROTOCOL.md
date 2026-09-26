@@ -80,6 +80,7 @@ mic and position as a path (`110 US PRN C10R/Ribbon 160/3`).
 | 48-52 | FX model IDs (raw bytes or varints) for pre1 … post3, mapped through the model catalogue      |
 | 54    | Gate: present = gate off (inverted)                                                           |
 | 56    | **Tempo in BPM, fixed32 float (new; confirmed 2026-09-14, follows tap tempo live)**           |
+| 60    | **Present (= 1) while the pedal is in its tap tempo mode** (screen firmware 2026-09-26)       |
 
 **Zero-valued varints are omitted** (proto3 default semantics; confirmed 2026-09-26 with a dump
 on preset 1 that has no field 13 at all, and the same for footswitch fields 14/15/38/39 and the
@@ -121,6 +122,7 @@ every mute ack to confirm the switch against the pedal's report.
 | `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
 | `0x1E` | Ack to the c304 preset select: `08 C0 08 01 20 01 1E 00 00 00`, after a `0x1F` notice               | re-read state (field 13 confirms)      |
 | `0x80` | Tuner pitch reading, ~30/s while the tuner is on and a note sounds (see "Tuner")                     | tuner overlay (note, cents, in tune)   |
+| `0x91` | Tap tempo: one per tap with the running BPM, one more on leaving the mode (see "Tap tempo")          | tempo badge live, re-read on exit      |
 
 ## Writes (control mode, c304)
 
@@ -136,6 +138,8 @@ every mute ack to confirm the switch against the pedal's report.
 | Preset select              | `36 C0 18 00 20 <preset> 28 <-1> 30 <-1> 38 <-1> 40 <-1> 48 04 1D 00 00 00`, `<-1>` = `FF FF FF FF FF FF FF FF FF 01` | 2026-09-19 (captured from Cortex Cloud, verified on the pedal) |
 | Tuner on                   | `0F C0 20 01 2D <f32 reference Hz> 30 01 38 <0 / 1 mute> 7F 00 00 00` | 2026-09-19 (captured from Cortex Cloud), verified on the pedal 2026-09-20 |
 | Tuner off                  | `06 C0 20 00 7F 00 00 00`                        | 2026-09-19 (captured) |
+| Tempo set (enters tap tempo mode) | `0D C0 08 01 18 01 2D <f32 BPM> 91 00 00 00` | 2026-09-26 (found by trial with the NanoGig Screen firmware) |
+| Leave tap tempo mode       | `0B C0 08 01 2D <f32 BPM> 91 00 00 00`           | 2026-09-26 (same) |
 
 Re-enabling a capture or cab needs its slot index, which NanoGig can only get by matching the
 current name against the metadata slot lists. When there is no match (factory cab, library
@@ -198,8 +202,8 @@ tap, captured 2026-09-24): `0B C0 08 01 2D <f32 Hz> 7F 00 00 00`, field 4 absent
 mirrors these reports into its tuner state (on/off, reference) and also treats any incoming
 pitch reading as proof that the tuner is running (ignoring readings still in flight for 500 ms
 after its own tuner-off write). A tuner already running on the pedal streams to a fresh
-subscriber, so reconnecting shows it; a tuner started on the pedal mid-link has not been seen to
-stream (no packet observed yet).
+subscriber, so reconnecting shows it. A tuner started on the pedal mid-link (footswitch) is
+announced to the connected client as well (screen firmware 2026-09-26: the screen follows it).
 
 **Subscribe to `c305` only.** Cortex Cloud never enables `c306`, the *indicate* mirror. With both
 subscribed the pitch stream lagged 3–5 s behind the pedal: every indication is acknowledged one
@@ -221,6 +225,36 @@ pedal judges the note in tune, which in the capture meant |cents| below about 2.
 
 Also seen at connect: Cortex Cloud sends `06 C0 08 03 36 00 00 00` and the pedal answers
 `08 C0 08 03 18 01 37 00 00 00` (field 3 = 1). Purpose unknown.
+
+## Tap tempo
+
+Found 2026-09-26 with the NanoGig Screen firmware (same pedal, NanOS 2.2.1), which logs every
+event it does not understand. Hold the left footswitch to enter the pedal's tap tempo mode, tap,
+hold again to leave.
+
+**Events** (type `0x91`): every tap sends the running tempo with field 3 = 1; leaving the mode
+sends the final tempo without field 3:
+
+```
+0D C0 08 01 18 01 2D <f32 BPM> 91 00 00 00     tap: field 3 = 1 (mode on), field 5 = BPM
+0B C0 08 01 2D <f32 BPM> 91 00 00 00           exit: field 3 absent, final BPM
+```
+
+Seen 60–186 BPM. The exit is only sometimes followed by a `0x73` notice, so the tempo is taken
+from the message itself and the state is re-read after the exit. Before this, NanoGig relied on
+a knob event (`0x1A`) plus a re-read and missed the change whenever the notice did not come.
+
+**Writes**: the per-tap shape written to `c304` sets the tempo *and* puts the pedal into its tap
+tempo mode (its screen switches; no ack; the next dump's field 56 confirms). The exit shape
+leaves the mode, keeping the tempo given. `SyncEngine.setTempo()` sends both so the pedal ends
+up in normal mode with the new tempo. The exit shape on its own does not change the tempo.
+
+**State**: field 60 = 1 while the pedal is in the mode (a connect during it carries the field),
+absent otherwise.
+
+**Advertising**: after a disconnect the pedal advertises only for a limited window, and while
+it sits in tap tempo mode past that window it does not advertise at all: a client cannot
+reconnect until the mode is left on the pedal.
 
 ## Expression pedal
 

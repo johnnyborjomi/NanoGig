@@ -119,6 +119,13 @@ export const MSG = {
   TUNER_REQUEST: 0x7f,
   /** Tuner pitch event, streamed while a note is detected. */
   TUNER_PITCH: 0x80,
+  /**
+   * Tap tempo (screen firmware log 2026-09-26): every tap in the pedal's tap tempo mode sends
+   * `0D C0 08 01 18 01 2D <f32 BPM> 91 00 00 00` (field 3 = 1 = mode on); leaving the mode sends
+   * `0B C0 08 01 2D <f32 BPM> 91 00 00 00` (field 3 absent). Written back, the per-tap shape sets
+   * the tempo and enters the mode, the exit shape leaves it.
+   */
+  TAP_TEMPO: 0x91,
 } as const;
 
 // ---------------------------------------------------------------------------

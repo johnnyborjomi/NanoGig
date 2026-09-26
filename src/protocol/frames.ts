@@ -149,6 +149,36 @@ export function expressionAssignmentsRequest(presetIndex: number): Uint8Array {
   return new Uint8Array([0x08, 0xc0, 0x08, 0x03, 0x18, presetIndex, 0x3c, 0x00, 0x00, 0x00]);
 }
 
+export const TEMPO_MIN_BPM = 40;
+export const TEMPO_MAX_BPM = 300;
+
+function f32le(value: number): [number, number, number, number] {
+  const f = new Uint8Array(4);
+  new DataView(f.buffer).setFloat32(0, value, true);
+  return [f[0]!, f[1]!, f[2]!, f[3]!];
+}
+
+/**
+ * Tempo set (type 0x91), found by trial on the pedal 2026-09-26 (NanoGig Screen firmware):
+ * the pedal's own per-tap message written back, `0D C0 08 01 18 01 2D <f32 BPM> 91 00 00 00`.
+ * The pedal takes it silently (no ack), enters its tap tempo mode, and the next state dump's
+ * field 56 carries the new tempo. Without field 3 the tempo is left alone (see `tempoExitFrame`).
+ */
+export function tempoSetFrame(bpm: number): Uint8Array {
+  if (!Number.isFinite(bpm) || bpm < TEMPO_MIN_BPM || bpm > TEMPO_MAX_BPM) throw new RangeError(`tempo out of range: ${bpm}`);
+  return new Uint8Array([0x0d, 0xc0, 0x08, 0x01, 0x18, 0x01, 0x2d, ...f32le(bpm), 0x91, 0x00, 0x00, 0x00]);
+}
+
+/**
+ * Leave tap tempo mode (type 0x91, field 3 absent): the pedal's own exit message written back,
+ * `0B C0 08 01 2D <f32 BPM> 91 00 00 00`. Verified 2026-09-26: the pedal leaves the mode and keeps
+ * the tempo given.
+ */
+export function tempoExitFrame(bpm: number): Uint8Array {
+  if (!Number.isFinite(bpm) || bpm < TEMPO_MIN_BPM || bpm > TEMPO_MAX_BPM) throw new RangeError(`tempo out of range: ${bpm}`);
+  return new Uint8Array([0x0b, 0xc0, 0x08, 0x01, 0x2d, ...f32le(bpm), 0x91, 0x00, 0x00, 0x00]);
+}
+
 /** Tuner off (type 0x7F, field 4 = 0), captured 2026-09-19 when the tuner page closed. */
 export const TUNER_OFF: Uint8Array = fromHex('06 C0 20 00 7F 00 00 00');
 
