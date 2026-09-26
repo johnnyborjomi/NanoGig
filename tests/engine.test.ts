@@ -123,15 +123,17 @@ describe('SyncEngine with the mock transport', () => {
     const { mock, store, engine } = setup();
     await connect(mock);
     await flush(3500);
-    const txBefore = store.get().log.filter((l) => l.dir === 'tx').length;
+    // State requests only: the first expression movement also sends the (one-off) assignments read.
+    const stateRequests = () => store.get().log.filter((l) => l.dir === 'tx' && l.hex === toHex(Uint8Array.from([0x0c, 0xc0, 0x08, 0x03, 0x18, 0x01, 0x20, 0x01, 0x28, 0x01, 0x01, 0, 0, 0]))).length;
+    const before = stateRequests();
     mock.inject(REAL_EVENTS.expressionToe);
     mock.inject(REAL_EVENTS.expressionHeel);
     await flush(1000);
-    expect(store.get().log.filter((l) => l.dir === 'tx').length).toBe(txBefore);
+    expect(stateRequests()).toBe(before);
     mock.inject(REAL_EVENTS.gainKnob); // knobs may carry tempo changes → one debounced re-read
     mock.inject(REAL_EVENTS.gainKnob);
     await flush(1000);
-    expect(store.get().log.filter((l) => l.dir === 'tx').length).toBe(txBefore + 1);
+    expect(stateRequests()).toBe(before + 1);
     engine.dispose();
   });
 
@@ -873,20 +875,35 @@ describe('expression pedal', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('reads the assignments of the active preset after sync and follows position / values events', async () => {
+  it('reads assignments only once the pedal reports expression movement, then once per preset; follows position / values events', async () => {
     const { mock, store, engine } = setup();
     await connect(mock);
     await flush(4000);
-    // Demo preset 7 is odd → the mock answers "nothing assigned".
+    const requests = () => store.get().log.filter((l) => l.dir === 'tx' && /3C 00 00 00$/.test(l.hex ?? '') && l.text.startsWith('Expression'));
+    // No expression pedal seen: nothing asked, nothing known.
+    expect(requests()).toHaveLength(0);
+    expect(store.get().expression.assignmentsPreset).toBeNull();
+    mock.pressFootswitch(2);
+    await flush(1500);
+    expect(requests()).toHaveLength(0);
+
+    // First movement: read the current preset's assignments (demo preset 2 is even → post 3, 17–130).
+    mock.sweepExpression(4, 50);
+    await flush(400);
+    expect(requests().map((l) => l.hex)).toEqual(['08 C0 08 03 18 02 3C 00 00 00']);
+    expect(store.get().expression.assignmentsPreset).toBe(2);
+    expect(store.get().expression.assignments?.ranges.post3).toEqual({ min: 17, max: 130, flag: 0 });
+
+    // From now on, once per preset, for the preset the pedal announces (odd → nothing assigned).
+    mock.pressFootswitch(7);
+    await flush(1500);
     expect(store.get().expression.assignmentsPreset).toBe(7);
     expect(store.get().expression.assignments?.ranges.post3).toBeUndefined();
-    expect(store.get().log.some((l) => l.dir === 'tx' && l.hex === '08 C0 08 03 18 07 3C 00 00 00')).toBe(true);
-
-    mock.pressFootswitch(4); // even → post 3, 17–130
+    expect(requests().map((l) => l.hex)).toEqual(['08 C0 08 03 18 02 3C 00 00 00', '08 C0 08 03 18 07 3C 00 00 00']);
+    mock.pressFootswitch(4);
     await flush(1500);
     expect(store.get().expression.assignmentsPreset).toBe(4);
-    expect(store.get().expression.assignments?.ranges.post3).toEqual({ min: 17, max: 130, flag: 0 });
-    expect(store.get().log.filter((l) => l.dir === 'tx' && /3C 00 00 00$/.test(l.hex ?? '') && l.text.startsWith('Expression')).length).toBe(2); // once per preset
+    expect(requests()).toHaveLength(3);
 
     mock.sweepExpression(4, 50);
     await flush(120);

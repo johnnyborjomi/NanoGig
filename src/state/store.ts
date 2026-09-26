@@ -28,7 +28,7 @@ export interface ExpressionState {
   /** What the pedal produced for the assigned targets (ranges 0–255, bypasses on/off), with their time. */
   values: ExpressionValues;
   valuesAt: number | null;
-  /** Assignments of `assignmentsPreset` (read after every preset change); null until read. */
+  /** Assignments of `assignmentsPreset` (read once the pedal reports expression movement, then per preset); null until read. */
   assignments: ExpressionAssignments | null;
   assignmentsPreset: number | null;
 }

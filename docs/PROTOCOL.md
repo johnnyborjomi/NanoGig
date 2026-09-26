@@ -256,9 +256,12 @@ a toe switch (switch / stop, order unknown). The reply was only seen with post 3
 write − 1; the decoder applies that rule to every target and logs the result, so the first
 read of a fully assigned preset will confirm or correct it.
 
-NanoGig requests the assignments after every state dump whose preset differs from the last
-request, remembers which preset it asked for (the reply carries none), and shows a bar at the
-right edge for the position plus an `EXP min–max %` badge with a value fill on each assigned tile.
+NanoGig requests the assignments only once the pedal has reported an expression movement on
+the current link (so a pedal without an expression pedal never receives the message), then once
+per preset, using the preset the pedal itself announced. It remembers which preset it asked for
+(the reply carries none) and shows a bar at the right edge for the position plus a range band
+with a value fill on each assigned tile. v1.0.5 sent the request after every state dump; a user
+reported presets reverting on preset change with that build (unconfirmed, see the changelog).
 
 ## Fixtures
 

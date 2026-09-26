@@ -193,6 +193,7 @@ export class SyncEngine {
       this.settingsRequestedThisLink = false;
       this.tunerOverlayOpen = false;
       this.expAssignRequested = null;
+      this.expressionSeenThisLink = false;
       this.settlePresetWaiters(-1);
       this.settleMuteWaiter();
       if (status === 'disconnected' || status === 'reconnecting') this.store.clearDeviceState();
@@ -398,6 +399,11 @@ export class SyncEngine {
       // ~20/s while the pedal moves, with a values event alongside: one update each, nothing logged.
       const x = this.store.get().expression;
       this.store.patch({ lastEventAt: pkt.at, expression: { ...x, position: ev.position, movedAt: pkt.at } });
+      if (!this.expressionSeenThisLink) {
+        this.expressionSeenThisLink = true;
+        this.log('info', 'Expression pedal detected; reading its assignments', toHex(pkt.data));
+        this.requestExpressionAssignments(this.store.get().activePreset.value);
+      }
       return;
     }
     if (ev.kind === 'expression-values') {
@@ -415,6 +421,7 @@ export class SyncEngine {
         if (ev.assignments) this.store.setField('footswitches', ev.assignments, 'event', pkt.at);
         this.settlePresetWaiters(ev.preset);
         this.scheduleConfirm(150);
+        this.requestExpressionAssignments(ev.preset);
         // Whether a preset change on the pedal ends its tuner is unknown: re-arm the big tuner to be safe.
         if (this.tunerOverlayOpen) void this.writeTunerOn().catch((err) => this.log('warn', `Tuner re-arm failed: ${(err as Error).message}`));
         return;
@@ -596,16 +603,7 @@ export class SyncEngine {
     }
     this.store.patch({ lastStateSyncAt: at, syncPhase: 'ready' });
     this.validateCachedNames(state);
-    // Expression assignments are per preset: read them once per preset (Cortex Cloud's 0x3C).
-    if (state.activePreset !== null && state.activePreset !== this.store.get().expression.assignmentsPreset && state.activePreset !== this.expAssignRequested) {
-      this.expAssignRequested = state.activePreset;
-      const req = expressionAssignmentsRequest(state.activePreset);
-      this.log('tx', `Expression assignments request · preset ${state.activePreset + 1}`, toHex(req));
-      void this.transport.writeCommand(req).catch((err) => {
-        this.expAssignRequested = null;
-        this.log('warn', `Expression assignments request failed: ${(err as Error).message}`);
-      });
-    }
+    this.requestExpressionAssignments(state.activePreset);
     this.armIdleTimer();
     if (!this.settingsRequestedThisLink) {
       this.settingsRequestedThisLink = true;
@@ -863,6 +861,30 @@ export class SyncEngine {
 
   /** Preset whose expression assignments were last requested (the reply carries no index). */
   private expAssignRequested: number | null = null;
+  /**
+   * The pedal has reported an expression movement on this link. Only then are assignments
+   * read: the 0x3C request is Cortex Cloud's, captured only for the loaded preset, so a pedal
+   * without an expression pedal never receives it (v1.0.5 sent it after every preset change
+   * and a user reported presets reverting; unconfirmed, but nothing is lost by waiting).
+   */
+  private expressionSeenThisLink = false;
+
+  /**
+   * Read the expression assignments of `preset` (Cortex Cloud's 0x3C), once per preset, and
+   * only after the pedal has shown it has an expression pedal. Called with the preset the
+   * pedal itself announced (program change) or reported (state dump).
+   */
+  private requestExpressionAssignments(preset: number | null): void {
+    if (preset === null || !this.expressionSeenThisLink || this.transport.status !== 'connected') return;
+    if (preset === this.store.get().expression.assignmentsPreset || preset === this.expAssignRequested) return;
+    this.expAssignRequested = preset;
+    const req = expressionAssignmentsRequest(preset);
+    this.log('tx', `Expression assignments request · preset ${preset + 1}`, toHex(req));
+    void this.transport.writeCommand(req).catch((err) => {
+      this.expAssignRequested = null;
+      this.log('warn', `Expression assignments request failed: ${(err as Error).message}`);
+    });
+  }
   /** The full-screen tuner is open (it may mute; the live tuner never does). */
   private tunerOverlayOpen = false;
   /** When tuner-off was last written; readings still in flight for a moment after are ignored. */
