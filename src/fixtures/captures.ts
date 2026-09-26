@@ -15,7 +15,7 @@
  * follows the documented record shapes exactly.
  */
 import { fromHex } from '../protocol/hex';
-import { bytesField, stringField, varintField, fixed32FloatField } from '../protocol/proto';
+import { bytesField, stringField, varintField, fixed32FloatField, varintFieldOpt } from '../protocol/proto';
 import { FX_SLOTS, type FxSlot } from '../protocol/frames';
 import { MSG, encodeFrameHeader, frameSingle } from '../protocol/reassembly';
 
@@ -127,7 +127,7 @@ export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset
   body.push(...varintField(7, state.amp.treble));
   body.push(...varintField(11, state.captureOn ? state.captureSlot : 0));
   if (state.cabOn) body.push(...varintField(12, 1));
-  body.push(...varintField(13, state.activePreset));
+  body.push(...varintFieldOpt(13, state.activePreset)); // absent on preset 1, like the pedal
   body.push(...varintField(14, 3), ...varintField(15, 7));
   body.push(...stringField(24, state.firmware));
   body.push(...bytesField(31, FX_SLOTS.map((s) => (state.fxOn[s] ? 0x00 : 0x01))));
@@ -240,11 +240,11 @@ export function buildExpressionValuesEvent(values: Partial<Record<FxSlot, number
 export function buildPresetChangedEvent(preset: number, a = { ia: 3, ib: 5, iia: 20, iib: 14 }): Uint8Array {
   const body = [
     ...varintField(1, 1),
-    ...varintField(4, preset),
-    ...varintField(5, a.ia),
-    ...varintField(6, a.ib),
-    ...varintField(7, a.iia),
-    ...varintField(8, a.iib),
+    ...varintFieldOpt(4, preset), // absent for preset 1, like the pedal (zero-valued fields are omitted)
+    ...varintFieldOpt(5, a.ia),
+    ...varintFieldOpt(6, a.ib),
+    ...varintFieldOpt(7, a.iia),
+    ...varintFieldOpt(8, a.iib),
     MSG.PRESET_CHANGED, 0x00, 0x00, 0x00,
   ];
   return frameSingle(body);

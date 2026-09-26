@@ -228,6 +228,28 @@ export class CapacitorBleTransport implements Transport {
     void this.reconnectLoop();
   }
 
+  /**
+   * Resolve when the page is visible, so a backgrounded app does not fight another app (Cortex
+   * Cloud) for the pedal: a hidden NanoGig used to win the pedal back the moment the other app
+   * lost it. Wakes early when the loop is cancelled.
+   */
+  private waitUntilVisible(): Promise<void> {
+    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') return Promise.resolve();
+    this.log('info', 'App in the background; reconnect paused until it is visible again');
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        document.removeEventListener('visibilitychange', onVisible);
+        this.wakeReconnect = null;
+        resolve();
+      };
+      const onVisible = () => {
+        if (document.visibilityState !== 'hidden') done();
+      };
+      document.addEventListener('visibilitychange', onVisible);
+      this.wakeReconnect = done;
+    });
+  }
+
   private waitOrWake(ms: number): Promise<void> {
     return new Promise<void>((resolve) => {
       const t = setTimeout(() => {
@@ -286,6 +308,8 @@ export class CapacitorBleTransport implements Transport {
           this.log('info', `Reconnect attempt ${attempt + 1} in ${Math.round(delay / 100) / 10} s`);
           await this.waitOrWake(delay);
         }
+        if (this.intentionalDisconnect || this.reconnectAbort) break;
+        await this.waitUntilVisible();
         if (this.intentionalDisconnect || this.reconnectAbort) break;
         try {
           await this.openGatt();

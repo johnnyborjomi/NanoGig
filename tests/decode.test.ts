@@ -8,7 +8,9 @@ import {
   sanitizeName,
   decodeExpressionAssignments,
 } from '../src/protocol/decode';
-import { fromHex } from '../src/protocol/hex';
+import { fromHex, toHex } from '../src/protocol/hex';
+import { parseFields } from '../src/protocol/proto';
+import { HW_STATE_PRESET_1 } from '../src/fixtures/hardware-2026-09-26';
 import {
   HW_EXP_ASSIGN_ACK,
   HW_EXP_ASSIGN_REPLY_2,
@@ -401,5 +403,29 @@ describe('expression pedal (Cortex Cloud HCI capture 2026-09-19)', () => {
       post3: { mode: 2, delayMs: 0 },
       bypass22: { mode: 2, delayMs: 0 },
     });
+  });
+});
+
+describe('hardware 2026-09-26: preset 1 is encoded by omission (proto3 zero defaults)', () => {
+  it('a state dump with no field 13 is preset 1 (index 0), not unknown', () => {
+    const body = concatBytes([HW_STATE_PRESET_1[0]!.subarray(2), HW_STATE_PRESET_1[1]!.subarray(2)]);
+    const payload = splitTrailer(body).payload;
+    expect(parseFields(payload).some((f) => f.field === 13)).toBe(false); // really no field 13 at the top level
+    const st = decodeCurrentState(payload)!;
+    expect(st.activePreset).toBe(0);
+    expect(st.firmware).toBe('2.2.1');
+    expect(st.capture?.name).toBe('Stealth EL34 Gojira Blue');
+    expect(st.ir?.shortName).toBe("412 CA Stand OS A V30 '01");
+    expect(st.footswitchAssignments).toEqual({ ia: 3, ib: 5, iia: 20, iib: 14 });
+  });
+
+  it('a preset-changed event with no field 4 is preset 1; an absent assignment field is preset 1 too', () => {
+    const ev = decodeEvent(buildPresetChangedEvent(0, { ia: 0, ib: 5, iia: 20, iib: 14 }));
+    expect(ev.kind).toBe('program-change');
+    if (ev.kind === 'program-change') {
+      expect(ev.preset).toBe(0);
+      expect(ev.assignments).toEqual({ ia: 0, ib: 5, iia: 20, iib: 14 });
+    }
+    expect(toHex(buildPresetChangedEvent(0))).toBe('0E C0 08 01 28 03 30 05 38 14 40 0E 1D 00 00 00');
   });
 });

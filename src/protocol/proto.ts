@@ -150,6 +150,15 @@ export function varintField(field: number, value: number): number[] {
   return [...tag(field, 0), ...encodeVarint(value)];
 }
 
+/**
+ * Like `varintField`, but a zero value emits nothing, as the pedal does (proto3 default
+ * semantics, seen 2026-09-26: a state dump on preset 1 has no field 13 at all). Use it in
+ * fixtures for fields where 0 is a legal value, so tests exercise the absent-field path.
+ */
+export function varintFieldOpt(field: number, value: number): number[] {
+  return value === 0 ? [] : varintField(field, value);
+}
+
 export function bytesField(field: number, payload: ArrayLike<number>): number[] {
   return [...tag(field, 2), ...encodeVarint(payload.length), ...Array.from(payload)];
 }

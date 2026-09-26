@@ -231,6 +231,13 @@ if (forceMock) {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || userDisconnected) return;
     if (transport && !isBle(transport)) return;
+    if (transport?.status === 'connected') {
+      // Still linked, but another app (Cortex Cloud) may have driven the pedal while we were
+      // hidden, and iOS shares one Bluetooth link between apps: re-read rather than trust the cache.
+      store.appendLog({ at: Date.now(), dir: 'info', text: 'App in the foreground; re-reading the pedal state' });
+      void engine?.requestState().catch((e) => store.appendLog({ at: Date.now(), dir: 'warn', text: `State re-read failed: ${(e as Error).message}` }));
+      return;
+    }
     if (transport?.status && transport.status !== 'disconnected') return;
     store.appendLog({ at: Date.now(), dir: 'info', text: 'App in the foreground; trying the last pedal again' });
     tryResume();

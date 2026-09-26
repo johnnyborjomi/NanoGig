@@ -70,7 +70,7 @@ mic and position as a path (`110 US PRN C10R/Ribbon 160/3`).
 | 3-7   | Amp gain / level / bass / mid / treble (raw 0-255)                                            |
 | 11    | **Capture position within the bank: 0 or absent = capture bypassed** (web-editor rule)        |
 | 12    | Present = cab on                                                                              |
-| 13    | **Active preset index 0-63 (new)**                                                            |
+| 13    | **Active preset index 0-63 (new)**; absent on preset 1 (zero-valued fields are omitted)      |
 | 14/15/38/39 | Footswitch assignments (IA, IB, IIA, IIB)                                                |
 | 24    | Firmware version string                                                                       |
 | 31    | 5-byte bypass array `[pre1, pre2, post1, post2, post3]`, `0` = on                             |
@@ -81,8 +81,13 @@ mic and position as a path (`110 US PRN C10R/Ribbon 160/3`).
 | 54    | Gate: present = gate off (inverted)                                                           |
 | 56    | **Tempo in BPM, fixed32 float (new; confirmed 2026-09-14, follows tap tempo live)**           |
 
-If field 13 were ever missing, the app falls back to a unique capture + IR name match against
-the preset list, tagged **inferred** on screen.
+**Zero-valued varints are omitted** (proto3 default semantics; confirmed 2026-09-26 with a dump
+on preset 1 that has no field 13 at all, and the same for footswitch fields 14/15/38/39 and the
+`0x1D` event's field 4). NanoGig therefore reads an absent field 13 as preset 1. Until v1.0.5
+it read it as "unknown" and fell back to a capture + IR name match, which failed whenever two
+presets shared a capture, leaving "Tap a footswitch to sync" on screen and, for an app-driven
+switch to preset 1, an unconfirmed Bluetooth select followed by every MIDI fallback. The name
+match remains only as a last resort for a dump without a state at all.
 
 ## Device settings message (type `0x42`, new)
 
