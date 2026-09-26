@@ -33,6 +33,23 @@ jobs:
       - run: npm run build
         env:
           NANOGIG_CHANNEL: staging
+      # Same as production: every release at its own path, /NanoGig-staging/vX.Y.Z/, from the
+      # release zips, so the versioned layout can be tried here before a release.
+      - name: Add every release at its own path (dist/vX.Y.Z/ from the release zips)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p zips
+          for TAG in $(gh api --paginate repos/${GITHUB_REPOSITORY}/releases -q '.[] | select(.draft | not) | .tag_name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$'); do
+            if gh release download "$TAG" --pattern "nanogig-$TAG-web.zip" --dir zips --clobber 2>/dev/null; then
+              mkdir -p "dist/$TAG"
+              unzip -qo "zips/nanogig-$TAG-web.zip" -d "dist/$TAG"
+              echo "added $TAG"
+            else
+              echo "no web zip on $TAG, skipped"
+            fi
+          done
+          ls -d dist/v* || true
       - name: Push dist/ to NanoGig-staging (gh-pages)
         uses: peaceiris/actions-gh-pages@v4
         with:

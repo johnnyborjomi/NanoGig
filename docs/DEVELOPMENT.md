@@ -57,7 +57,8 @@ Production deploys from the tag itself, so installed apps see "A NanoGig update 
 when a version is released. The same deploy also unpacks every release's web zip (attached by
 `release.yml`) at `https://johnnyborjomi.github.io/NanoGig/vX.Y.Z/`, so any older version can be
 opened by path, e.g. `/NanoGig/v1.0.3/`, to check whether a problem is new. Those copies are
-exactly what shipped; each has its own service worker scope, and only the root is the PWA. Run the workflow by hand to redeploy the highest final release tag
+exactly what shipped; each has its own service worker scope, and only the root is the PWA.
+Staging does the same under `/NanoGig-staging/vX.Y.Z/`, so the layout can be checked there first. Run the workflow by hand to redeploy the highest final release tag
 (pre-release tags such as `v1.2.0-rc1` are skipped).
 
 Usage stats (`src/analytics.ts`, Umami Cloud, website id in `src/main.ts`) are only active in
