@@ -277,16 +277,18 @@ export function decodeCurrentState(bytes: Uint8Array): CurrentState | null {
       const raw = firstBytes(f, 24);
       return raw ? decodePrintable(raw) : null;
     })(),
+    // Zero-valued varints are omitted by the pedal (proto3 defaults, captured 2026-09-26): a
+    // dump on preset 1 has no field 13, and a footswitch assigned to preset 1 has no field either.
     activePreset: (() => {
-      const v = firstVarint(f, 13);
-      return v !== null && v < PRESET_COUNT ? v : null;
+      const v = firstVarint(f, 13) ?? 0;
+      return v < PRESET_COUNT ? v : null;
     })(),
     footswitchAssignments: (() => {
-      const ia = firstVarint(f, 14);
-      const ib = firstVarint(f, 15);
-      const iia = firstVarint(f, 38);
-      const iib = firstVarint(f, 39);
-      return ia !== null && ib !== null && iia !== null && iib !== null ? { ia, ib, iia, iib } : null;
+      const ia = firstVarint(f, 14) ?? 0;
+      const ib = firstVarint(f, 15) ?? 0;
+      const iia = firstVarint(f, 38) ?? 0;
+      const iib = firstVarint(f, 39) ?? 0;
+      return { ia, ib, iia, iib };
     })(),
     provisional: PROVISIONAL,
   };
@@ -525,13 +527,14 @@ export function decodeEvent(data: Uint8Array): DeviceEvent {
     const { payload, msgType } = splitTrailer(data.subarray(2));
     if (msgType === MSG.PRESET_CHANGED) {
       const f = parseFields(payload);
-      const preset = firstVarint(f, 4);
-      if (preset !== null && preset < PRESET_COUNT) {
-        const ia = firstVarint(f, 5);
-        const ib = firstVarint(f, 6);
-        const iia = firstVarint(f, 7);
-        const iib = firstVarint(f, 8);
-        const assignments = ia !== null && ib !== null && iia !== null && iib !== null ? { ia, ib, iia, iib } : undefined;
+      // Field 4 (and the assignment fields) are absent when zero: preset 1 / footswitch → preset 1.
+      const preset = firstVarint(f, 4) ?? 0;
+      if (preset < PRESET_COUNT) {
+        const ia = firstVarint(f, 5) ?? 0;
+        const ib = firstVarint(f, 6) ?? 0;
+        const iia = firstVarint(f, 7) ?? 0;
+        const iib = firstVarint(f, 8) ?? 0;
+        const assignments = { ia, ib, iia, iib };
         return {
           kind: 'program-change',
           preset,

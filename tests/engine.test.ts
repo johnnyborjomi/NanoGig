@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HW_PRESET_SELECT_0, HW_TUNER_OFF_REPORT, HW_TUNER_ON_ACK, HW_TUNER_PITCH_A_PLUS_14 } from '../src/fixtures/hardware-2026-09-19';
+import { HW_STATE_PRESET_1 } from '../src/fixtures/hardware-2026-09-26';
 import { MockTransport } from '../src/transport/mock';
 import { Store } from '../src/state/store';
 import { SyncEngine } from '../src/sync/engine';
@@ -897,6 +898,51 @@ describe('expression pedal', () => {
     expect(store.get().log.filter((l) => /Undocumented event/.test(l.text))).toHaveLength(0);
     await flush(1000);
     expect(store.get().expression.position).toBe(0); // back at heel
+    engine.dispose();
+  });
+});
+
+describe('preset 1 (index 0): the pedal omits the zero-valued field', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('a captured preset-1 dump syncs as preset 1 from the dump, no inference, no "tap a footswitch"', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(3500);
+    expect(store.get().activePreset.value).toBe(7);
+    for (const pkt of HW_STATE_PRESET_1) mock.inject(pkt);
+    await flush(100);
+    expect(store.get().activePreset.value).toBe(0);
+    expect(store.get().activePreset.source).toBe('dump');
+    expect(store.get().log.some((l) => /inferred/.test(l.text))).toBe(false);
+    engine.dispose();
+  });
+
+  it('selecting preset 1 over Bluetooth is confirmed by the dump; no MIDI fallback barrage', async () => {
+    const { mock, store, engine } = setup({ writes: true });
+    await connect(mock);
+    await flush(3500);
+    const p = engine.selectPreset(0);
+    await flush(2500);
+    await p;
+    expect(store.get().activePreset.value).toBe(0);
+    expect(store.get().activePreset.source).toBe('dump');
+    const warnings = store.get().log.filter((l) => /not confirmed|Preset switch failed/.test(l.text));
+    expect(warnings).toEqual([]);
+    expect(store.get().log.some((l) => l.dir === 'tx' && /c303|c302/.test(l.text))).toBe(false);
+    engine.dispose();
+  });
+
+  it('a footswitch press to preset 1 arrives as a program change, not an undocumented event', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(3500);
+    mock.pressFootswitch(0);
+    await flush(600);
+    expect(store.get().activePreset.value).toBe(0);
+    expect(store.get().log.some((l) => /Preset changed → 1/.test(l.text))).toBe(true);
+    expect(store.get().log.some((l) => /Undocumented event/.test(l.text))).toBe(false);
     engine.dispose();
   });
 });

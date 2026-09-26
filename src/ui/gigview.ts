@@ -349,12 +349,14 @@ export class GigView {
     this.reconnectBtn.title = "Stop retrying and pick the pedal from the Bluetooth chooser (put it in pairing mode first)";
     this.reconnectBtn.addEventListener("click", () => this.doConnect(false));
 
-    // Fullscreen: icon only.
+    // Fullscreen: icon only. Hidden where the API does not exist (iOS WebKit shells such as
+    // Bluefy: `requestFullscreen is not a function`); there the home-screen app is the way.
     this.fullscreenBtn.title = "Fullscreen";
     this.fullscreenBtn.setAttribute("aria-label", "Fullscreen");
     this.fullscreenBtn.append(
       lucideElement(Maximize, { "aria-hidden": "true" }),
     );
+    this.fullscreenBtn.hidden = typeof document.documentElement.requestFullscreen !== "function";
     document.addEventListener("fullscreenchange", () => {
       this.fullscreenBtn.replaceChildren(
         lucideElement(document.fullscreenElement ? Minimize : Maximize, {
@@ -485,6 +487,11 @@ export class GigView {
     this.presetEl = preset;
     this.rowResize?.observe(preset);
     window.addEventListener("resize", () => this.fitPresetRow());
+    // iPad: the viewport can change while the app is hidden (split view, app switcher) without a
+    // resize event reaching us; re-measure when it comes back.
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") this.fitPresetRow();
+    });
 
     // Blocks: gate line, separator, then the five FX tiles (pre | post) -----
     const blocks = el("div", "blocks");
