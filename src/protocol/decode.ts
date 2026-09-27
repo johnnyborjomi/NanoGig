@@ -323,8 +323,12 @@ export type DeviceEvent =
     }
   /** FX block / gate bypass changed on the device (no slot detail in the event). */
   | { kind: 'bypass-changed'; provisional: typeof PROVISIONAL }
-  /** Knob, encoder or expression telemetry — nothing the gig view displays. */
-  | { kind: 'control'; msgType: number; hex: string; provisional: typeof PROVISIONAL }
+  /**
+   * Knob (0x1A) or footswitch encoder (0x1C) telemetry. An encoder message has the slot-select
+   * shape `18 <selector> 20 <value>` (a zero value is omitted): selector 4 = capture slot
+   * (0-based), 3 = IR slot (1-based, 0 = cab off), 1 with value 0 = capture off.
+   */
+  | { kind: 'control'; msgType: number; selector: number | null; value: number; hex: string; provisional: typeof PROVISIONAL }
   /** Reply to the device-settings request (type 0x42). */
   | { kind: 'settings'; settings: DeviceSettings; hex: string; provisional: typeof PROVISIONAL }
   /** Ack to an outputs-mute write (type 0x44). */
@@ -332,7 +336,8 @@ export type DeviceEvent =
   /** Ack to a c304 preset select (type 0x1E, `08 C0 08 01 20 01 1E 00 00 00`; 2026-09-19). */
   | { kind: 'preset-select-ack'; hex: string; provisional: typeof PROVISIONAL }
   /** The pedal's reply to a tuner on/off write (type 0x7F back): field 4 = on, field 5 = reference Hz. */
-  | { kind: 'tuner-ack'; on: boolean; referenceHz: number | null; hex: string; provisional: typeof PROVISIONAL }
+  /** The pedal's tuner report (type 0x7F): our write echoed, or its own footswitch tuner / mute toggle. Field 7 = muted. */
+  | { kind: 'tuner-ack'; on: boolean; muted: boolean; referenceHz: number | null; hex: string; provisional: typeof PROVISIONAL }
   /** Expression pedal position 0–254 (type 0x40), ~20/s while it moves. */
   | { kind: 'expression'; position: number; hex: string; provisional: typeof PROVISIONAL }
   /** Values the expression produced for its assigned slots (type 0xAA), sent with every position. */
@@ -575,7 +580,7 @@ export function decodeEvent(data: Uint8Array): DeviceEvent {
     if (msgType === MSG.TUNER_REQUEST) {
       const f = parseFields(payload);
       const ref = firstFixed32Float(f, 5);
-      return { kind: 'tuner-ack', on: firstVarint(f, 4) === 1, referenceHz: ref !== null && Number.isFinite(ref) ? ref : null, hex, provisional: PROVISIONAL };
+      return { kind: 'tuner-ack', on: firstVarint(f, 4) === 1, muted: firstVarint(f, 7) === 1, referenceHz: ref !== null && Number.isFinite(ref) ? ref : null, hex, provisional: PROVISIONAL };
     }
     if (msgType === MSG.TUNER_PITCH) {
       const reading = decodeTunerReading(payload);
@@ -591,7 +596,10 @@ export function decodeEvent(data: Uint8Array): DeviceEvent {
       }
       return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
     }
-    if (msgType !== null && CONTROL_TYPES.has(msgType)) return { kind: 'control', msgType, hex, provisional: PROVISIONAL };
+    if (msgType !== null && CONTROL_TYPES.has(msgType)) {
+      const f = parseFields(payload);
+      return { kind: 'control', msgType, selector: firstVarint(f, 3), value: firstVarint(f, 4) ?? 0, hex, provisional: PROVISIONAL };
+    }
     if (msgType !== null) return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
   }
 

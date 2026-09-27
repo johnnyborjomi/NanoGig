@@ -52,9 +52,14 @@ SETTINGS FOR MIDI CONTROLLER:
 1. Disconnect the pedal from Cortex Cloud (the Nano accepts one Bluetooth client at a time).
 2. Open **[johnnyborjomi.github.io/NanoGig](https://johnnyborjomi.github.io/NanoGig/)** in a
    browser from the table below.
-3. Tap **Connect Nano Cortex**, pick the pedal in the chooser, done. The app reconnects on
-   its own after a pedal power cycle, and on launch where Chrome remembers the pedal (see
-   the note under the table). Preset names are remembered on the
+3. Tap **Connect Nano Cortex**, pick the pedal in the chooser, done. That chooser is Chrome's
+   consent step and appears once per pedal: later taps on Connect reach the pedal the page
+   already knows (and, where Chrome remembers it across launches, the remembered one) without
+   it. **Show all BT devices** opens the chooser on purpose. While the app looks for
+   the pedal it shows the pairing gesture (hold EXIT + CAPTURE) and a Cancel button; the
+   connect page with the Connect button comes back only after you cancel or disconnect on
+   purpose. The app reconnects on its own after a pedal power cycle, and on launch where
+   Chrome remembers the pedal (see the note under the table). Preset names are remembered on the
    device, so from the second connect on the screen is live as soon as the link is up. The
    name list is re-read once the pedal has been idle for a minute (or at once when a preset's
    capture or cab no longer matches what was remembered), which picks up renames made in
@@ -118,9 +123,12 @@ small _1/2_ badge sits next to the tempo in the top bar.
 
 Menu → Tuner opens the pedal's tuner over Bluetooth: the note in large type, the offset in
 cents on a needle bar, the reference pitch (± 1 Hz) and the tuner's own "mute outputs while
-tuning" switch, all as Cortex Cloud sends them. Done (or Escape, or losing the link) turns the
+tuning" switch, all as Cortex Cloud sends them (the switch follows the pedal's own mute toggle
+too). Done (or Escape, or losing the link) turns the
 tuner off again, unless the live tuner setting is on (see below). It works whenever connected: it changes no preset, so control mode is not
-needed.
+needed. A tuner started on the pedal (hold Footswitch II) opens the same screen by itself while
+the live tuner setting is off; the pedal ending its tuner closes it either way, as on the pedal's
+own display.
 
 **Live tuner** (experimental, on by default, Settings → Pedal): only while the pedal itself is
 in tuner mode, entered by holding Footswitch II on the pedal or from Menu → Tuner, the top bar shows the note with a flat dot
@@ -130,20 +138,34 @@ switches the pedal's tuner on. While it is checked, closing the big tuner leaves
 tuner mode (tap Footswitch II on the pedal to exit); unchecked, Done turns the tuner off. Tap
 the widget for the big tuner.
 
+## Tempo
+
+Menu → Tempo (or a tap on the BPM in the top bar) opens the tempo view: the tempo in large
+type, − / + and Done. Tap tempo on the pedal opens it by itself with the value following every
+tap, and the pedal leaving that mode closes it. The view mirrors the pedal's own tempo screen:
+opening it puts the pedal in tap tempo mode, − / + write the value (hold to walk it), Done leaves
+the mode with the final tempo and the state re-read confirms it. Like the tuner it needs no
+control mode.
+
 ## Expression pedal
 
 A thin bar at the right edge follows the expression pedal, and every FX block the pedal is
-assigned to in the current preset carries an `EXP 7–51%` badge with a fill that tracks the value
-the pedal produces. Assignments are read from the pedal after each preset change. By default the
-indicators fade out a few seconds after the pedal stops; Settings → Pedal can keep them on screen.
+assigned to in the current preset carries a track at its bottom: a band for the range set in
+Cortex Cloud and a fill for the value the pedal produces (a bypass assignment fills the whole
+track when engaged). Assignments are read from the pedal as soon as a preset switch is through,
+retried a few times if the pedal does not answer. The indicators never fade: Settings → Pedal →
+"Show expression pedal values" shows them always or never.
 
 ## Control mode
 
 Off by default. When on, taps write to the pedal: FX and gate tiles toggle their block, the
 capture and cab labels bypass or re-enable, and the preset strip switches presets. The only
 write that does not need control mode is the outputs 1/2 mute switch in
-Settings, which touches no preset. Every change is confirmed against the pedal's own report a moment later,
-so the screen shows what the pedal did, not what the app asked for.
+Settings, which touches no preset; the tuner and the tempo view are pedal screens rather than
+preset edits and work without it too. Every change is confirmed against the pedal's own report a moment later,
+so the screen shows what the pedal did, not what the app asked for. Fast taps are safe: one
+preset select is on the wire at a time and the newest target goes out on its ack (the pedal
+never loads the presets skipped past), and a report that predates a tile tap cannot undo it.
 
 > **Back up your presets in Cortex Cloud before turning control mode on**, and try it on a
 > preset you don't mind losing first. The protocol is reverse-engineered; a firmware update can

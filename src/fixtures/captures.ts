@@ -156,6 +156,8 @@ export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset
   for (const slot of FX_SLOTS) body.push(...bytesField(48 + FX_SLOTS.indexOf(slot), MODEL_IDS[slot]));
   body.push(...fixed32FloatField(53, (50 + 108) / 255));
   if (!state.gateOn) body.push(...varintField(54, 1));
+  body.push(...fixed32FloatField(56, state.tempoBpm)); // preset tempo (2026-09-14)
+  if (state.tapTempo) body.push(...varintField(60, 1)); // tap tempo mode (2026-09-26)
   body.push(MSG.DUMP, 0x00, 0x00, 0x00); // trailer
   return Uint8Array.from(body);
 }

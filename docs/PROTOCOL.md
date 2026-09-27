@@ -111,8 +111,8 @@ every mute ack to confirm the switch against the pedal's report.
 | Type   | Meaning                                                                                              | NanoGig reaction                       |
 | ------ | ---------------------------------------------------------------------------------------------------- | -------------------------------------- |
 | `0x1D` | Preset changed: `10 C0 08 01 20 <preset> 28 <IA> 30 <IB> 38 <IIA> 40 <IIB> 1D 00 00 00` (new)         | update preset immediately, re-read state |
-| `0x1F` | Bypass changed                                                                                       | re-read state                          |
-| `0x1C` | Footswitch encoder turned (capture / cab scrolling), same `18 <sel> 20 <val>` shape as slot writes   | debounced re-read (~400 ms)            |
+| `0x1F` | Bypass changed (names no block)                                                                      | re-read state at once, no debounce     |
+| `0x1C` | Footswitch encoder turned (capture / cab scrolling), same `18 <sel> 20 <val>` shape as slot writes: sel 4 = capture slot (0-based), 3 = IR slot (1-based, 0 = cab off), 1 with 0 = capture off | name shown from the cached lists at once, debounced re-read (~400 ms) confirms |
 | `0x1A` | Knob (also tap tempo)                                                                                | debounced re-read (~400 ms)            |
 | `0x40` | Expression pedal position: `0B C0 08 01 18 02 20 <0–254> 40 00 00 00`, field 4 absent at heel; ~20/s while moving | side bar                    |
 | `0xAA` | Values the expression produced for its assigned slots (see "Expression pedal")                        | EXP badge fill on the tile             |
@@ -120,7 +120,7 @@ every mute ack to confirm the switch against the pedal's report.
 | `0x73` | Generic "something changed" notice; also the ack to capture / cab slot writes                         | debounced re-read                      |
 | `0x42` | Device-settings reply (see above)                                                                    | log the fields                         |
 | `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
-| `0x1E` | Ack to the c304 preset select: `08 C0 08 01 20 01 1E 00 00 00`, after a `0x1F` notice               | re-read state (field 13 confirms)      |
+| `0x1E` | Ack to the c304 preset select: `08 C0 08 01 20 01 1E 00 00 00`, after a `0x1F` notice               | send the newest pending select, else re-read state (field 13 confirms) |
 | `0x80` | Tuner pitch reading, ~30/s while the tuner is on and a note sounds (see "Tuner")                     | tuner overlay (note, cents, in tune)   |
 | `0x91` | Tap tempo: one per tap with the running BPM, one more on leaving the mode (see "Tap tempo")          | tempo badge live, re-read on exit      |
 

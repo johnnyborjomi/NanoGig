@@ -23,7 +23,7 @@ const debug = flag('debug');
 const midiStrategy = params.get('midi'); // pin a MIDI delivery strategy, e.g. ?midi=c303-ble-midi
 
 const SETTINGS_KEY = 'nanogig.settings';
-type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean; showFootswitches: boolean; showPresetStrip: boolean; autoRefreshNames: boolean; liveTuner: boolean; expressionPersist: boolean };
+type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean; showFootswitches: boolean; showPresetStrip: boolean; autoRefreshNames: boolean; liveTuner: boolean; expressionShow: boolean };
 function loadSettings(): Partial<Settings> {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -37,16 +37,16 @@ function loadSettings(): Partial<Settings> {
     if (typeof parsed.showPresetStrip === 'boolean') out.showPresetStrip = parsed.showPresetStrip;
     if (typeof parsed.autoRefreshNames === 'boolean') out.autoRefreshNames = parsed.autoRefreshNames;
     if (typeof parsed.liveTuner === 'boolean') out.liveTuner = parsed.liveTuner;
-    if (typeof parsed.expressionPersist === 'boolean') out.expressionPersist = parsed.expressionPersist;
+    if (typeof parsed.expressionShow === 'boolean') out.expressionShow = parsed.expressionShow;
     return out;
   } catch {
     return {};
   }
 }
 function saveSettings() {
-  const { presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner, expressionPersist } = store.get();
+  const { presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner, expressionShow } = store.get();
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner, expressionPersist }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner, expressionShow }));
   } catch {
     /* storage unavailable */
   }
@@ -143,12 +143,22 @@ const view = new GigView(
   document.getElementById('app')!,
   store,
   {
-    async connect(acceptAll) {
+    async connect(mode = 'auto') {
       userDisconnected = false;
       store.patch({ lastError: null });
       if (forceMock) return this.connectMock();
       if (!isBle(transport)) attach(createBle());
-      await transport!.connect({ acceptAll: !!acceptAll });
+      // Chrome's device chooser is the last resort: a pedal this page already knows (picked
+      // earlier, or remembered by Chrome across launches) is reached without it.
+      if (mode === 'auto' && transport instanceof BleTransport) {
+        const known = await transport.connectKnown();
+        if (known === 'connected') return;
+        if (known === 'failed') {
+          store.patch({ lastError: 'Could not reach the pedal. Make sure it is on and not connected to Cortex Cloud, hold EXIT + CAPTURE on it, then tap Connect again (or Show all BT devices to pick it anew).' });
+          return;
+        }
+      }
+      await transport!.connect({ acceptAll: mode === 'all' });
     },
     connectMock: startMock,
     async disconnect() {
@@ -172,6 +182,9 @@ const view = new GigView(
     stopTuner: () => requireEngine().stopTuner(),
     setTunerReference: (hz) => requireEngine().setTunerReference(hz),
     setTunerMute: (muted) => requireEngine().setTunerMute(muted),
+    openTempo: () => requireEngine().openTempo(),
+    closeTempo: () => requireEngine().closeTempo(),
+    stepTempo: (delta) => requireEngine().stepTempo(delta),
     simulateDrop: () => {
       if (transport instanceof MockTransport) transport.simulateDrop();
     },

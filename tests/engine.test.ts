@@ -820,17 +820,31 @@ describe('live tuner', () => {
     expect(store.get().tuner.on).toBe(false);
     expect(store.get().tuner.reading).toBeNull();
     expect(tx()).toContain('06 C0 20 00 7F 00 00 00');
-    // A reading still in flight right after tuner-off does not switch it back on.
+    // Readings still in flight for up to ~0.9 s after tuner-off do not switch it back on.
     mock.inject(HW_TUNER_PITCH_A_PLUS_14);
     await flush(50);
     expect(store.get().tuner.on).toBe(false);
-    await flush(600);
+    await flush(700);
+    mock.inject(HW_TUNER_PITCH_A_PLUS_14);
+    await flush(50);
+    expect(store.get().tuner.on).toBe(false);
+    await flush(200);
     mock.inject(HW_TUNER_PITCH_A_PLUS_14);
     await flush(50);
     expect(store.get().tuner.on).toBe(true);
     mock.inject(HW_TUNER_OFF_REPORT);
     await flush(50);
     expect(store.get().tuner.on).toBe(false);
+    // The pedal's own mute toggle while tuning (footswitch) comes as a report with field 7: mirrored.
+    mock.inject(Uint8Array.from([0x0f, 0xc0, 0x08, 0x01, 0x20, 0x01, 0x2d, 0x00, 0x00, 0xdc, 0x43, 0x38, 0x01, 0x7f, 0x00, 0x00, 0x00]));
+    await flush(10);
+    expect(store.get().tuner.on).toBe(true);
+    expect(store.get().tuner.muted).toBe(true);
+    mock.inject(HW_TUNER_ON_ACK); // no field 7 = sound on
+    await flush(10);
+    expect(store.get().tuner.muted).toBe(false);
+    mock.inject(HW_TUNER_OFF_REPORT);
+    await flush(50);
 
     // A preset change on the pedal re-arms nothing while the big tuner is closed.
     const before = tx().length;
@@ -944,11 +958,61 @@ describe('tap tempo (screen firmware findings 2026-09-26)', () => {
     engine.dispose();
   });
 
-  it('setTempo is a control-mode write', async () => {
-    const { mock, engine } = setup({ writes: false });
+  it('tempo view: open enters tap mode, − / + are coalesced and confirmed once, Done leaves the mode; no control mode needed', async () => {
+    const { mock, store, engine } = setup({ writes: false });
     await connect(mock);
     await flush(4000);
-    await expect(engine.setTempo(99)).rejects.toThrow(/Writes are disabled/);
+    const tx = () => store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex);
+    const states = () => tx().filter((h) => h === '0C C0 08 03 18 01 20 01 28 01 01 00 00 00').length;
+    await engine.openTempo();
+    expect(store.get().tapTempo).toBe(true);
+    expect(mock.device.tapTempo).toBe(true);
+    const sets = () => store.get().log.filter((l) => l.text === 'TX c304 (mock)' && l.hex?.startsWith('0D C0 08 01 18 01 2D') && l.hex.endsWith('91 00 00 00')).length; // the transport's lines, one per write
+    const before = sets();
+    const statesBefore = states();
+    engine.stepTempo(1);
+    engine.stepTempo(1);
+    engine.stepTempo(1);
+    expect(store.get().tempo.value).toBe(123); // shown at once
+    expect(store.get().tempo.source).toBe('optimistic');
+    expect(sets()).toBe(before + 1); // the first press wrote; the rest wait for the 80 ms gap
+    await flush(100);
+    expect(sets()).toBe(before + 2); // one write with the latest value
+    expect(mock.device.tempoBpm).toBe(123);
+    expect(states()).toBe(statesBefore); // no confirming dump yet
+    await flush(700);
+    expect(states()).toBe(statesBefore + 1); // one dump 600 ms after the last press
+    expect(store.get().tempo.source).toBe('dump');
+    expect(store.get().tempo.value).toBe(123);
+    await engine.closeTempo();
+    expect(store.get().tapTempo).toBe(false);
+    expect(tx().at(-1)).toBe('0B C0 08 01 2D 00 00 F6 42 91 00 00 00'); // exit at 123 BPM
+    expect(mock.device.tapTempo).toBe(false);
+    engine.dispose();
+  });
+
+  it('the pedal\'s own tap tempo followed by Done: the exit frame leaves the mode on the pedal', async () => {
+    const { mock, store, engine } = setup({ writes: false });
+    await connect(mock);
+    await flush(4000);
+    mock.device.tapTempo = true;
+    mock.inject(HW_TAP_TEMPO_TAP_135);
+    await flush(10);
+    expect(store.get().tapTempo).toBe(true);
+    await engine.closeTempo();
+    expect(store.get().tapTempo).toBe(false);
+    expect(mock.device.tapTempo).toBe(false);
+    expect(store.get().log.filter((l) => l.dir === 'tx').map((l) => l.hex).at(-1)).toBe(toHex(HW_TAP_TEMPO_EXIT_99).replace('00 00 C6 42', '00 00 07 43')); // exit at 135 BPM
+    engine.dispose();
+  });
+
+  it('setTempo needs no control mode, only a link', async () => {
+    const { mock, engine } = setup({ writes: false });
+    await expect(engine.setTempo(99)).rejects.toThrow(/Not connected/);
+    await connect(mock);
+    await flush(4000);
+    await engine.setTempo(99);
+    expect(mock.device.tempoBpm).toBe(99);
     engine.dispose();
   });
 });
@@ -994,6 +1058,138 @@ describe('preset 1 (index 0): the pedal omits the zero-valued field', () => {
     expect(store.get().activePreset.value).toBe(0);
     expect(store.get().log.some((l) => /Preset changed → 1/.test(l.text))).toBe(true);
     expect(store.get().log.some((l) => /Undocumented event/.test(l.text))).toBe(false);
+    engine.dispose();
+  });
+});
+
+describe('confirm flow (ported from the screen firmware, 2026-09-27)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const selects = (store: Store) => store.get().log.filter((l) => l.dir === 'tx' && l.text.includes('[c304-select]')).map((l) => l.hex!.split(' ')[5]);
+
+  it('fast preset taps are coalesced: one select in flight, the newest target on its ack, no fallback probing', async () => {
+    const { mock, store, engine } = setup({ writes: true });
+    await connect(mock);
+    await flush(3500);
+    const p1 = engine.selectPreset(1);
+    const p2 = engine.selectPreset(2);
+    const p3 = engine.selectPreset(3);
+    expect(store.get().activePreset.value).toBe(3); // shown at once
+    expect(store.get().activePreset.source).toBe('optimistic');
+    expect(selects(store)).toEqual(['01']); // 2 and 3 wait for the ack
+    await flush(30); // the mock acks after 10 ms
+    expect(selects(store)).toEqual(['01', '03']); // preset 2 was skipped, never loaded on the pedal
+    await flush(2000);
+    await Promise.all([p1, p2, p3]);
+    expect(selects(store)).toEqual(['01', '03']);
+    expect(store.get().activePreset.value).toBe(3);
+    expect(store.get().activePreset.source).toBe('dump');
+    expect(mock.device.activePreset).toBe(3);
+    expect(store.get().log.filter((l) => l.dir === 'tx' && /\[(web-midi|c30[23])/.test(l.text))).toHaveLength(0);
+    expect(store.get().log.some((l) => /not confirmed/.test(l.text))).toBe(false);
+    engine.dispose();
+  });
+
+  it('a dump that still reports the old preset does not undo a pending select', async () => {
+    const { mock, store, engine } = setup({ writes: true });
+    await connect(mock);
+    await flush(3500);
+    const p = engine.selectPreset(5);
+    mock.inject(HW_STATE_SINGLE); // preset 14, a dump from before the select
+    await flush(0);
+    expect(store.get().activePreset.value).toBe(5);
+    expect(store.get().activePreset.source).toBe('optimistic');
+    await flush(2000);
+    await p;
+    expect(store.get().activePreset.value).toBe(5);
+    expect(store.get().activePreset.source).toBe('dump');
+    engine.dispose();
+  });
+
+  it('a dump requested before a tile tap cannot revert the tap; the next dump confirms it', async () => {
+    const { mock, store, engine } = setup({ writes: true });
+    await connect(mock);
+    await flush(3500);
+    expect(store.get().fxOn.value.pre1).toBe(false);
+    void engine.requestState(); // answered by the mock in 10 ms, with the pedal's picture as of now
+    await flush(1);
+    await engine.toggleFx('pre1');
+    expect(store.get().fxOn.value.pre1).toBe(true);
+    mock.inject(HW_STATE_SINGLE); // pre1 off: the picture from before the write
+    await flush(0);
+    expect(store.get().fxOn.value.pre1).toBe(true); // kept
+    expect(store.get().fxOn.source).toBe('optimistic');
+    await flush(1000);
+    expect(store.get().fxOn.value.pre1).toBe(true);
+    expect(store.get().fxOn.source).toBe('dump'); // a dump requested after the write confirmed it
+    engine.dispose();
+  });
+
+  it('a bypass-changed notice re-reads the state at once, and a request inside the minimum gap is retried, not dropped', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(3500);
+    const count = () => store.get().log.filter((l) => l.dir === 'tx' && l.hex === '0C C0 08 03 18 01 20 01 28 01 01 00 00 00').length;
+    const before = count();
+    mock.inject(HW_BYPASS_CHANGED);
+    await flush(0);
+    expect(count()).toBe(before + 1); // no debounce
+    await flush(5);
+    mock.inject(HW_UNKNOWN_73); // a debounced request 400 ms later, well past the gap
+    void engine.requestState(); // inside the 200 ms gap and before the reply: held, not dropped
+    expect(count()).toBe(before + 1);
+    await flush(30); // the reply ends the gap early
+    expect(count()).toBe(before + 2);
+    engine.dispose();
+  });
+
+  it('an encoder turn shows the capture / IR from the cached lists before the dump', async () => {
+    const { mock, store, engine } = setup();
+    await connect(mock);
+    await flush(3500);
+    const captures = engine.metadataSnapshot!.captures;
+    expect(captures.length).toBeGreaterThan(2);
+    mock.inject(Uint8Array.from([0x0a, 0xc0, 0x08, 0x01, 0x18, 0x04, 0x20, 0x02, 0x1c, 0x00, 0x00, 0x00])); // selector 4 = capture, value 2
+    await flush(0);
+    expect(store.get().captureName.value).toBe(captures[2]!.name);
+    expect(store.get().captureName.source).toBe('event');
+    expect(store.get().captureOn.value).toBe(true);
+    mock.inject(Uint8Array.from([0x08, 0xc0, 0x08, 0x01, 0x18, 0x03, 0x1c, 0x00, 0x00, 0x00])); // selector 3, value 0 (omitted) = cab off
+    await flush(0);
+    expect(store.get().cabOn.value).toBe(false);
+    expect(store.get().cabOn.source).toBe('event');
+    await flush(1000); // the debounced dump follows and takes over
+    expect(store.get().captureName.source).toBe('dump');
+    engine.dispose();
+  });
+
+  it('an unanswered expression-assignments request is retried a few times, then left alone until the preset changes', async () => {
+    const mock = new MockTransport({ latencyMs: 10, packetGapMs: 2 });
+    const store = new Store();
+    const engine = new SyncEngine(mock, store, { confirmDelayMs: 50 });
+    const original = mock.writeCommand.bind(mock);
+    mock.writeCommand = async (bytes: Uint8Array) => {
+      if (bytes.length === 10 && bytes[6] === 0x3c) return store.appendLog({ at: Date.now(), dir: 'tx', text: 'TX c304 (mock)', hex: toHex(bytes) }); // swallowed
+      return original(bytes);
+    };
+    await connect(mock);
+    await flush(600); // synced well within this; the first request went out with the first dump
+    const requests = () => store.get().log.filter((l) => l.dir === 'tx' && l.text.startsWith('Expression assignments request')).length;
+    expect(store.get().syncPhase).toBe('ready');
+    expect(requests()).toBe(1);
+    await flush(1600);
+    expect(requests()).toBe(2);
+    await flush(1600);
+    expect(requests()).toBe(3);
+    await flush(5000);
+    expect(requests()).toBe(3); // gave up on this preset
+    expect(store.get().log.filter((l) => /unanswered/.test(l.text)).length).toBe(3);
+    mock.writeCommand = original;
+    mock.pressFootswitch(4);
+    await flush(1500);
+    expect(requests()).toBe(4);
+    expect(store.get().expression.assignmentsPreset).toBe(4);
     engine.dispose();
   });
 });

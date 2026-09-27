@@ -4,8 +4,16 @@
  *
  *   connect → metadata dump (names + full state) → current-state dump
  *   preset-changed event → set active preset, confirm with a state dump
- *   bypass-changed / unknown event → (debounced) state dump
- *   knob / encoder / expression telemetry → ignored
+ *   bypass-changed event → state dump at once (the notice names no block)
+ *   unknown event / knob burst → debounced state dump
+ *   encoder turn → capture / IR name from the cached lists, then a debounced dump
+ *   expression telemetry → store only (position, values)
+ *
+ * Confirm flow (ported from the NanoGig Screen firmware, 2026-09-27): every state request's
+ * send time is queued, so a dump is known to answer a request older than a tile tap made
+ * meanwhile and cannot undo that tap; one preset select is in flight at a time and the newest
+ * target goes out on its ack, so fast taps never make the pedal load every preset in between;
+ * a state request inside the minimum gap is retried at the end of the gap, never dropped.
  *
  * Both dump replies share one schema (the metadata reply is the state message
  * with the capture/preset/IR lists included), so every completed message goes
@@ -41,6 +49,8 @@ import {
   BLE_SELECT_STRATEGY,
   PRESET_COUNT,
   TUNER_OFF,
+  TEMPO_MAX_BPM,
+  TEMPO_MIN_BPM,
   TUNER_REFERENCE_MAX_HZ,
   TUNER_REFERENCE_MIN_HZ,
   WEB_MIDI_STRATEGY,
@@ -123,7 +133,32 @@ export class SyncEngine {
   private midiStrategy: MidiStrategy | null = null;
   private midiPinned = false;
   private presetWaiters: { index: number; resolve: (ok: boolean) => void }[] = [];
+  /** Send time of every outstanding state request, oldest first: a dump answers the oldest one, so we know how old its picture is. */
+  private stateRequestTimes: number[] = [];
+  /** A state request that fell inside the minimum gap, waiting for the end of the gap. */
+  private stateGapTimer: ReturnType<typeof setTimeout> | null = null;
+  /** When the metadata dump was requested: the state it embeds is that old. */
+  private metadataRequestedAt = 0;
+  /** When each block was last written from here: a dump requested before that cannot undo the tap. */
+  private readonly writtenAt = { fx: { pre1: 0, pre2: 0, post1: 0, post2: 0, post3: 0 } as Record<FxSlot, number>, gate: 0, capture: 0, cab: 0 };
+  /** Preset select the user asked for last: shown at once; a dump that still reports an older preset does not undo it. */
+  private pendingPreset: number | null = null;
+  private pendingPresetSince = 0;
+  /** One select on the wire at a time; the newest pending target goes out when it is acked. */
+  private selectInflight = false;
+  private selectSent: number | null = null;
+  private selectAckWaiter: (() => void) | null = null;
+  private lastSelectAt = 0;
   private readonly opts: Required<EngineOptions>;
+
+  /** Minimum gap between two state requests: a select's notices ask twice; one dump is enough. */
+  private static readonly STATE_MIN_GAP_MS = 200;
+  /** A pending preset target that nothing confirms this long is dropped (the pedal ignored the select). */
+  private static readonly PENDING_PRESET_TIMEOUT_MS = 2500;
+  /** The pedal acks a select in ~100 ms; past this the next target goes out anyway. */
+  private static readonly SELECT_ACK_TIMEOUT_MS = 400;
+  /** No cached-names check this soon after a select: the pedal may still be loading the preset. */
+  private static readonly SELECT_SETTLE_MS = 1500;
 
   constructor(
     private readonly transport: Transport,
@@ -171,7 +206,7 @@ export class SyncEngine {
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.assembler.cancel();
-    for (const t of [this.unknownEventTimer, this.metadataTimer, this.confirmTimer, this.idleTimer]) if (t) clearTimeout(t);
+    for (const t of [this.unknownEventTimer, this.metadataTimer, this.confirmTimer, this.idleTimer, this.stateGapTimer, this.expAssignTimer, this.tempoWriteTimer, this.tempoSettleTimer]) if (t) clearTimeout(t);
   }
 
   private log(dir: LogDirection, text: string, hex?: string) {
@@ -192,9 +227,14 @@ export class SyncEngine {
       this.validateNamesOnNextState = false;
       this.stopIdleTimer();
       this.stateRequestInFlightSince = 0; // never coalesce the first request of a new link
+      this.stateRequestTimes = [];
+      if (this.stateGapTimer) clearTimeout(this.stateGapTimer);
+      this.stateGapTimer = null;
       this.settingsRequestedThisLink = false;
       this.tunerOverlayOpen = false;
-      this.expAssignRequested = null;
+      this.expAssignReset();
+      this.pendingPreset = null;
+      this.selectAckWaiter?.();
       this.settlePresetWaiters(-1);
       this.settleMuteWaiter();
       if (status === 'disconnected' || status === 'reconnecting') this.store.clearDeviceState();
@@ -263,6 +303,7 @@ export class SyncEngine {
     if (!opts.silent) this.store.patch({ syncPhase: 'metadata' });
     else this.store.patch({ namesRefreshing: true });
     this.awaitingMetadata = true;
+    this.metadataRequestedAt = Date.now();
     if (this.metadataTimer) clearTimeout(this.metadataTimer);
     this.metadataTimer = setTimeout(() => {
       if (!this.awaitingMetadata) return;
@@ -309,12 +350,27 @@ export class SyncEngine {
     this.idleTimer = null;
   }
 
-  /** Request the current-state dump. Coalesces requests issued within 250 ms. */
+  /**
+   * Request the current-state dump. A request inside the minimum gap after the previous one is
+   * not dropped but sent at the end of the gap (a dropped one cost a whole tile toggle on the
+   * screen firmware: the confirming dump never came). A reply ends the gap early.
+   */
   async requestState(): Promise<void> {
     if (this.transport.status !== 'connected') return;
     const now = Date.now();
-    if (now - this.stateRequestInFlightSince < 250) return;
+    const wait = this.stateRequestInFlightSince + SyncEngine.STATE_MIN_GAP_MS - now;
+    if (wait > 0) {
+      if (!this.stateGapTimer) {
+        this.stateGapTimer = setTimeout(() => {
+          this.stateGapTimer = null;
+          void this.requestState();
+        }, wait);
+      }
+      return;
+    }
     this.stateRequestInFlightSince = now;
+    this.stateRequestTimes.push(now);
+    if (this.stateRequestTimes.length > 8) this.stateRequestTimes.shift();
     if (this.store.get().syncPhase !== 'ready') this.store.patch({ syncPhase: 'state' });
     await this.transport.writeCommand(CURRENT_STATE_REQUEST);
   }
@@ -411,6 +467,11 @@ export class SyncEngine {
     switch (ev.kind) {
       case 'program-change':
         this.log('info', `Preset changed → ${ev.preset + 1} (${ev.shape})`, toHex(pkt.data));
+        // The pedal's own word: it settles a matching select, and a footswitch press wins over a
+        // target nothing is in flight for. A different preset reported while a select is still
+        // out belongs to that select (MIDI fallback path); the newer target follows on its ack.
+        if (ev.preset === this.pendingPreset || !this.selectInflight) this.pendingPreset = null;
+        if (this.store.get().activePreset.value !== ev.preset) this.expAssignTries = 0;
         this.store.setField('activePreset', ev.preset, 'event', pkt.at);
         // A freshly loaded preset is the one moment its capture / IR should match the cached record.
         if (this.store.get().presetNames.source === 'cache') this.validateNamesOnNextState = true;
@@ -421,11 +482,18 @@ export class SyncEngine {
         if (this.tunerOverlayOpen) void this.writeTunerOn().catch((err) => this.log('warn', `Tuner re-arm failed: ${(err as Error).message}`));
         return;
       case 'bypass-changed':
+        // The notice names no block, so the state is read right away: a block toggled on the pedal
+        // or over MIDI used to show ~0.5 s late behind a debounce, while the native app is instant
+        // (screen firmware finding 2026-09-27). The minimum gap absorbs bursts. After our own select
+        // the notice comes ~50 ms before the ack: read now unless a newer target waits for the ack.
         this.log('info', 'Bypass changed on device; re-reading state', toHex(pkt.data));
-        this.scheduleConfirm(150);
+        if (!this.selectInflight || this.pendingPreset === this.selectSent) this.scheduleConfirm(0);
         return;
       case 'expression-assignments': {
         const preset = this.expAssignRequested;
+        if (this.expAssignTimer) clearTimeout(this.expAssignTimer);
+        this.expAssignTimer = null;
+        this.expAssignRequested = null;
         const x = this.store.get().expression;
         const ranges = Object.entries(ev.assignments.ranges).map(([t, r]) => `${t} ${r.min}–${r.max}`);
         const bypasses = Object.entries(ev.assignments.bypasses).map(([t, b]) => `${t} bypass (mode ${b.mode}${b.delayMs ? `, ${b.delayMs} ms` : ''})`);
@@ -442,12 +510,15 @@ export class SyncEngine {
       case 'tuner-ack': {
         // The pedal reports its tuner state (echoing our write, or its own footswitch tuner):
         // mirror it, nothing to re-read (the preset is untouched).
-        this.log('info', `Tuner ${ev.on ? 'on' : 'off'} reported by the pedal${ev.referenceHz !== null ? ` · ${ev.referenceHz} Hz` : ''}`, toHex(pkt.data));
+        this.log('info', `Tuner ${ev.on ? 'on' : 'off'} reported by the pedal${ev.referenceHz !== null ? ` · ${ev.referenceHz} Hz` : ''}${ev.on ? (ev.muted ? ' · muted' : ' · sound on') : ''}`, toHex(pkt.data));
+        if (!ev.on) this.tunerOverlayOpen = false; // the view follows the pedal's exit; nothing to re-arm later
         const t = this.store.get().tuner;
         this.store.patch({
           tuner: {
             ...t,
             on: ev.on,
+            // The pedal's own mute toggle (footswitch while tuning) arrives as a report too: mirror it.
+            muted: ev.on ? ev.muted : t.muted,
             referenceHz: ev.referenceHz ?? t.referenceHz,
             reading: ev.on ? t.reading : null,
             readingAt: ev.on ? t.readingAt : null,
@@ -468,7 +539,8 @@ export class SyncEngine {
         // The pedal's reply to a c304 preset select (2026-09-19). Cortex Cloud requests the
         // state right after it; field 13 there is what settles the switch.
         this.log('info', 'Preset select acknowledged; re-reading state', toHex(pkt.data));
-        this.scheduleConfirm(50);
+        if (this.selectAckWaiter) this.selectAckWaiter(); // the select loop confirms, or sends the newer target
+        else this.scheduleConfirm(0);
         return;
       case 'settings':
         this.log('info', `Device settings: outputs 1/2 ${ev.settings.outputsMuted ? 'muted' : 'on'} · ${describeDeviceSettings(ev.settings)}`, toHex(pkt.data));
@@ -488,6 +560,7 @@ export class SyncEngine {
         // (0x1C, same `18 <selector> 20 <value>` shape as our slot-select writes) scroll through
         // captures / cabs, so the names must be re-read; debounced because a rotation is a burst.
         // Knob events (0x1A) may also carry tap-tempo / tempo changes, so re-read after a burst.
+        if (ev.msgType === MSG.ENCODER) this.showEncoderFromCache(ev.selector, ev.value, pkt.at);
         if (ev.msgType === MSG.ENCODER || ev.msgType === MSG.KNOB) this.scheduleDebouncedRefresh();
         return;
       case 'unknown':
@@ -539,7 +612,49 @@ export class SyncEngine {
       this.log('info', 'Ignoring the state embedded in the metadata reply (a fresh state dump follows)');
       return;
     }
-    this.applyState(state);
+    // The picture in a dump is as old as the request it answers: the oldest outstanding one.
+    const requestedAt = md.presetRecordCount > 0 ? this.metadataRequestedAt : (this.stateRequestTimes.shift() ?? 0);
+    this.applyState(state, requestedAt);
+  }
+
+  /**
+   * Footswitch encoder turned on the pedal (`18 <selector> 20 <value>`, same shape as our
+   * slot-select writes): the capture / IR it scrolled to is in the cached metadata lists, so show
+   * the name at once instead of after the debounced dump (screen firmware, 2026-09-27).
+   */
+  private showEncoderFromCache(selector: number | null, value: number, at: number): void {
+    const md = this.metadata;
+    if (selector === null || !this.lastState) return;
+    if (selector === 4 && md && value >= 0 && value < md.captures.length && md.captures[value]!.name) {
+      this.store.setField('captureName', md.captures[value]!.name, 'event', at);
+      this.store.setField('captureOn', true, 'event', at);
+    } else if (selector === 3 && md && value >= 1 && value <= md.irs.length && (md.irs[value - 1]!.shortName || md.irs[value - 1]!.fullName)) {
+      const ir = md.irs[value - 1]!;
+      this.store.setField('irName', ir.shortName || ir.fullName, 'event', at);
+      this.store.setField('cabOn', true, 'event', at);
+    } else if (selector === 3 && value === 0) {
+      this.store.setField('cabOn', false, 'event', at);
+    } else if (selector === 1 && value === 0) {
+      this.store.setField('captureOn', false, 'event', at);
+    } else {
+      return;
+    }
+    this.log('info', `Encoder: selector ${selector} → ${value} (shown from the cached names; the dump confirms)`);
+  }
+
+  /** A select is pending until the pedal reports its target, or for a bounded time if it never does. */
+  private pendingPresetActive(): boolean {
+    if (this.pendingPreset === null) return false;
+    if (Date.now() - this.pendingPresetSince > SyncEngine.PENDING_PRESET_TIMEOUT_MS) {
+      this.pendingPreset = null;
+      return false;
+    }
+    return true;
+  }
+
+  /** A preset select is on the wire, unconfirmed, or the pedal may still be loading its target. */
+  private presetSwitching(): boolean {
+    return this.pendingPresetActive() || this.selectInflight || Date.now() - this.lastSelectAt < SyncEngine.SELECT_SETTLE_MS;
   }
 
   /**
@@ -551,6 +666,10 @@ export class SyncEngine {
    */
   private validateCachedNames(state: CurrentState): void {
     if (!this.validateNamesOnNextState) return;
+    // Right after a select the pedal may still be loading: its capture name then contradicts the
+    // record and the ~6 s metadata stream would follow, freezing the screen (seen on the screen
+    // firmware during fast preset taps). Check the next dump once the switch has settled instead.
+    if (this.presetSwitching()) return;
     this.validateNamesOnNextState = false;
     if (this.store.get().presetNames.source !== 'cache' || !this.metadata || state.activePreset === null || this.awaitingMetadata) return;
     const rec = this.metadata.presets[state.activePreset];
@@ -566,22 +685,44 @@ export class SyncEngine {
     void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Metadata refresh failed: ${(err as Error).message}`));
   }
 
-  private applyState(state: CurrentState) {
+  private applyState(state: CurrentState, requestedAt = 0) {
     const at = Date.now();
+    const prev = this.store.get();
     this.lastState = state;
     this.stateRequestInFlightSince = 0; // reply received; the next request may go out immediately
-    if (state.fxOn) this.store.setField('fxOn', { ...state.fxOn }, 'dump', at);
+    if (this.stateGapTimer) {
+      clearTimeout(this.stateGapTimer);
+      this.stateGapTimer = null;
+      void this.requestState(); // a request was waiting for the gap: it can go now
+    }
+    // Blocks written after this dump was requested keep their tapped state (the dump shows the
+    // pedal before the write); one more dump, requested after the write, confirms them.
+    let stale = false;
+    if (state.fxOn) {
+      const fxOn = { ...state.fxOn };
+      for (const slot of FX_SLOTS) {
+        if (this.writtenAt.fx[slot] > requestedAt) {
+          fxOn[slot] = prev.fxOn.value[slot] ?? fxOn[slot];
+          stale = true;
+        }
+      }
+      this.store.setField('fxOn', fxOn, stale ? 'optimistic' : 'dump', at);
+    }
     const models = {} as FxModelsBySlot;
     for (const slot of FX_SLOTS) models[slot] = lookupFxModel(state.fxModelIds[slot]);
     this.store.setField('fxModels', models, 'dump', at);
-    this.store.setField('gateOn', state.gateOn, 'dump', at);
-    this.store.setField('cabOn', state.cabOn, 'dump', at);
+    const gateStale = this.writtenAt.gate > requestedAt;
+    this.store.setField('gateOn', gateStale ? prev.gateOn.value : state.gateOn, gateStale ? 'optimistic' : 'dump', at);
+    const cabStale = this.writtenAt.cab > requestedAt;
+    this.store.setField('cabOn', cabStale ? prev.cabOn.value : state.cabOn, cabStale ? 'optimistic' : 'dump', at);
     this.store.setField('captureName', state.capture?.name || null, 'dump', at); // '' (no capture) → null
     // Capture on/off follows field 11 (rotary position, 0/absent = bypassed) as in the web editor.
     // Field 32.1 ("enabled") is NOT used: hardware dumps show it stuck at 1 after a bypass
     // (2026-09-13) and at 0 with position 4 (2026-09-12), so it means something else.
-    const captureOn = (state.captureSlot ?? 0) > 0;
-    this.store.setField('captureOn', captureOn, 'dump', at);
+    const captureStale = this.writtenAt.capture > requestedAt;
+    const captureOn = captureStale ? prev.captureOn.value : (state.captureSlot ?? 0) > 0;
+    this.store.setField('captureOn', captureOn, captureStale ? 'optimistic' : 'dump', at);
+    if (stale || gateStale || cabStale || captureStale) this.scheduleConfirm();
     this.store.setField('irName', state.ir?.shortName || null, 'dump', at);
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
     if (state.footswitchAssignments) this.store.setField('footswitches', state.footswitchAssignments, 'dump', at);
@@ -594,7 +735,15 @@ export class SyncEngine {
     this.updateSlotKnowledge(at);
 
     if (state.activePreset !== null) {
-      this.store.setField('activePreset', state.activePreset, 'dump', at);
+      if (prev.activePreset.value !== state.activePreset) this.expAssignTries = 0;
+      if (this.pendingPresetActive() && state.activePreset !== this.pendingPreset) {
+        // A dump for an earlier select (or from before it): keep showing the target, the next dump settles it.
+        this.store.setField('activePreset', this.pendingPreset!, 'optimistic', at);
+        this.scheduleConfirm();
+      } else {
+        if (state.activePreset === this.pendingPreset) this.pendingPreset = null; // confirmed
+        this.store.setField('activePreset', state.activePreset, 'dump', at);
+      }
       this.settlePresetWaiters(state.activePreset);
     } else {
       const current = this.store.get().activePreset;
@@ -608,16 +757,7 @@ export class SyncEngine {
     }
     this.store.patch({ lastStateSyncAt: at, syncPhase: 'ready' });
     this.validateCachedNames(state);
-    // Expression assignments are per preset: read them once per preset (Cortex Cloud's 0x3C).
-    if (state.activePreset !== null && state.activePreset !== this.store.get().expression.assignmentsPreset && state.activePreset !== this.expAssignRequested) {
-      this.expAssignRequested = state.activePreset;
-      const req = expressionAssignmentsRequest(state.activePreset);
-      this.log('tx', `Expression assignments request · preset ${state.activePreset + 1}`, toHex(req));
-      void this.transport.writeCommand(req).catch((err) => {
-        this.expAssignRequested = null;
-        this.log('warn', `Expression assignments request failed: ${(err as Error).message}`);
-      });
-    }
+    this.expAssignTick();
     this.armIdleTimer();
     if (!this.settingsRequestedThisLink) {
       this.settingsRequestedThisLink = true;
@@ -651,7 +791,94 @@ export class SyncEngine {
     if (current === null) throw new Error(`FX ${slot} state unknown; refusing to toggle blind`);
     const next = !current;
     this.store.setField('fxOn', { ...this.store.get().fxOn.value, [slot]: next }, 'optimistic');
+    this.writtenAt.fx[slot] = Date.now();
     await this.transport.writeCommand(fxBlockBypassFrame(slot, next));
+    this.scheduleConfirm();
+  }
+
+  // -------------------------------------------------------------------------
+  // Tempo view (ported from the screen firmware, 2026-09-27): the pedal's own tempo screen is its
+  // tap tempo mode, so opening the view puts the pedal in that mode and Done takes it out; −/+ are
+  // coalesced (instant on screen, one write per 80 ms with the latest value, one confirming dump
+  // 600 ms after the last press). Like the tuner it needs no control mode: control mode gates the
+  // gig view's preset / block writes only (user's rule, 2026-09-27).
+  // -------------------------------------------------------------------------
+
+  private tempoTarget: number | null = null;
+  private tempoDirty = false;
+  private tempoLastWriteAt = 0;
+  private tempoWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  private tempoSettleTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly TEMPO_WRITE_GAP_MS = 80;
+  private static readonly TEMPO_SETTLE_MS = 600;
+
+  /** Tempo view opened from the menu: the pedal enters its tap tempo mode as well. */
+  async openTempo(): Promise<void> {
+    if (this.transport.status !== 'connected') throw new Error('Not connected');
+    const bpm = Math.round(this.store.get().tempo.value ?? 120);
+    this.store.patch({ tapTempo: true });
+    const frame = tempoSetFrame(bpm);
+    this.log('tx', `Tap tempo mode on · ${bpm} BPM`, toHex(frame));
+    await this.transport.writeCommand(frame);
+  }
+
+  /** −/+ on the tempo view. Shown at once; the write and the confirming dump are coalesced. */
+  stepTempo(delta: number): void {
+    if (this.transport.status !== 'connected') throw new Error('Not connected');
+    const current = this.store.get().tempo.value;
+    if (current === null) throw new Error('Tempo unknown; refusing to change it blind');
+    const base = this.tempoTarget ?? current;
+    const bpm = Math.min(TEMPO_MAX_BPM, Math.max(TEMPO_MIN_BPM, Math.round(base) + delta));
+    this.tempoTarget = bpm;
+    this.tempoDirty = true;
+    this.store.setField('tempo', bpm, 'optimistic');
+    this.store.patch({ tapTempo: true });
+    this.flushTempo();
+    if (this.tempoSettleTimer) clearTimeout(this.tempoSettleTimer);
+    this.tempoSettleTimer = setTimeout(() => {
+      this.tempoSettleTimer = null;
+      this.tempoTarget = null;
+      void this.requestState(); // field 56 confirms
+    }, SyncEngine.TEMPO_SETTLE_MS);
+  }
+
+  private flushTempo(): void {
+    if (!this.tempoDirty || this.tempoTarget === null || this.transport.status !== 'connected') return;
+    const wait = this.tempoLastWriteAt + SyncEngine.TEMPO_WRITE_GAP_MS - Date.now();
+    if (wait > 0) {
+      if (!this.tempoWriteTimer) {
+        this.tempoWriteTimer = setTimeout(() => {
+          this.tempoWriteTimer = null;
+          this.flushTempo();
+        }, wait);
+      }
+      return;
+    }
+    const bpm = this.tempoTarget;
+    this.tempoDirty = false;
+    this.tempoLastWriteAt = Date.now();
+    const frame = tempoSetFrame(bpm);
+    this.log('tx', `Tempo set · ${bpm} BPM`, toHex(frame));
+    void this.transport.writeCommand(frame).catch((err) => this.log('warn', `Tempo write failed: ${(err as Error).message}`));
+  }
+
+  /**
+   * Tempo view closed: the pedal leaves its tap tempo mode (whoever started it) with the latest
+   * value; the state re-read confirms. The pedal's own exit needs no echo.
+   */
+  async closeTempo(): Promise<void> {
+    for (const t of [this.tempoWriteTimer, this.tempoSettleTimer]) if (t) clearTimeout(t);
+    this.tempoWriteTimer = this.tempoSettleTimer = null;
+    const bpm = Math.round(this.tempoTarget ?? this.store.get().tempo.value ?? 120);
+    const pending = this.tempoDirty;
+    this.tempoTarget = null;
+    this.tempoDirty = false;
+    if (!this.store.get().tapTempo || this.transport.status !== 'connected') return;
+    this.store.patch({ tapTempo: false });
+    if (pending) await this.transport.writeCommand(tempoSetFrame(bpm));
+    const frame = tempoExitFrame(bpm);
+    this.log('tx', `Tap tempo mode off · ${bpm} BPM`, toHex(frame));
+    await this.transport.writeCommand(frame);
     this.scheduleConfirm();
   }
 
@@ -661,7 +888,7 @@ export class SyncEngine {
    * the pedal with the NanoGig Screen firmware, 2026-09-26). The state re-read (field 56) confirms.
    */
   async setTempo(bpm: number): Promise<void> {
-    this.assertWrites();
+    if (this.transport.status !== 'connected') throw new Error('Not connected');
     const rounded = Math.round(bpm);
     this.store.setField('tempo', rounded, 'optimistic');
     await this.transport.writeCommand(tempoSetFrame(rounded));
@@ -722,6 +949,7 @@ export class SyncEngine {
     // Locked both ways: bypassing a capture we could not re-enable would strand the user.
     const slot = this.currentCaptureSlot();
     if (slot === null) throw new Error(`Capture toggle locked: ${this.slotLookupDiag('capture')}`);
+    this.writtenAt.capture = Date.now();
     if (current) {
       this.store.setField('captureOn', false, 'optimistic');
       await this.transport.writeCommand(captureBypassFrame());
@@ -739,6 +967,7 @@ export class SyncEngine {
     if (current === null) throw new Error('Cab/IR state unknown; refusing to toggle blind');
     const slot = this.currentCabSlot();
     if (slot === null) throw new Error(`Cab toggle locked: ${this.slotLookupDiag('ir')}`);
+    this.writtenAt.cab = Date.now();
     if (current) {
       this.store.setField('cabOn', false, 'optimistic');
       await this.transport.writeCommand(cabIrSlotFrame(0));
@@ -784,6 +1013,7 @@ export class SyncEngine {
     if (current === null) throw new Error('Gate state unknown; refusing to toggle blind');
     const next = !current;
     this.store.setField('gateOn', next, 'optimistic');
+    this.writtenAt.gate = Date.now();
     await this.transport.writeCommand(gateBypassFrame(next));
     this.scheduleConfirm();
   }
@@ -831,12 +1061,57 @@ export class SyncEngine {
   async selectPreset(index: number): Promise<void> {
     this.assertWrites();
     if (!Number.isInteger(index) || index < 0 || index >= PRESET_COUNT) throw new RangeError(`bad preset index ${index}`);
+    // Shown at once. While an earlier select is still unacked the target is only remembered: the
+    // pedal loads every preset it is asked for (~150 ms each), so fast taps must not queue up.
+    this.pendingPreset = index;
+    this.pendingPresetSince = Date.now();
+    this.expAssignTries = 0;
     this.store.setField('activePreset', index, 'optimistic');
+    if (this.selectInflight) {
+      this.log('info', `Preset ${index + 1} held until the pedal acks the select in flight`);
+      return;
+    }
+    await this.sendSelect(index);
+  }
+
+  /** Resolves on the pedal's select ack (0x1E), or after a bounded wait if it never comes. */
+  private waitForSelectAck(): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        if (this.selectAckWaiter === done) this.selectAckWaiter = null;
+        resolve();
+      };
+      this.selectAckWaiter = done;
+      setTimeout(() => {
+        if (this.selectAckWaiter === done) done();
+      }, SyncEngine.SELECT_ACK_TIMEOUT_MS);
+    });
+  }
+
+  /** The select (and its fallbacks) for one target; on return, a newer pending target goes out. */
+  private async sendSelect(index: number): Promise<void> {
+    this.selectInflight = true;
+    this.selectSent = index;
+    this.lastSelectAt = Date.now();
+    try {
+      await this.deliverSelect(index);
+    } finally {
+      this.selectInflight = false;
+      this.selectSent = null;
+      this.lastSelectAt = Date.now();
+      const next = this.pendingPresetActive() ? this.pendingPreset : null;
+      if (next !== null && next !== index) void this.sendSelect(next).catch((err) => this.log('warn', `Preset switch failed: ${(err as Error).message}`));
+      else this.expAssignTick(); // the switch is through: the tile tracks may need this preset's assignments
+    }
+  }
+
+  private async deliverSelect(index: number): Promise<void> {
     const midiOut = this.opts.midiOut;
     const all = [BLE_SELECT_STRATEGY, ...(midiOut?.isSupported() ? [WEB_MIDI_STRATEGY] : []), ...BLE_MIDI_STRATEGIES];
     const candidates = this.midiStrategy ? [this.midiStrategy, ...(this.midiPinned ? [] : all.filter((s) => s.id !== this.midiStrategy!.id))] : all;
     for (const strategy of candidates) {
       const confirmed = this.waitForPreset(index);
+      const acked = strategy.framing === 'select' ? this.waitForSelectAck() : null;
       try {
         if (strategy.framing === 'select') {
           this.log('tx', `TX c304 [${strategy.id}] preset select`, toHex(presetSelectFrame(index)));
@@ -852,16 +1127,22 @@ export class SyncEngine {
         }
       } catch (err) {
         this.log('warn', `Preset switch via ${strategy.id} rejected: ${(err as Error).message}`);
+        this.selectAckWaiter?.();
         this.settlePresetWaiters(-1);
         continue;
       }
-      if (strategy.framing !== 'select') {
+      if (acked) {
+        // The pedal acks the c304 select by itself (~100 ms); a newer tap meanwhile supersedes
+        // this target, and goes out right away instead of waiting for this one's confirming dump.
+        await Promise.race([acked, confirmed]);
+        if (this.pendingPresetActive() && this.pendingPreset !== index) return;
+        this.scheduleConfirm(0);
+      } else {
         // MIDI deliveries: the web editor follows the Program Change with the ack frame.
-        // The c304 select needs none — the pedal acks it by itself (2026-09-19 capture).
         await new Promise((r) => setTimeout(r, 50));
         await this.transport.writeCommand(PRESET_CHANGE_ACK).catch((err) => this.log('warn', `ack frame failed: ${(err as Error).message}`));
+        this.scheduleConfirm(this.midiStrategy === strategy ? this.opts.confirmDelayMs : 400);
       }
-      this.scheduleConfirm(this.midiStrategy === strategy ? this.opts.confirmDelayMs : 400);
       if (await confirmed) {
         if (this.midiStrategy !== strategy) {
           this.midiStrategy = strategy;
@@ -869,6 +1150,7 @@ export class SyncEngine {
         }
         return;
       }
+      if (this.pendingPresetActive() && this.pendingPreset !== index) return; // superseded while waiting
       this.log('warn', `Preset switch via ${strategy.id} not confirmed by the device`);
       if (this.midiPinned) break;
     }
@@ -876,6 +1158,7 @@ export class SyncEngine {
       'error',
       'Preset switch failed: no delivery was confirmed by the device (Bluetooth select, then MIDI). Check the pedal is on NanOS 2.2.x; on other firmware, USB Web MIDI may still work.',
     );
+    if (this.pendingPreset === index) this.pendingPreset = null;
     void this.requestState(); // resync the optimistic value with reality
   }
 
@@ -890,11 +1173,53 @@ export class SyncEngine {
 
   /** Preset whose expression assignments were last requested (the reply carries no index). */
   private expAssignRequested: number | null = null;
+  private expAssignTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Unanswered assignment requests for the shown preset; after a few the preset is left alone until it changes. */
+  private expAssignTries = 0;
+  private static readonly EXP_ASSIGN_TIMEOUT_MS = 1500;
+  private static readonly EXP_ASSIGN_MAX_TRIES = 3;
   /** The full-screen tuner is open (it may mute; the live tuner never does). */
   private tunerOverlayOpen = false;
   /** When tuner-off was last written; readings still in flight for a moment after are ignored. */
   private tunerOffSentAt = 0;
-  private static readonly TUNER_OFF_GRACE_MS = 500;
+  /** Only pitch readings trail a tuner-off, for up to ~0.9 s (screen firmware capture 2026-09-27). */
+  private static readonly TUNER_OFF_GRACE_MS = 900;
+
+  private expAssignReset(): void {
+    if (this.expAssignTimer) clearTimeout(this.expAssignTimer);
+    this.expAssignTimer = null;
+    this.expAssignRequested = null;
+    this.expAssignTries = 0;
+  }
+
+  /**
+   * Expression assignments are per preset (Cortex Cloud's 0x3C request, 0x3D reply with no
+   * preset number): read them for the shown preset once its select is through (acked and
+   * confirmed by a dump; no settle window, it held the tile tracks back by 1.5 s per tap on the
+   * screen firmware). One request at a time; a preset that never answers is asked a few times.
+   */
+  private expAssignTick(): void {
+    if (this.transport.status !== 'connected' || this.store.get().syncPhase !== 'ready') return;
+    if (this.expAssignRequested !== null) return; // its timeout re-enters here
+    const preset = this.store.get().activePreset.value;
+    if (preset === null || this.pendingPresetActive() || this.selectInflight) return;
+    if (preset === this.store.get().expression.assignmentsPreset) return;
+    if (this.expAssignTries >= SyncEngine.EXP_ASSIGN_MAX_TRIES) return;
+    this.expAssignRequested = preset;
+    this.expAssignTries++;
+    const req = expressionAssignmentsRequest(preset);
+    this.log('tx', `Expression assignments request · preset ${preset + 1}`, toHex(req));
+    this.expAssignTimer = setTimeout(() => {
+      this.expAssignTimer = null;
+      if (this.expAssignRequested === null) return;
+      this.log('warn', `Expression assignments request (preset ${this.expAssignRequested + 1}) unanswered`);
+      this.expAssignRequested = null;
+      this.expAssignTick();
+    }, SyncEngine.EXP_ASSIGN_TIMEOUT_MS);
+    void this.transport.writeCommand(req).catch((err) => {
+      this.log('warn', `Expression assignments request failed: ${(err as Error).message}`);
+    });
+  }
 
   /** Full-screen tuner opened: tuner on with the current reference and mute; the pedal streams readings. */
   async startTuner(): Promise<void> {

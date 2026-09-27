@@ -38,6 +38,9 @@ describe('mock mode end-to-end', () => {
       stopTuner: () => engine.stopTuner(),
       setTunerReference: (hz: number) => engine.setTunerReference(hz),
       setTunerMute: (m: boolean) => engine.setTunerMute(m),
+      openTempo: () => engine.openTempo(),
+      closeTempo: () => engine.closeTempo(),
+      stepTempo: (d: number) => engine.stepTempo(d),
       setWritesEnabled: (v: boolean) => engine.setWritesEnabled(v),
       setSettings: (patch: Partial<{ presetsPerBank: number; labelStyle: 'number-letter' | 'letter-number'; showPresetNumber: boolean }>) => store.patch(patch),
     };
@@ -66,10 +69,10 @@ describe('mock mode end-to-end', () => {
 
     // Footswitch → preset 4 ("Rectified") : name updates immediately, dump confirms capture.
     mock.pressFootswitch(4);
-    await wait(10);
+    await wait(0);
     expect(text('.preset-name')).toBe('Rectified');
     expect(text('.slot-label')).toContain('2A'); // index 4 in the default 4-per-bank Mvave layout
-    expect(text('.src')).toBe('live');
+    expect(text('.src')).toBe('live'); // until the dump confirms it, which the bypass-changed notice asks for at once
     await wait(400);
     expect(text('.capture')).toBe('Cali Recto Modern');
 

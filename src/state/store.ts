@@ -79,8 +79,12 @@ export interface GigState {
    * in tuner mode.
    */
   liveTuner: boolean;
-  /** User setting: keep the expression-pedal indicators on screen (false = fade out a few seconds after it stops). */
-  expressionPersist: boolean;
+  /**
+   * User setting: show the expression pedal (position bar at the right edge, value tracks on the
+   * FX blocks it controls). Always on screen while on, never while off; no fading (the screen
+   * firmware's rule, 2026-09-27: a fade made the indicators feel laggy on stage).
+   */
+  expressionShow: boolean;
   /** A metadata (names) stream is in flight on a live link; footswitch events queue behind it. */
   namesRefreshing: boolean;
   /** PWA: the browser offered an install prompt and the app is not installed yet. */
@@ -156,7 +160,7 @@ export function initialState(transportName = 'none'): GigState {
     showPresetStrip: true,
     autoRefreshNames: true,
     liveTuner: true,
-    expressionPersist: false,
+    expressionShow: true,
     namesRefreshing: false,
     installable: false,
     updateReady: false,
@@ -244,6 +248,7 @@ export class Store {
       cabSlotKnown: s.cabSlotKnown,
       outputsMuted: s.outputsMuted,
       tuner: { ...this.state.tuner, on: false, reading: null, readingAt: null },
+      tapTempo: false,
       expression: emptyExpression(),
       namesRefreshing: false,
       syncPhase: 'idle',

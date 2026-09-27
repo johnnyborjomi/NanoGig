@@ -458,14 +458,25 @@ export class BleTransport implements Transport {
    * retry loop gave up. Requires `navigator.bluetooth.getDevices()`.
    */
   async resume(): Promise<boolean> {
-    if (!canResumePermittedDevices()) return false;
     if (this._status === 'connected' || this.reconnecting) return this._status === 'connected';
+    const device = await this.rememberedDevice();
+    if (!device) return false;
+    this.intentionalDisconnect = false;
+    this.attachDevice(device);
+    this.log('info', `Resuming ${device.name ?? '(unnamed)'} without the chooser…`);
+    await this.reconnectLoop(true, RESUME_BUDGET_MS);
+    return this.status === 'connected';
+  }
+
+  /** The pedal Chrome remembers across launches (persistent-permissions backend), or null. */
+  private async rememberedDevice(): Promise<BluetoothDevice | null> {
+    if (!canResumePermittedDevices()) return null;
     let devices: BluetoothDevice[] = [];
     try {
       devices = await navigator.bluetooth.getDevices();
     } catch (err) {
       this.log('info', `getDevices failed: ${errText(err)}`);
-      return false;
+      return null;
     }
     const remembered = rememberedDeviceId();
     const device =
@@ -474,13 +485,33 @@ export class BleTransport implements Transport {
       // A remembered id with nothing listed: the permission was granted before the persistent
       // backend was enabled, or the site data was cleared. One pairing puts it right.
       this.log('info', remembered ? 'Chrome no longer lists the remembered pedal; pick it once more' : 'No previously permitted device to resume');
-      return false;
+    }
+    return device;
+  }
+
+  /**
+   * Connect tapped: reach the pedal without the chooser whenever Chrome still knows it. The
+   * device picked earlier on this page stays ours through a deliberate disconnect, and with
+   * the persistent-permissions backend the pedal is listed across launches too. The chooser
+   * is only for a pedal this page has never been given; the caller opens it on `'nothing'`
+   * (the look-up takes milliseconds, so the tap's user activation still covers it).
+   */
+  async connectKnown(): Promise<'connected' | 'nothing' | 'failed'> {
+    if (this._status === 'connected') return 'connected';
+    if (this.reconnecting) {
+      this.reconnectNow();
+      await this.loopDone;
+      return this.status === 'connected' ? 'connected' : 'failed';
+    }
+    if (!this.device) {
+      const device = await this.rememberedDevice();
+      if (!device) return 'nothing';
+      this.attachDevice(device);
     }
     this.intentionalDisconnect = false;
-    this.attachDevice(device);
-    this.log('info', `Resuming ${device.name ?? '(unnamed)'} without the chooser…`);
+    this.log('info', `Connecting to ${this.device!.name ?? '(unnamed)'} without the chooser…`);
     await this.reconnectLoop(true, RESUME_BUDGET_MS);
-    return this.status === 'connected';
+    return this.status === 'connected' ? 'connected' : 'failed';
   }
 
   /**

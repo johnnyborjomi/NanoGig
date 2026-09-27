@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setOutputsMuted: p, startTuner: p, stopTuner: p, setTunerReference: p, setTunerMute: p, setWritesEnabled: () => {}, setSettings: () => {} };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setOutputsMuted: p, startTuner: p, stopTuner: p, setTunerReference: p, setTunerMute: p, openTempo: p, closeTempo: p, stepTempo: () => {}, setWritesEnabled: () => {}, setSettings: () => {} };
 }
 
 describe('GigView', () => {
@@ -256,7 +256,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const control = btn(/^Control$/);
     expect(control.hidden).toBe(false);
     expect(control.querySelector<HTMLElement>('.btn-state')?.dataset.on).toBe('false');
-    expect(btn(/^Connect…$/).hidden).toBe(true);
+    expect(btn(/^Pick from the list…$/).hidden).toBe(true);
     control.click();
     expect(calls).toEqual(['writes:true']);
 
@@ -266,9 +266,9 @@ describe('GigView writes toggle and reconnect button', () => {
     expect(root.querySelector('.badge')).toBeNull(); // no separate "control on" badge
     expect(root.querySelector('.preset-strip')?.classList.contains('writable')).toBe(true);
 
-    store.patch({ connection: 'reconnecting' });
-    expect(btn(/^Connect…$/).hidden).toBe(false);
-    btn(/^Connect…$/).click(); // opens the chooser like the main Connect button
+    store.patch({ connection: 'reconnecting', transportName: 'ble' });
+    expect(btn(/^Pick from the list…$/).hidden).toBe(false); // on the searching page
+    btn(/^Pick from the list…$/).click(); // opens the chooser like the main Connect button
     expect(calls).toEqual(['writes:true', 'connect']);
 
     // Exit-demo button appears only for the mock transport.
@@ -291,9 +291,9 @@ describe('GigView writes toggle and reconnect button', () => {
     const coffee = buttons[buttons.length - 1]!;
     expect(coffee.textContent).toBe('Support project'); // last in the list, always there
     expect(coffee.hidden).toBe(false);
-    expect(buttons.filter((b) => b !== install && b !== coffee).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Tuner', 'Log', 'Disconnect']);
-    expect(menu.querySelectorAll('button svg').length).toBe(7); // an icon per item, install and coffee included
-    expect(Array.from(menu.querySelectorAll<HTMLElement>('.menu-sep')).filter((d) => !d.hidden).length).toBe(6); // between items + a stronger one above the info line
+    expect(buttons.filter((b) => b !== install && b !== coffee).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Tempo', 'Tuner', 'Log', 'Disconnect']);
+    expect(menu.querySelectorAll('button svg').length).toBe(8); // an icon per item, install and coffee included
+    expect(Array.from(menu.querySelectorAll<HTMLElement>('.menu-sep')).filter((d) => !d.hidden).length).toBe(7); // between items + a stronger one above the info line
     expect(menu.lastElementChild?.classList.contains('menu-info')).toBe(true); // device/firmware info at the bottom
     expect(menu.querySelector('button.danger')?.textContent).toBe('Disconnect');
     // Settings opens its own popup with the two selects and closes the menu.
@@ -302,7 +302,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(7); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner, expression persist
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(7); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner, expression values
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
@@ -477,12 +477,13 @@ describe('GigView tuner', () => {
     expect(overlay.classList.contains('open')).toBe(false);
     expect(calls[calls.length - 1]).toBe('stop');
 
-    // Losing the link closes the tuner too.
+    // Losing the link closes the tuner too, with nothing written to the dead link.
     tunerItem.click();
     expect(overlay.classList.contains('open')).toBe(true);
+    const n = calls.length;
     store.patch({ connection: 'reconnecting' });
     expect(overlay.classList.contains('open')).toBe(false);
-    expect(calls[calls.length - 1]).toBe('stop');
+    expect(calls.length).toBe(n);
     void view;
   });
 });
@@ -561,17 +562,19 @@ describe('GigView support', () => {
     const seen: string[] = [];
     new GigView(root, store, { ...noopActions(), onSupportClick: (source) => taps.push(source), onSupportSeen: (source) => seen.push(source) }, { bluetoothAvailable: true, showMockButton: false });
     expect(seen).toEqual(['card']); // the connect card is on screen from the start
-    const card = root.querySelector('.overlay:not(.settings):not(.tuner) .card')!;
+    const card = root.querySelector('.overlay.connect .card')!;
     const block = card.querySelector('.support-block')!;
     const link = block.querySelector<HTMLAnchorElement>('a.coffee-btn')!;
     expect(link.href).toBe('https://buymeacoffee.com/johnnyborjomi');
     expect(link.target).toBe('_blank');
     expect(link.textContent).toContain('Support project');
     expect(block.textContent).toContain('next feature');
-    // After the connect buttons, right before the "pick the pedal on every launch" tip.
-    const children = Array.from(card.children);
-    expect(children.indexOf(block)).toBeGreaterThan(children.findIndex((c) => c.classList.contains('row')));
-    expect(children[children.indexOf(block) + 1]?.classList.contains('resume-tip')).toBe(true);
+    // A section of its own beside the connect column (which keeps the buttons and the resume tip).
+    expect(block.parentElement?.classList.contains('page-side')).toBe(true);
+    const main = card.querySelector('.page-main')!;
+    expect(main.querySelector('.row')).not.toBeNull();
+    expect(main.querySelector('.resume-tip')).not.toBeNull();
+    expect(card.lastElementChild?.classList.contains('page-foot')).toBe(true); // the disclaimer runs along the bottom
     const opened: string[] = [];
     const orig = window.open;
     window.open = ((url: string) => { opened.push(url); return null; }) as typeof window.open;
@@ -641,17 +644,172 @@ describe('GigView expression pedal', () => {
     expect(post1.querySelector<HTMLElement>('.t-exp-fill')?.style.width).toBe('0%'); // 127 is the toe side of mid-travel
     store.patch({ expression: { ...store.get().expression, values: { ranges: { post3: 73 }, bypasses: { post1: true } }, valuesAt: Date.now() } });
 
-    // Stale (fade mode): gone. Persist: back.
+    // No fading: the indicators stay however long ago the pedal moved. The setting alone hides them.
     store.patch({ expression: { ...store.get().expression, movedAt: now - 10000, valuesAt: now - 10000 } });
+    expect(bar.classList.contains('visible')).toBe(true);
+    expect(post3.hidden).toBe(false);
+    store.patch({ expressionShow: false });
     expect(bar.classList.contains('visible')).toBe(false);
     expect(post3.hidden).toBe(true);
-    store.patch({ expressionPersist: true });
+    store.patch({ expressionShow: true });
     expect(bar.classList.contains('visible')).toBe(true);
     expect(post3.hidden).toBe(false);
 
     // Another preset's assignments do not apply until re-read.
     store.setField('activePreset', 5, 'dump');
     expect(post3.hidden).toBe(true);
-    expect(bar.classList.contains('visible')).toBe(true); // the position is still known
+    expect(bar.classList.contains('visible')).toBe(true); // the bar is always there while the setting is on
+  });
+
+  it('draws the bar at the heel until the pedal moves on this link', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+    store.patch({ connection: 'connected', transportName: 'ble' });
+    const bar = root.querySelector<HTMLElement>('.exp-bar')!;
+    expect(bar.classList.contains('visible')).toBe(true);
+    expect(bar.querySelector<HTMLElement>('.exp-fill')!.style.height).toBe('0%');
+  });
+});
+
+describe('GigView connection pages', () => {
+  it('shows the searching page while connecting or reconnecting, the connect page once the link is down for good', async () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    const calls: string[] = [];
+    const actions = { ...noopActions(), disconnect: () => { calls.push('disconnect'); return Promise.resolve(); }, connect: (mode?: string) => { calls.push(`connect:${mode}`); return Promise.resolve(); } };
+    new GigView(root, store, actions, { bluetoothAvailable: true, showMockButton: false });
+    const connectPage = root.querySelector('.overlay.connect')!;
+    const searching = root.querySelector('.overlay.searching')!;
+    expect(connectPage.classList.contains('open')).toBe(true);
+    expect(searching.classList.contains('open')).toBe(false);
+    expect(connectPage.querySelector('.page-main')).not.toBeNull(); // a page, not a card: connect on one side…
+    expect(connectPage.querySelector('.page-side .support-block')).not.toBeNull(); // …support on the other
+    expect(connectPage.querySelector('.connect-main')?.textContent).toBe('Connect Nano Cortex');
+
+    store.patch({ connection: 'reconnecting', deviceName: 'Neural DSP Nano Cortex', transportName: 'ble' });
+    expect(searching.classList.contains('open')).toBe(true);
+    expect(connectPage.classList.contains('open')).toBe(false);
+    expect(searching.querySelector('.search-hold')?.textContent).toBe('Hold EXIT + CAPTURE for 1 second');
+    expect(searching.querySelectorAll('.search-cap').length).toBe(2);
+    expect(searching.querySelector('.search-status')?.textContent).toBe('Searching for Nano Cortex…');
+    expect(searching.querySelector('.search-looking')?.textContent).toBe('Looking for: Neural DSP Nano Cortex');
+    expect(searching.querySelector<HTMLElement>('.search-hint')!.hidden).toBe(true); // the 30 s hint is not up yet
+    const pick = Array.from(searching.querySelectorAll<HTMLButtonElement>('.search-actions button')).find((b) => b.textContent === 'Pick from the list…')!;
+    expect(pick.hidden).toBe(false); // Web Bluetooth: the chooser is the way out of the retry loop
+    pick.click();
+    expect(calls).toEqual(['connect:chooser']); // this one is the chooser by design
+
+    store.patch({ connection: 'connecting' });
+    expect(searching.querySelector('.search-status')?.textContent).toBe('Connecting to Nano Cortex…');
+    expect(pick.hidden).toBe(true); // the chooser is already open
+
+    // Cancel = a deliberate disconnect: the connect page comes back with the Connect button.
+    searching.querySelector<HTMLButtonElement>('.search-cancel')!.click();
+    expect(calls).toEqual(['connect:chooser', 'disconnect']);
+    store.patch({ connection: 'disconnected' });
+    expect(searching.classList.contains('open')).toBe(false);
+    expect(connectPage.classList.contains('open')).toBe(true);
+    expect(connectPage.querySelector('.page-status')?.textContent).toContain('Cortex Cloud can use the pedal');
+    await new Promise((r) => setTimeout(r, 0)); // the buttons stay disabled until the earlier connect promise settles
+    connectPage.querySelector<HTMLButtonElement>('.connect-main')!.click();
+    expect(calls.at(-1)).toBe('connect:auto'); // the known pedal first, the chooser only if there is none
+    await new Promise((r) => setTimeout(r, 0));
+    Array.from(connectPage.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Show all BT devices')!.click();
+    expect(calls.at(-1)).toBe('connect:all');
+
+    store.patch({ connection: 'connected' });
+    expect(searching.classList.contains('open')).toBe(false);
+    expect(connectPage.classList.contains('open')).toBe(false);
+  });
+});
+
+
+describe('GigView views the pedal opens (tempo, tuner)', () => {
+  function build(liveTuner: boolean) {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store({ liveTuner });
+    const calls: string[] = [];
+    const actions = {
+      ...noopActions(),
+      startTuner: () => { calls.push('startTuner'); return Promise.resolve(); },
+      stopTuner: () => { calls.push('stopTuner'); return Promise.resolve(); },
+      openTempo: () => { calls.push('openTempo'); return Promise.resolve(); },
+      closeTempo: () => { calls.push('closeTempo'); return Promise.resolve(); },
+      stepTempo: (d: number) => calls.push(`step:${d}`),
+    };
+    new GigView(root, store, actions, { bluetoothAvailable: true, showMockButton: false });
+    store.patch({ connection: 'connected', syncPhase: 'ready', transportName: 'ble' });
+    store.setField('tempo', 120, 'dump');
+    return { root, store, calls };
+  }
+
+  it('tap tempo on the pedal opens the tempo view with the live value; the pedal\'s exit closes it without an echo', () => {
+    const { root, store, calls } = build(true);
+    const overlay = root.querySelector('.overlay.tempo')!;
+    expect(overlay.classList.contains('open')).toBe(false);
+    expect(Array.from(root.querySelectorAll('.menu .menu-item')).map((b) => b.textContent)).toContain('Tempo');
+    store.setField('tempo', 135, 'event');
+    store.patch({ tapTempo: true });
+    expect(overlay.classList.contains('open')).toBe(true);
+    expect(root.querySelector('.tempo-big')?.textContent).toBe('135');
+    expect((overlay.firstElementChild as HTMLElement).dataset.tapping).toBe('true');
+    expect(root.querySelector<HTMLButtonElement>('.tempo-step')!.disabled).toBe(false); // no control mode needed
+    expect(root.querySelector('.tempo-hint')?.textContent).toContain('Tap tempo mode');
+    store.setField('tempo', 99, 'event');
+    store.patch({ tapTempo: false });
+    expect(overlay.classList.contains('open')).toBe(false);
+    expect(calls).toEqual([]); // nothing written: the pedal drove both ends
+  });
+
+  it('Menu → Tempo opens it through the engine; − / + step without control mode; Done closes through the engine', async () => {
+    const { root, calls } = build(true);
+    Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Tempo')!.click();
+    const overlay = root.querySelector('.overlay.tempo')!;
+    expect(overlay.classList.contains('open')).toBe(true);
+    expect(calls).toEqual(['openTempo']);
+    const [minus, plus] = Array.from(root.querySelectorAll<HTMLButtonElement>('.tempo-step'));
+    expect(minus!.disabled).toBe(false);
+    plus!.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+    plus!.dispatchEvent(new Event('pointerup', { bubbles: true }));
+    minus!.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+    minus!.dispatchEvent(new Event('pointerup', { bubbles: true }));
+    expect(calls).toEqual(['openTempo', 'step:1', 'step:-1']);
+    Array.from(overlay.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
+    expect(overlay.classList.contains('open')).toBe(false);
+    expect(calls.at(-1)).toBe('closeTempo');
+    // The top-bar tempo badge opens it too.
+    root.querySelector<HTMLElement>('.status .tempo')!.click();
+    expect(overlay.classList.contains('open')).toBe(true);
+  });
+
+  it('a tuner started on the pedal opens the big tuner only while the live tuner is off, and the pedal ending it closes it silently', () => {
+    const on = (store: Store, v: boolean) => store.patch({ tuner: { ...store.get().tuner, on: v } });
+    {
+      const { root, store, calls } = build(false);
+      const overlay = root.querySelector('.overlay.tuner')!;
+      on(store, true);
+      expect(overlay.classList.contains('open')).toBe(true);
+      expect(calls).toEqual([]); // followed, not started from here
+      on(store, false);
+      expect(overlay.classList.contains('open')).toBe(false);
+      expect(calls).toEqual([]); // no tuner-off echoed back
+    }
+    {
+      const { root, store, calls } = build(true);
+      const overlay = root.querySelector('.overlay.tuner')!;
+      on(store, true);
+      expect(overlay.classList.contains('open')).toBe(false); // the top-bar live tuner shows it instead
+      // Opened from here, then the pedal ends its tuner: the big tuner closes, nothing written.
+      Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Tuner')!.click();
+      expect(overlay.classList.contains('open')).toBe(true);
+      expect(calls).toEqual(['startTuner']);
+      on(store, false);
+      expect(overlay.classList.contains('open')).toBe(false);
+      expect(calls).toEqual(['startTuner']);
+    }
   });
 });

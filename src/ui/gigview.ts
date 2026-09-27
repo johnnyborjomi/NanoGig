@@ -16,6 +16,7 @@ import type { GigState } from "../state/store";
 import type { Store } from "../state/store";
 import type { LogLine } from "../transport/types";
 import {
+  Bluetooth,
   ChevronLeft,
   ChevronRight,
   Coffee,
@@ -42,8 +43,11 @@ export const SUPPORT_URL = "https://buymeacoffee.com/johnnyborjomi";
 import { PRESET_COUNT } from "../protocol/frames";
 import type { FootswitchAssignments } from "../protocol/decode";
 
+/** How Connect reaches the pedal: a known one without the chooser, else / always the chooser, or every BT device. */
+export type ConnectMode = 'auto' | 'chooser' | 'all';
+
 export interface GigViewActions {
-  connect(acceptAll?: boolean): Promise<void>;
+  connect(mode?: ConnectMode): Promise<void>;
   connectMock(): Promise<void>;
   disconnect(): Promise<void>;
   /** Re-read the preset names, then the state. */
@@ -60,6 +64,10 @@ export interface GigViewActions {
   stopTuner(): Promise<void>;
   setTunerReference(hz: number): Promise<void>;
   setTunerMute(muted: boolean): Promise<void>;
+  /** Tempo view: opened (in control mode the pedal enters its tap tempo mode), −/+ steps, closed (the mode ends). */
+  openTempo(): Promise<void>;
+  closeTempo(): Promise<void>;
+  stepTempo(delta: number): void;
   simulateDrop?(): void;
   setWritesEnabled(enabled: boolean): void;
   setSettings(patch: {
@@ -70,7 +78,7 @@ export interface GigViewActions {
     showPresetStrip?: boolean;
     autoRefreshNames?: boolean;
     liveTuner?: boolean;
-    expressionPersist?: boolean;
+    expressionShow?: boolean;
   }): void;
   /** A "Support project" button was tapped (for anonymous stats). */
   onSupportClick?(source: "card" | "menu"): void;
@@ -195,11 +203,19 @@ export class GigView {
   private readonly autoNamesCheck = el("input", "menu-check");
   private readonly liveTunerCheck = el("input", "menu-check");
   private readonly supportSeen = new Set<"card" | "menu">();
-  private readonly expPersistCheck = el("input", "menu-check");
-  // Expression pedal: a thin vertical bar at the app's right edge, and a badge per assigned FX tile.
+  private readonly expShowCheck = el("input", "menu-check");
+  // Expression pedal: a thin vertical bar at the app's right edge, and a track per assigned FX tile.
   private readonly expBar = el("div", "exp-bar");
   private readonly expFill = el("div", "exp-fill");
-  private expTimer: ReturnType<typeof setInterval> | null = null;
+  // Searching page (connecting / reconnecting): the pairing gesture, what we look for, Cancel.
+  private readonly searchOverlay = el("div", "overlay searching page");
+  private readonly searchStatus = el("div", "search-status", "Searching for Nano Cortex…");
+  private readonly searchLooking = el("div", "search-looking", "");
+  private readonly searchHint = el("p", "search-hint", "");
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly cancelBtn = el("button", "search-cancel", "Cancel");
+  /** Connect page: why the link is down (deliberate disconnect) and who may use the pedal meanwhile. */
+  private readonly pageStatus = el("p", "page-status", "");
   private readonly slotFs = el("span", "fs-badge", "");
   private presetEl: HTMLElement | null = null;
   private fitKey = "";
@@ -265,6 +281,15 @@ export class GigView {
   private readonly styleSelect = el("select", "menu-select");
   private readonly settingsBtn = el("button", "menu-item", "Settings");
   private readonly tunerBtn = el("button", "menu-item", "Tuner");
+  private readonly tempoBtn = el("button", "menu-item", "Tempo");
+  // Tempo view: the big BPM, −/+ (auto-repeat while held), Done. Follows the pedal's tap tempo mode.
+  private readonly tempoOverlay = el("div", "overlay tempo");
+  private readonly tempoBig = el("div", "tempo-big", "—");
+  private readonly tempoHint = el("p", "tempo-hint", "");
+  private readonly tempoMinus = el("button", "tempo-step", "−");
+  private readonly tempoPlus = el("button", "tempo-step", "+");
+  private tempoRepeatDelay: ReturnType<typeof setTimeout> | null = null;
+  private tempoRepeat: ReturnType<typeof setInterval> | null = null;
   private readonly supportMenuBtn = el("button", "menu-item", "Support project");
   // Tuner overlay: note, cents, a needle bar, reference and mute controls.
   private readonly tunerOverlay = el("div", "overlay tuner");
@@ -281,8 +306,8 @@ export class GigView {
   private readonly settingsPreview = el("p", "hint");
   private readonly muteCheck = el("input", "menu-check");
   private readonly muteHint = el("p", "hint");
-  /** Shown while auto-reconnecting: opens the device chooser like the main Connect button. */
-  private readonly reconnectBtn = el("button", "primary", "Connect…");
+  /** On the searching page while auto-reconnecting: stops the retries and opens the device chooser. */
+  private readonly reconnectBtn = el("button", "primary", "Pick from the list…");
   private lastRenderedLine: LogLine | null = null;
   private wakeLock: WakeLockSentinel | null = null;
   private lastState: GigState | null = null;
@@ -307,8 +332,9 @@ export class GigView {
     const top = el("div", "topbar");
     const status = el("div", "status");
     this.tempoEl.append(lucideElement(Metronome, { "stroke-width": 2, "aria-hidden": "true" }), this.tempoText, this.tempoUnit);
-    this.tempoEl.title = "Preset tempo reported by the pedal (provisional)";
+    this.tempoEl.title = "Preset tempo reported by the pedal; tap for the tempo view";
     this.tempoEl.hidden = true;
+    this.tempoEl.addEventListener("click", () => this.openTempo());
     this.muteBadge.append(el("span", "", "1/2"), lucideElement(VolumeX, { "stroke-width": 2, "aria-hidden": "true" }));
     this.muteBadge.title = "Outputs 1/2 muted (Settings → Pedal)";
     this.muteBadge.setAttribute("aria-label", "Outputs 1/2 muted");
@@ -347,7 +373,7 @@ export class GigView {
     );
     this.reconnectBtn.hidden = true;
     this.reconnectBtn.title = "Stop retrying and pick the pedal from the Bluetooth chooser (put it in pairing mode first)";
-    this.reconnectBtn.addEventListener("click", () => this.doConnect(false));
+    this.reconnectBtn.addEventListener("click", () => this.doConnect("chooser"));
 
     // Fullscreen: icon only. Hidden where the API does not exist (iOS WebKit shells such as
     // Bluefy: `requestFullscreen is not a function`); there the home-screen app is the way.
@@ -379,6 +405,7 @@ export class GigView {
     const items: [HTMLButtonElement, typeof Settings, string][] = [
       [this.settingsBtn, Settings, "Settings"],
       [this.refreshBtn, RefreshCw, "Refresh"],
+      [this.tempoBtn, Metronome, "Tempo"],
       [this.tunerBtn, Music, "Tuner"],
       [this.consoleBtn, ScrollText, "Log"],
       [this.disconnectBtn, LogOut, "Disconnect"],
@@ -415,6 +442,7 @@ export class GigView {
       this.settingsOverlay.classList.add("open"),
     );
     this.tunerBtn.addEventListener("click", () => this.openTuner());
+    this.tempoBtn.addEventListener("click", () => this.openTempo());
     this.menuInfo.hidden = true;
     this.menu.append(el("div", "menu-sep strong"), this.menuInfo);
     document.addEventListener("click", (e) => {
@@ -425,6 +453,7 @@ export class GigView {
       if (e.key === "Escape") {
         this.menu.classList.remove("open");
         if (this.tunerOverlay.classList.contains("open")) this.closeTuner();
+        if (this.tempoOverlay.classList.contains("open")) this.closeTempo();
       }
     });
     const menuWrap = el("div", "menu-wrap");
@@ -442,7 +471,6 @@ export class GigView {
       () => void this.actions.disconnect(),
     );
     actions.append(
-      this.reconnectBtn,
       this.exitDemoBtn,
       this.writesBtn,
       this.fullscreenBtn,
@@ -732,16 +760,16 @@ export class GigView {
         "Experimental. Only works while the pedal itself is in tuner mode (hold Footswitch II on the pedal, or Menu → Tuner): then the note shows next to the status with flat and sharp dots either side. Otherwise it stays dimmed with a \"_\". It never switches the pedal's tuner on by itself, but while checked, closing the big tuner leaves the pedal in tuner mode; tap Footswitch II on the pedal to exit.",
       );
       const expRow = el("label", "setting-row");
-      expRow.append(el("span", "", "Keep expression pedal indicators on screen"));
-      this.expPersistCheck.type = "checkbox";
-      this.expPersistCheck.addEventListener("change", () =>
-        this.actions.setSettings({ expressionPersist: this.expPersistCheck.checked }),
+      expRow.append(el("span", "", "Show expression pedal values"));
+      this.expShowCheck.type = "checkbox";
+      this.expShowCheck.addEventListener("change", () =>
+        this.actions.setSettings({ expressionShow: this.expShowCheck.checked }),
       );
-      expRow.append(this.expPersistCheck);
+      expRow.append(this.expShowCheck);
       const expHint = el(
         "p",
         "hint",
-        "The position bar at the right edge and the EXP badges on the FX blocks it controls. Off: they fade out a few seconds after the pedal stops moving.",
+        "The position bar at the right edge and, on every FX block the pedal controls in the current preset, a track with the assigned range and the value it produces. On: always on screen. Off: never.",
       );
       const close = el("button", "primary", "Done");
       close.addEventListener("click", () =>
@@ -812,25 +840,69 @@ export class GigView {
       });
     }
 
-    // Connect overlay -----------------------------------------------
-    const card = el("div", "card");
+    // Tempo overlay ---------------------------------------------------
+    {
+      const card = el("div", "card tempo-card");
+      card.append(el("h2", "", "Tempo"));
+      const display = el("div", "tempo-display");
+      display.append(this.tempoBig, el("div", "tempo-unit-big", "BPM"));
+      card.append(display, this.tempoHint);
+      // Step on the press itself and auto-repeat while held (a long press walks the tempo).
+      const hold = (btn: HTMLButtonElement, delta: number) => {
+        btn.setAttribute("aria-label", delta < 0 ? "Tempo down 1 BPM" : "Tempo up 1 BPM");
+        btn.addEventListener("pointerdown", (e) => {
+          if (btn.disabled) return;
+          e.preventDefault();
+          btn.setPointerCapture?.(e.pointerId);
+          this.stopTempoRepeat();
+          this.stepTempo(delta);
+          this.tempoRepeatDelay = setTimeout(() => {
+            this.tempoRepeat = setInterval(() => this.stepTempo(delta), 120);
+          }, 400);
+        });
+        for (const ev of ["pointerup", "pointercancel", "lostpointercapture"] as const) btn.addEventListener(ev, () => this.stopTempoRepeat());
+        btn.addEventListener("click", (e) => e.preventDefault()); // the press already stepped
+      };
+      hold(this.tempoMinus, -1);
+      hold(this.tempoPlus, 1);
+      const controls = el("div", "tempo-controls");
+      controls.append(this.tempoMinus, this.tempoPlus);
+      const done = el("button", "primary", "Done");
+      done.addEventListener("click", () => this.closeTempo());
+      card.append(controls, done);
+      this.tempoOverlay.append(card);
+      this.tempoOverlay.addEventListener("click", (e) => {
+        if (e.target === this.tempoOverlay) this.closeTempo();
+      });
+    }
+
+    // Connect page: the link is down on purpose (Menu → Disconnect, Cancel while searching, or
+    // nothing to resume at launch). A full page, not a card: Connect on one side, the support
+    // section on the other, the disclaimer along the bottom.
+    const card = el("div", "card page-card");
+    const main = el("div", "page-main");
+    const side = el("div", "page-side");
     {
       const title = el("h1", "", "NanoGig");
       if (__CHANNEL__ === "staging") title.append(el("span", "beta-tag", "beta"));
-      card.append(title);
+      main.append(title);
     }
-    card.append(
+    main.append(
       el(
         "p",
-        "",
+        "page-tagline",
         "Unofficial gig view for the Neural DSP Nano Cortex: live preset name and block states over Bluetooth LE. Read-only by default. The app replaces Cortex Cloud while connected — disconnect it first.",
       ),
     );
+    this.pageStatus.hidden = true;
+    main.append(this.pageStatus);
     const row = el("div", "row");
     this.connectBtn.disabled = !this.opts.bluetoothAvailable;
     this.connectAllBtn.disabled = !this.opts.bluetoothAvailable;
-    this.connectBtn.addEventListener("click", () => this.doConnect(false));
-    this.connectAllBtn.addEventListener("click", () => this.doConnect(true));
+    this.connectBtn.replaceChildren(lucideElement(Bluetooth, { "stroke-width": 2.2, "aria-hidden": "true" }), el("span", "", "Connect Nano Cortex"));
+    this.connectBtn.classList.add("connect-main");
+    this.connectBtn.addEventListener("click", () => this.doConnect("auto"));
+    this.connectAllBtn.addEventListener("click", () => this.doConnect("all"));
     this.mockBtn.addEventListener("click", () => {
       this.overlayErr.textContent = "";
       void this.actions
@@ -843,7 +915,7 @@ export class GigView {
     row.append(this.connectBtn, this.connectAllBtn);
     if (this.opts.showMockButton) row.append(this.mockBtn);
 
-    card.append(row);
+    main.append(row);
 
     // Install (PWA): only shown while the browser offers a prompt and the app is not installed.
     this.installBtn.append(lucideElement(Download, { "aria-hidden": "true" }), el("span", "", "Install app"));
@@ -862,9 +934,9 @@ export class GigView {
     );
     this.installBlock.append(this.installBtn, installText);
     this.installBlock.hidden = true;
-    card.append(this.installBlock);
+    main.append(this.installBlock);
     if (!this.opts.bluetoothAvailable) {
-      card.append(
+      main.append(
         el(
           "p",
           "err",
@@ -872,7 +944,7 @@ export class GigView {
         ),
       );
     }
-    card.append(this.overlayErr);
+    main.append(this.overlayErr);
     {
       // Stock Chrome keeps Bluetooth permissions in memory only, so an installed app that was
       // closed (or killed in the background) has to go through the chooser on every launch.
@@ -930,18 +1002,62 @@ export class GigView {
       const cta = el("div", "support-cta");
       cta.append(link, sub);
       block.append(text, cta);
-      card.append(block);
+      side.append(block);
     }
-      card.append(this.resumeTip);
+      main.append(this.resumeTip);
     }
     card.append(
+      main,
+      side,
       el(
         "p",
-        "hint",
+        "hint page-foot",
         `Not affiliated with or endorsed by Neural DSP; "Nano Cortex" is their trademark. Everything shown is decoded from a reverse-engineered protocol verified on NanOS 2.2.x and may be wrong. Control mode writes to your pedal: back up your presets first.${this.opts.resumeAvailable === false ? "" : " The app reconnects to the last pedal by itself on launch."}`,
       ),
     );
+    this.overlay.classList.add("page");
     this.overlay.append(card);
+
+    // Searching page: the link dropped, the app is reconnecting, or the chooser is open. The
+    // pairing gesture up top (the pedal's EXIT and CAPTURE buttons), what we look for, Cancel.
+    {
+      const sc = el("div", "card page-card search-card");
+      const panel = el("div", "search-panel");
+      const button = (caption: string) => {
+        const w = el("div", "search-btn");
+        const ring = el("div", "search-ring");
+        ring.append(el("div", "search-knob"));
+        w.append(el("span", "search-cap", caption), ring);
+        return w;
+      };
+      panel.append(button("EXIT"), el("span", "search-plus", "+"), button("CAPTURE"));
+      const bracket = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      bracket.setAttribute("viewBox", "0 0 200 64");
+      bracket.setAttribute("class", "search-bracket");
+      bracket.setAttribute("aria-hidden", "true");
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M100 64 V50 Q100 38 88 38 H52 Q40 38 40 26 V12 M100 50 Q100 38 112 38 H148 Q160 38 160 26 V12 M31 20 L40 9 L49 20 M151 20 L160 9 L169 20");
+      bracket.append(path);
+      const hold = el("div", "search-hold", "Hold EXIT + CAPTURE for 1 second");
+      const body = el("div", "search-body");
+      this.searchHint.hidden = true;
+      body.append(
+        this.searchStatus,
+        this.searchLooking,
+        el(
+          "p",
+          "search-help",
+          "Press and hold the Exit and Capture buttons on your Nano Cortex at the same time, and keep this device within 2 meters. The pedal pairs with one app at a time: close Cortex Cloud first.",
+        ),
+        this.searchHint,
+      );
+      this.cancelBtn.title = "Stop looking for the pedal";
+      this.cancelBtn.addEventListener("click", () => void this.actions.disconnect());
+      const btns = el("div", "search-actions");
+      btns.append(this.reconnectBtn, this.cancelBtn);
+      sc.append(panel, bracket, hold, body, btns);
+      this.searchOverlay.append(sc);
+    }
 
     this.menuInfo.append(
       this.menuDevice,
@@ -970,7 +1086,9 @@ export class GigView {
       this.consoleEl,
       this.settingsOverlay,
       this.tunerOverlay,
+      this.tempoOverlay,
       this.overlay,
+      this.searchOverlay,
       this.expBar,
     );
     this.expBar.append(this.expFill);
@@ -981,23 +1099,91 @@ export class GigView {
     });
   }
 
-  /** Tuner on, then the overlay; the pedal streams readings while it is open. */
-  private openTuner() {
+  /**
+   * Tuner on, then the overlay; the pedal streams readings while it is open. `fromPedal`: the
+   * pedal started its own tuner (footswitch II), so the view only follows and writes nothing.
+   */
+  private openTuner(fromPedal = false) {
     this.tunerOverlay.classList.add("open");
     this.renderTuner(this.lastState ?? this.store.get());
     // The pedal sends nothing in silence, so the display is cleared on a timer, not on an event.
     if (!this.tunerSilenceTimer) this.tunerSilenceTimer = setInterval(() => this.renderTuner(this.lastState ?? this.store.get()), 250);
+    if (fromPedal) return;
     void this.actions.startTuner().catch((e) => {
       this.toast(e);
       this.closeTuner();
     });
   }
 
-  private closeTuner() {
+  /** `silent`: the pedal ended its tuner itself (or the link dropped); no tuner-off is echoed back. */
+  private closeTuner(silent = false) {
     this.tunerOverlay.classList.remove("open");
     if (this.tunerSilenceTimer) clearInterval(this.tunerSilenceTimer);
     this.tunerSilenceTimer = null;
-    void this.actions.stopTuner().catch((e) => this.toast(e));
+    if (!silent) void this.actions.stopTuner().catch((e) => this.toast(e));
+  }
+
+  /** Tempo view. `fromPedal`: its tap tempo mode opened it, so nothing is written; its exit closes it. */
+  private openTempo(fromPedal = false) {
+    const s = this.lastState ?? this.store.get();
+    if (s.connection !== "connected") return;
+    this.tempoOverlay.classList.add("open");
+    this.renderTempo(s);
+    if (fromPedal) return;
+    void this.actions.openTempo().catch((e) => {
+      this.toast(e);
+      this.closeTempo(true);
+    });
+  }
+
+  /** `silent`: the pedal left its tap tempo mode itself (or the link dropped); no exit is echoed back. */
+  private closeTempo(silent = false) {
+    this.stopTempoRepeat();
+    this.tempoOverlay.classList.remove("open");
+    if (!silent) void this.actions.closeTempo().catch((e) => this.toast(e));
+  }
+
+  private stepTempo(delta: number) {
+    try {
+      this.actions.stepTempo(delta);
+    } catch (e) {
+      this.stopTempoRepeat();
+      this.toast(e);
+    }
+  }
+
+  private stopTempoRepeat() {
+    if (this.tempoRepeatDelay) clearTimeout(this.tempoRepeatDelay);
+    if (this.tempoRepeat) clearInterval(this.tempoRepeat);
+    this.tempoRepeatDelay = null;
+    this.tempoRepeat = null;
+  }
+
+  private renderTempo(s: GigState) {
+    const bpm = s.tempo.value;
+    const text = bpm === null ? "—" : String(Math.round(bpm));
+    if (this.tempoBig.textContent !== text) this.tempoBig.textContent = text;
+    // No control mode needed: like the tuner, the tempo view is a pedal screen, not a preset edit.
+    this.tempoMinus.disabled = this.tempoPlus.disabled = s.connection !== "connected" || bpm === null;
+    const hint = s.tapTempo ? "Tap tempo mode on the pedal: tap its footswitch, or − / + here." : "";
+    if (this.tempoHint.textContent !== hint) this.tempoHint.textContent = hint;
+    (this.tempoOverlay.firstElementChild as HTMLElement).dataset.tapping = String(s.tapTempo);
+  }
+
+  /**
+   * Views the pedal opens itself (as the screen firmware does): its tap tempo mode opens the
+   * tempo view and its exit closes it; a tuner started on the pedal opens the big tuner unless
+   * the live tuner in the top bar already shows it, and the pedal ending its tuner closes the
+   * big tuner either way. Neither close echoes anything back to the pedal.
+   */
+  private followPedal(s: GigState, prev: GigState | null) {
+    if (!prev || s.connection !== "connected") return;
+    const tempoOpen = this.tempoOverlay.classList.contains("open");
+    if (s.tapTempo && !prev.tapTempo && !tempoOpen) this.openTempo(true);
+    else if (!s.tapTempo && prev.tapTempo && tempoOpen) this.closeTempo(true);
+    const tunerOpen = this.tunerOverlay.classList.contains("open");
+    if (s.tuner.on && !prev.tuner.on && !tunerOpen && !s.liveTuner) this.openTuner(true);
+    else if (!s.tuner.on && prev.tuner.on && tunerOpen) this.closeTuner(true);
   }
 
   /** Readings older than this are treated as silence (the stream runs at ~30/s while a note sounds). */
@@ -1025,12 +1211,12 @@ export class GigView {
     this.tunerNeedle.style.left = `${50 + clamped}%`;
   }
 
-  private doConnect(acceptAll: boolean) {
+  private doConnect(mode: ConnectMode) {
     this.overlayErr.textContent = "";
     this.connectBtn.disabled = true;
     this.connectAllBtn.disabled = true;
     void this.actions
-      .connect(acceptAll)
+      .connect(mode)
       .catch((e) => {
         this.overlayErr.textContent = String((e as Error).message ?? e);
       })
@@ -1218,6 +1404,7 @@ export class GigView {
       }
       if (light) {
         this.renderSync(s);
+        this.followPedal(s, prev);
         if (this.tunerOverlay.classList.contains("open")) this.renderTuner(s);
         this.renderLiveTuner(s);
         this.renderExpression(s);
@@ -1244,8 +1431,29 @@ export class GigView {
     this.menuDevice.hidden = this.menuDevice.textContent === "";
     this.renderSync(s);
     this.menuInfo.hidden = false; // the version line is always there
+    // Two full pages while the link is down: "searching" while the app connects or reconnects
+    // (the pairing gesture, Cancel), the connect page once it stopped (on purpose, or gave up).
+    const searching = s.connection === "connecting" || s.connection === "reconnecting";
+    this.searchOverlay.classList.toggle("open", searching);
+    this.searchStatus.textContent = s.connection === "connecting" ? "Connecting to Nano Cortex…" : "Searching for Nano Cortex…";
+    this.searchLooking.textContent = `Looking for: ${s.deviceName ?? "Neural DSP Nano Cortex"}`;
+    if (searching && !this.searchTimer) {
+      // The pedal advertises only for a while after a drop, and not at all in tap tempo mode
+      // (2026-09-26): after half a minute say so instead of spinning silently.
+      this.searchTimer = setTimeout(() => {
+        this.searchHint.textContent =
+          "Still searching. The pedal only announces itself for a while after a link drops, and not at all while in tap tempo mode: leave that mode or power-cycle the pedal, then hold EXIT + CAPTURE again.";
+        this.searchHint.hidden = false;
+      }, GigView.SEARCH_HINT_MS);
+    } else if (!searching && this.searchTimer) {
+      clearTimeout(this.searchTimer);
+      this.searchTimer = null;
+      this.searchHint.hidden = true;
+    }
     this.overlay.classList.toggle("open", s.connection === "disconnected");
     if (s.connection === "disconnected") this.noteSupportSeen("card");
+    this.pageStatus.textContent = s.deviceName && s.transportName !== "mock" ? `Not connected to ${s.deviceName}. Cortex Cloud can use the pedal meanwhile.` : "";
+    this.pageStatus.hidden = this.pageStatus.textContent === "";
     // A failed silent resume leaves its reason in lastError; show it on the connect screen.
     if (s.connection === "disconnected" && s.lastError && s.syncPhase !== "error") this.overlayErr.textContent = s.lastError;
     this.installBlock.hidden = !s.installable;
@@ -1256,10 +1464,16 @@ export class GigView {
     this.disconnectBtn.hidden = s.connection === "disconnected";
     this.refreshBtn.hidden = s.connection !== "connected";
     this.tunerBtn.hidden = s.connection !== "connected";
+    this.tempoBtn.hidden = s.connection !== "connected";
+    this.followPedal(s, prev);
     if (this.tunerOverlay.classList.contains("open")) {
       // Lost the link (or the engine dropped the tuner): the overlay closes with it.
-      if (s.connection !== "connected") this.closeTuner();
+      if (s.connection !== "connected") this.closeTuner(true);
       else this.renderTuner(s);
+    }
+    if (this.tempoOverlay.classList.contains("open")) {
+      if (s.connection !== "connected") this.closeTempo(true);
+      else this.renderTempo(s);
     }
     this.menuBtn.hidden = s.connection === "disconnected";
     this.writesState.dataset.on = s.writesEnabled ? "true" : "false";
@@ -1275,7 +1489,8 @@ export class GigView {
       ? `${this.statusText.textContent} · demo`
       : this.statusText.textContent;
     if (s.namesRefreshing && s.connection === "connected") this.statusText.textContent += " · updating names…";
-    this.reconnectBtn.hidden = s.connection !== "reconnecting";
+    // The chooser is the way out of a reconnect loop on Web Bluetooth; while "connecting" it is already open.
+    this.reconnectBtn.hidden = s.connection !== "reconnecting" || !this.opts.bluetoothAvailable || s.transportName === "mock";
     {
       const bpm = s.connection === "connected" ? s.tempo.value : null;
       this.tempoText.textContent = bpm === null ? "" : String(Math.round(bpm * 10) / 10);
@@ -1285,7 +1500,7 @@ export class GigView {
       this.muteBadge.hidden = !(s.connection === "connected" && s.outputsMuted.value === true);
     }
     if (this.liveTunerCheck.checked !== s.liveTuner) this.liveTunerCheck.checked = s.liveTuner;
-    if (this.expPersistCheck.checked !== s.expressionPersist) this.expPersistCheck.checked = s.expressionPersist;
+    if (this.expShowCheck.checked !== s.expressionShow) this.expShowCheck.checked = s.expressionShow;
     this.renderLiveTuner(s);
     this.renderExpression(s);
     const controlling = s.writesEnabled && s.connection === "connected";
@@ -1436,29 +1651,26 @@ export class GigView {
     this.renderLog(s.log);
   }
 
-  /** Indicators fade this long after the pedal last moved (unless "keep on screen" is set). */
-  private static readonly EXP_FADE_MS = 2500;
+  /** After this long on the searching page, explain why the pedal may not show up. */
+  private static readonly SEARCH_HINT_MS = 30_000;
 
   /**
-   * Expression pedal: the side bar shows the position; each assigned FX tile carries an EXP badge
-   * with its range and a fill of the value the pedal produced. Both persist or fade per setting.
+   * Expression pedal: the side bar shows the position; each assigned FX tile carries a track
+   * with its range and a fill of the value the pedal produced. Shown whenever the setting is on
+   * (no fading: the screen firmware's rule), drawn at the heel until the pedal moves on this link.
    */
   private renderExpression(s: GigState) {
     const x = s.expression;
     const connected = s.connection === "connected";
-    const lastAt = Math.max(x.movedAt ?? 0, x.valuesAt ?? 0);
-    const recent = lastAt > 0 && Date.now() - lastAt < GigView.EXP_FADE_MS;
-    const live = connected && (s.expressionPersist || recent);
-    // Bar: needs a position at all (the pedal has moved on this link).
-    const showBar = live && x.position !== null;
-    this.expBar.classList.toggle("visible", showBar);
-    if (x.position !== null) {
-      const pct = `${Math.round((x.position / 254) * 1000) / 10}%`;
+    const live = connected && s.expressionShow;
+    this.expBar.classList.toggle("visible", live);
+    const pos = x.position ?? 0;
+    {
+      const pct = `${Math.round((pos / 254) * 1000) / 10}%`;
       if (this.expFill.style.height !== pct) this.expFill.style.height = pct;
     }
-    // Badges: an assignment for the shown preset.
+    // Tracks: an assignment for the shown preset.
     const assigned = connected && x.assignments !== null && x.assignmentsPreset === s.activePreset.value ? x.assignments : null;
-    let anyBadge = false;
     for (const slot of FX_SLOTS) {
       const t = this.tiles.get(slot)!;
       const range = assigned?.ranges[slot] ?? null;
@@ -1466,7 +1678,6 @@ export class GigView {
       const show = (range !== null || bypass !== null) && live;
       if (t.exp!.hidden !== !show) t.exp!.hidden = !show;
       if (!range && !bypass) continue;
-      anyBadge = true;
       // Band = the set range (whole width for a bypass); fill = the value the pedal produced,
       // which already sits inside the range. A bypass-only tile fills fully when engaged.
       const pct = (v: number) => `${Math.round((v / 255) * 1000) / 10}%`;
@@ -1479,19 +1690,11 @@ export class GigView {
       // The pedal sends values only while moving, not on preset load: until the first event of
       // this preset, derive them from the last position exactly as the pedal maps it (linear into
       // the range; heel-toe bypass flag = 1 on the heel side of mid-travel, as captured).
-      const pos = x.position;
-      const derived = range && pos !== null ? range.min + (pos / 254) * (range.max - range.min) : undefined;
+      const derived = range ? range.min + (pos / 254) * (range.max - range.min) : undefined;
       const v = range ? (x.values.ranges[slot] ?? derived) : undefined;
-      const engaged = x.values.bypasses[slot] ?? (pos !== null ? pos < 127 : undefined);
+      const engaged = x.values.bypasses[slot] ?? pos < 127;
       const w = range ? (v === undefined ? "0%" : pct(v)) : engaged ? "100%" : "0%";
       if (t.expFill!.style.width !== w) t.expFill!.style.width = w;
-    }
-    // Fading is the absence of events: run a timer while something is shown and may fade.
-    const needTimer = !s.expressionPersist && (showBar || anyBadge);
-    if (needTimer && !this.expTimer) this.expTimer = setInterval(() => this.renderExpression(this.lastState ?? this.store.get()), 250);
-    if (!needTimer && this.expTimer) {
-      clearInterval(this.expTimer);
-      this.expTimer = null;
     }
   }
 
