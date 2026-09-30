@@ -21,7 +21,9 @@
    * (2026-09-12): pitch yellow, compressor green, modulation indigo, delay
    * cyan, overdrive orange, utility white. The app paints delay and reverb
    * the same cyan; reverb is shifted to azure here so the two stay apart on
-   * stage. Wah/Filter was not visible in the app and is a guess.
+   * stage. Sampled 2026-10-01: filter sky blue, EQ royal blue, wah white; wah
+   * is shifted halfway towards the filter blue here so it is not mistaken for
+   * a utility.
    */
   --fx-overdrive: #ff6a00;
   --fx-compressor: #4cf06a;
@@ -29,9 +31,10 @@
   --fx-delay: #00f0d8;
   --fx-reverb: #3d9bff;
   --fx-pitch: #ffd23f;
-  --fx-wah-filter: #f050c8;
+  --fx-wah: #c2e3f4;
+  --fx-filter: #93d4f5;
   --fx-utility: #f2f2f2;
-  --fx-utility-eq: #f2f2f2;
+  --fx-eq: #3a62d6;
   --fx-gate: #94a3b8;
   --fx-cab: #ef4444;
   --fx-unknown: #a8a29e;
@@ -793,9 +796,10 @@ button.warn {
 .tile[data-cat='delay'] { --fx: var(--fx-delay); }
 .tile[data-cat='reverb'] { --fx: var(--fx-reverb); }
 .tile[data-cat='pitch'] { --fx: var(--fx-pitch); }
-.tile[data-cat='wah-filter'] { --fx: var(--fx-wah-filter); }
+.tile[data-cat='wah'] { --fx: var(--fx-wah); }
+.tile[data-cat='filter'] { --fx: var(--fx-filter); }
 .tile[data-cat='utility'] { --fx: var(--fx-utility); }
-.tile[data-cat='utility-eq'] { --fx: var(--fx-utility-eq); }
+.tile[data-cat='eq'] { --fx: var(--fx-eq); }
 .tile[data-cat='gate'] { --fx: var(--fx-gate); }
 .tile[data-cat='cab'] { --fx: var(--fx-cab); }
 .tile[data-cat='unknown'] { --fx: var(--fx-unknown); }
@@ -805,8 +809,9 @@ button.warn {
   background: var(--fx);
   color: var(--fx-text);
 }
-.tile[data-on='true'][data-cat='modulation'] {
-  color: #f4f6f8; /* indigo is too dark for dark text */
+.tile[data-on='true'][data-cat='modulation'],
+.tile[data-on='true'][data-cat='eq'] {
+  color: #f4f6f8; /* indigo and royal blue are too dark for dark text */
 }
 .tile[data-on='true'] {
   box-shadow: 0 0 28px color-mix(in srgb, var(--fx) 40%, transparent);

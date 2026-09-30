@@ -8,7 +8,14 @@
  * bytes. Every ID observed on hardware 2026-09-12 resolves (Transpose, Green
  * 808, Chief DC2W, Analog Delay, Mind Hall, Exotic Z Boost, Legendary 87,
  * Doubler, Ambience). The three EQ models are listed under both Utility and
- * Utility/EQ upstream; the later (Utility/EQ) entry wins here. Provisional like
+ * Utility/EQ upstream; the later entry wins here and is filed as EQ.
+ *
+ * Categories follow Neural's device list (neuraldsp.com/nano-cortex-device-list,
+ * checked 2026-10-01) and Cortex Cloud's own colouring: the stereo "(ST)"
+ * compressors are compressors there, not utilities, Doubler is a utility, EQ is
+ * its own category (blue in the app), and Wah and Filter are separate (white and
+ * sky blue in the app). Upstream filed the ST compressors under Utility/EQ,
+ * which painted a Post-slot compressor white instead of green. Provisional like
  * everything else here.
  */
 import type { FxSlot } from './frames';
@@ -21,8 +28,9 @@ export type FxCategory =
   | 'Pitch'
   | 'Reverb'
   | 'Utility'
-  | 'Utility/EQ'
-  | 'Wah/Filter';
+  | 'EQ'
+  | 'Wah'
+  | 'Filter';
 
 export interface FxModel {
   name: string;
@@ -47,25 +55,25 @@ export const FX_MODELS: ReadonlyMap<string, FxModel> = new Map<string, FxModel>(
   ['A11F', { name: "Parametric 3", category: "Utility" }],
   ['827D', { name: "Utility Gate", category: "Utility" }],
   ['867D', { name: "Volume", category: "Utility" }],
-  ['B446', { name: "Bass Wah", category: "Wah/Filter" }],
-  ['B246', { name: "Bubba Wah", category: "Wah/Filter" }],
-  ['B646', { name: "Crying Clyde Wah", category: "Wah/Filter" }],
-  ['B546', { name: "Crying Wah", category: "Wah/Filter" }],
-  ['C6BB01', { name: "Envelope Filter", category: "Wah/Filter" }],
-  ['C1BB01', { name: "Love Meat", category: "Wah/Filter" }],
+  ['B446', { name: "Bass Wah", category: "Wah" }],
+  ['B246', { name: "Bubba Wah", category: "Wah" }],
+  ['B646', { name: "Crying Clyde Wah", category: "Wah" }],
+  ['B546', { name: "Crying Wah", category: "Wah" }],
+  ['C6BB01', { name: "Envelope Filter", category: "Filter" }],
+  ['C1BB01', { name: "Love Meat", category: "Filter" }],
   ['8927', { name: "Legendary 87 (M)", category: "Compressor" }],
   ['8F27', { name: "Opto Comp (M)", category: "Compressor" }],
   ['8C27', { name: "Solid State Comp (M)", category: "Compressor" }],
   ['8D27', { name: "VCA Comp (M)", category: "Compressor" }],
   ['D18C01', { name: "Transpose", category: "Pitch" }],
-  ['8B7D', { name: "Doubler", category: "Utility/EQ" }],
-  ['A51F', { name: "Graphic 9", category: "Utility/EQ" }],
-  ['A31F', { name: "Low-High Cut", category: "Utility/EQ" }],
-  ['A11F', { name: "Parametric 3", category: "Utility/EQ" }],
-  ['9427', { name: "Legendary 87 (ST)", category: "Utility/EQ" }],
-  ['9727', { name: "Opto Comp (ST)", category: "Utility/EQ" }],
-  ['9527', { name: "Solid State Comp (ST)", category: "Utility/EQ" }],
-  ['9627', { name: "VCA Comp (ST)", category: "Utility/EQ" }],
+  ['8B7D', { name: "Doubler", category: "Utility" }],
+  ['A51F', { name: "Graphic 9", category: "EQ" }],
+  ['A31F', { name: "Low-High Cut", category: "EQ" }],
+  ['A11F', { name: "Parametric 3", category: "EQ" }],
+  ['9427', { name: "Legendary 87 (ST)", category: "Compressor" }],
+  ['9727', { name: "Opto Comp (ST)", category: "Compressor" }],
+  ['9527', { name: "Solid State Comp (ST)", category: "Compressor" }],
+  ['9627', { name: "VCA Comp (ST)", category: "Compressor" }],
   ['F036', { name: "Chief CE2W (ST)", category: "Modulation" }],
   ['F336', { name: "Chief DC2W (ST)", category: "Modulation" }],
   ['EF36', { name: "Chorus 229T", category: "Modulation" }],

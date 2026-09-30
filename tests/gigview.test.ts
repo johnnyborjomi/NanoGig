@@ -326,7 +326,7 @@ describe('GigView tile colour category', () => {
       'fxModels',
       {
         pre1: { id: '1B', known: true, name: 'Green 808', category: 'Overdrive' },
-        pre2: { id: 'A51F', known: true, name: 'Graphic 9', category: 'Utility/EQ' },
+        pre2: { id: 'A51F', known: true, name: 'Graphic 9', category: 'EQ' },
         post1: { id: 'ZZ', known: false, name: 'ID ZZ', category: 'Utility' },
         post2: null,
         post3: { id: 'CB3E', known: true, name: 'Mind Hall', category: 'Reverb' },
@@ -334,7 +334,7 @@ describe('GigView tile colour category', () => {
       'dump',
     );
     expect(tile('pre1').dataset.cat).toBe('overdrive');
-    expect(tile('pre2').dataset.cat).toBe('utility-eq');
+    expect(tile('pre2').dataset.cat).toBe('eq');
     expect(tile('post1').dataset.cat).toBe('unknown');
     expect(tile('post2').dataset.cat).toBe('none');
     expect(tile('post3').dataset.cat).toBe('reverb');

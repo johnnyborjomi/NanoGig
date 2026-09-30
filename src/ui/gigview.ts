@@ -164,7 +164,7 @@ export function placeholderFor(s: GigState): string {
   }
 }
 
-/** "Wah/Filter" → "wah-filter", used as the data-cat attribute matched by CSS. */
+/** "Utility" → "utility", used as the data-cat attribute matched by CSS. */
 export function categorySlug(category: string): string {
   return category.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
