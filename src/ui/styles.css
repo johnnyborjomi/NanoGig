@@ -2638,11 +2638,6 @@ button.warn {
   .card.sheet .sheet-sub {
     font-size: 11px;
   }
-  .card.sheet .sheet-head .icon-btn {
-    min-height: 40px;
-    width: 40px;
-    height: 40px;
-  }
   .sheet-body,
   .ed-pane,
   .ed-params {
