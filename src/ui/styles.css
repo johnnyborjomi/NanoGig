@@ -2673,6 +2673,25 @@ button.warn {
   font-variant-numeric: tabular-nums;
   font-size: 14px;
 }
+/* The presets list's label, as on the strip: bank in text colour, the slot letter in its own, the number thin. */
+.ed-presets .ed-item-index {
+  min-width: 4.2em;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.ed-presets .p-bank {
+  color: var(--text);
+}
+.ed-presets .p-num {
+  font-weight: 300;
+  color: var(--muted);
+  margin-left: 0.2em;
+}
+.ed-presets .fs-badge {
+  font-size: 11px;
+  vertical-align: 0.1em;
+}
 .ed-item-folder {
   margin-left: auto;
   font-size: 12px;

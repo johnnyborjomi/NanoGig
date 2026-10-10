@@ -296,6 +296,29 @@ describe('library sheet', () => {
   });
 });
 
+describe('presets list', () => {
+  it("opens on a hold of the strip's arrows (a tap pages); labels as on the strip", async () => {
+    const { root, store, open } = await setup(false);
+    const next = root.querySelectorAll<HTMLElement>('.pbtn-nav')[1]!;
+    const first = () => root.querySelector('.pbtn .p-name')!.textContent;
+    const before = first();
+    tap(next);
+    expect(first()).not.toBe(before); // paged
+    expect(open('list-sheet')).toBe(false);
+    const paged = first();
+    await hold(next);
+    expect(open('list-sheet')).toBe(true);
+    expect(first()).toBe(paged); // the hold did not page too
+    // Slot letters and footswitch badges carry what the styles colour, as on the strip.
+    const fs = store.get().footswitches.value!;
+    const row = root.querySelectorAll<HTMLElement>('.ed-preset-row')[fs.ia]!;
+    expect(row.querySelector<HTMLElement>('.slot-slot')!.dataset.slot).not.toBe('');
+    expect(row.querySelector<HTMLElement>('.fs-badge')!.dataset.fs).toBe('ia');
+    const strip = root.querySelector<HTMLElement>('.pbtn .slot-slot')!;
+    expect(strip.dataset.slot).not.toBe('');
+  });
+});
+
 describe('sheet stacking', () => {
   it('a preset opened from the presets list shows over the list; Escape closes it first', async () => {
     const { root, open } = await setup(true);

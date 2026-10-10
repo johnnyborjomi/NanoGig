@@ -37,6 +37,7 @@ import type { GigState, Store } from "../state/store";
 import type { EditController } from "../sync/editor";
 import { FOLDER_NAME_MAX, LibraryFolders, type LibraryFolder } from "./library-folders";
 import { onHold } from "./hold";
+import { presetLabelEls, renderPresetLabel, type PresetLabelEls } from "./preset-label";
 import {
   ChevronLeft,
   ChevronRight,
@@ -1198,7 +1199,7 @@ export class EditorView {
   // -------------------------------------------------------------------------
 
   private readonly listBody = el("div", "ed-list ed-presets");
-  private listRows: { root: HTMLElement; label: HTMLElement; name: HTMLElement; fs: HTMLElement; more: HTMLButtonElement }[] = [];
+  private listRows: { root: HTMLElement; label: Required<PresetLabelEls>; name: HTMLElement; more: HTMLButtonElement }[] = [];
 
   openPresetList() {
     this.listSheet.open();
@@ -1216,10 +1217,12 @@ export class EditorView {
     for (let i = 0; i < PRESET_COUNT; i++) {
       const root = el("div", "ed-item ed-preset-row");
       const pick = el("button", "ed-item-name");
-      const label = el("span", "ed-item-index");
+      // The label as on the strip: slot letter in its colour, the footswitch badge in its own.
+      const label = presetLabelEls();
+      const index = el("span", "ed-item-index");
+      index.append(label.bank, label.slot, label.num);
       const name = el("span", "ed-preset-name");
-      const fs = el("span", "fs-badge");
-      pick.append(label, name, fs);
+      pick.append(index, name, label.fs);
       pick.addEventListener("click", () => {
         const s = this.store.get();
         // An empty slot, as Cortex Cloud's "Empty" tile: create it (in Edit mode).
@@ -1236,7 +1239,7 @@ export class EditorView {
       const more = iconButton(Ellipsis, "Manage preset", "ghost icon-btn ed-more");
       more.addEventListener("click", () => this.openPreset(i));
       root.append(pick, more);
-      this.listRows.push({ root, label, name, fs, more });
+      this.listRows.push({ root, label, name, more });
       this.listBody.append(root);
     }
     sh.body.append(this.listBody);
@@ -1245,16 +1248,12 @@ export class EditorView {
   private renderList() {
     if (!this.listSheet.isOpen) return;
     const s = this.s;
-    const fs = s.footswitches.value;
     this.listRows.forEach((r, i) => {
-      r.label.textContent = presetLabel(i, { presetsPerBank: s.presetsPerBank, style: s.labelStyle });
+      renderPresetLabel(r.label, i, s, { footswitch: true });
       const name = s.presetNames.value[i] ?? "";
       r.name.textContent = name || "Empty";
       r.root.dataset.empty = String(!name);
       r.root.dataset.active = String(s.activePreset.value === i);
-      const badge = fs ? (fs.ia === i ? "IA" : fs.ib === i ? "IB" : fs.iia === i ? "IIA" : fs.iib === i ? "IIB" : "") : "";
-      r.fs.textContent = badge;
-      r.fs.hidden = !badge;
       r.more.hidden = !this.canEdit;
     });
   }

@@ -26,7 +26,7 @@ footswitch press:
   change its model and parameters, tap the capture or IR name for capture volume, IR level /
   filters / phase / microphone and the pedal's whole capture and IR library (in folders of your
   own), hold Gate for its threshold, and hold the preset name to rename it, name an empty
-  slot, put it on a footswitch or delete it. Menu → Presets lists all 64.
+  slot, put it on a footswitch or delete it. Menu → Presets (or a hold on the strip's ‹ ›) lists all 64.
 
 Nothing is installed on the pedal and nothing leaves your device: no account, no server, no
 analytics. It is a web page.

@@ -43,13 +43,13 @@ import {
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { EditorView } from "./editor-view";
 import { onHold } from "./hold";
+import { presetLabelEls, renderPresetLabel } from "./preset-label";
 export { HOLD_MS } from "./hold";
 import type { EditController } from "../sync/editor";
 
 /** Where a coffee goes. Also in the README's Sponsor section. */
 export const SUPPORT_URL = "https://buymeacoffee.com/johnnyborjomi";
 import { PRESET_COUNT } from "../protocol/frames";
-import type { FootswitchAssignments } from "../protocol/decode";
 
 /** How Connect reaches the pedal: a known one without the chooser, else / always the chooser, or every BT device. */
 export type ConnectMode = 'auto' | 'chooser' | 'all';
@@ -110,14 +110,7 @@ export interface GigViewOptions {
 }
 
 /** Which of the Nano's footswitches (IA, IB, IIA, IIB) is assigned to preset `index`, if any. */
-export function footswitchFor(index: number, fs: FootswitchAssignments | null): "IA" | "IB" | "IIA" | "IIB" | null {
-  if (!fs) return null;
-  if (fs.ia === index) return "IA";
-  if (fs.ib === index) return "IB";
-  if (fs.iia === index) return "IIA";
-  if (fs.iib === index) return "IIB";
-  return null;
-}
+export { footswitchFor } from "./preset-label";
 
 /** How long a press must last to count as a hold (opens an editor instead of toggling). */
 /** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
@@ -655,11 +648,7 @@ export class GigView {
     for (let i = 0; i < PRESET_STRIP_COUNT; i++) {
       const root = el("button", "pbtn");
       const label = el("span", "p-label");
-      const bank = el("span", "p-bank");
-      const slot = el("span", "slot-slot");
-      const num = el("span", "p-num");
-      const fs = el("span", "fs-badge");
-      fs.hidden = true;
+      const { bank, slot, num, fs } = presetLabelEls();
       label.append(bank, slot, num, fs);
       const name = el("span", "p-name");
       root.append(label, name);
@@ -690,6 +679,11 @@ export class GigView {
     this.stripNext.setAttribute("aria-label", "Next presets");
     this.stripPrev.addEventListener("click", () => this.pageStrip(-1));
     this.stripNext.addEventListener("click", () => this.pageStrip(1));
+    // Hold either arrow: all 64 in the presets list (as Menu → Presets).
+    for (const nav of [this.stripPrev, this.stripNext]) {
+      nav.title = "Tap: page the presets · hold: all presets";
+      onHold(nav, () => this.editor.openPresetList(), () => true);
+    }
     grid.prepend(this.stripPrev);
     grid.append(this.stripNext);
     // Swipe the strip sideways to page it, like the arrows (a bigger screen than the NanoGig Screen's paged
@@ -1688,25 +1682,7 @@ export class GigView {
 
     // Preset --------------------------------------------------------
     const idx = s.activePreset.value;
-    const label =
-      idx === null
-        ? null
-        : presetLabelParts(idx, {
-            presetsPerBank: s.presetsPerBank,
-            style: s.labelStyle,
-          });
-    this.slotBank.textContent = label ? label.bank : "—";
-    this.slotSlot.textContent = label ? label.slot : "";
-    this.slotSlot.dataset.slot = label ? String(label.slotIndex) : "";
-    this.slotNum.textContent =
-      label && s.showPresetNumber && idx !== null ? `·${idx + 1}` : "";
-    this.slotNum.hidden = this.slotNum.textContent === "";
-    {
-      const fs = idx === null || !s.showFootswitches ? null : footswitchFor(idx, s.footswitches.value);
-      this.slotFs.textContent = fs ?? "";
-      this.slotFs.dataset.fs = fs ? fs.toLowerCase() : "";
-      this.slotFs.hidden = !fs;
-    }
+    const label = renderPresetLabel({ bank: this.slotBank, slot: this.slotSlot, num: this.slotNum, fs: this.slotFs }, idx, s);
     if (this.footswitchCheck.checked !== s.showFootswitches) this.footswitchCheck.checked = s.showFootswitches;
     if (this.numberCheck.checked !== s.showPresetNumber)
       this.numberCheck.checked = s.showPresetNumber;
@@ -1942,21 +1918,11 @@ export class GigView {
     this.stripCentre = centre;
     this.stripPrev.hidden = this.stripNext.hidden = !controlling;
     const half = Math.floor(PRESET_STRIP_COUNT / 2);
-    const opts = { presetsPerBank: s.presetsPerBank, style: s.labelStyle };
     this.presetBtns.forEach((b, i) => {
       const raw = centre - half + this.stripPage * PRESET_STRIP_COUNT + i;
       const idx = ((raw % PRESET_COUNT) + PRESET_COUNT) % PRESET_COUNT;
       b.index = idx;
-      const label = presetLabelParts(idx, opts)!;
-      b.bank.textContent = label.bank;
-      b.slot.textContent = label.slot;
-      b.slot.dataset.slot = String(label.slotIndex);
-      b.num.textContent = s.showPresetNumber ? `·${idx + 1}` : "";
-      b.num.hidden = !s.showPresetNumber;
-      const fs = s.showFootswitches ? footswitchFor(idx, s.footswitches.value) : null;
-      b.fs.textContent = fs ?? "";
-      b.fs.dataset.fs = fs ? fs.toLowerCase() : "";
-      b.fs.hidden = !fs;
+      const label = renderPresetLabel(b, idx, s)!;
       const name = s.presetNames.value[idx] ?? "";
       b.name.textContent = name || `Preset ${idx + 1}`;
       b.name.classList.toggle("empty", !name);
