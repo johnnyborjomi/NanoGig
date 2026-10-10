@@ -135,6 +135,13 @@ button.warn {
 .status .tempo[hidden] {
   display: none;
 }
+/* Connected, tempo not read yet: the room is kept, nothing shows. */
+.status .tempo[data-empty='true'] {
+  visibility: hidden;
+}
+.status .tempo-text:empty::before {
+  content: '000';
+}
 /* The pedal is in its tap tempo mode: the value follows every tap. */
 .status .tempo.tapping {
   color: var(--warn);
@@ -146,6 +153,8 @@ button.warn {
   opacity: 0.85;
 }
 .status .tempo-text {
+  min-width: 3ch; /* 92 and 120 take the same room */
+  text-align: right;
   font-size: 1.25em;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -250,6 +259,7 @@ button.warn {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 30px; /* the live tuner's height: the line does not grow when it shows */
   color: var(--muted);
   font-size: 15px;
   flex: 1;
@@ -269,6 +279,10 @@ button.warn {
 .dot[data-state='connected'] {
   background: var(--on);
   box-shadow: 0 0 14px rgba(45, 212, 160, 0.6);
+}
+/* Updating the preset names. */
+.dot[data-state='connected'][data-busy='true'] {
+  animation: pulse 0.8s infinite alternate;
 }
 .dot[data-state='connecting'],
 .dot[data-state='reconnecting'] {
@@ -1725,7 +1739,9 @@ button.warn {
   max-width: 1040px;
   max-height: none;
   min-height: 0;
-  margin: auto;
+  /* Anchored at the top, not centred: what shows up later (an error, the install offer, the search hint) grows
+     the page downward and moves nothing above it. */
+  margin: clamp(0px, 6vh, 64px) auto 0;
   padding: max(28px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1992,4 +2008,16 @@ button.warn {
   .search-plus {
     margin-top: 16px;
   }
+}
+
+/* A one-line status under a settings hint: its text changes, its height does not. */
+.card .hint-line {
+  margin-top: -0.4em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The connect screen's error line keeps two lines of room (a failed connect does not push the page down). */
+.overlay.page .card .page-err {
+  min-height: 2.8em;
 }

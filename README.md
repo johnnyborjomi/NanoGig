@@ -113,8 +113,8 @@ next to the label, whether to show the Nano's own footswitch assignments as IA /
 IIA / IIB badges, for playing without a MIDI controller, and whether to show the preset list
 under the FX tiles at all. Under **Pedal**, **Re-read preset names when idle** (on by default)
 can be switched off for a gig: the pedal takes about 6 s to send the list and holds footswitch
-presses back meanwhile, so the app only does it after a quiet minute and says _updating names_
-in the top bar while it runs. A **Mute outputs 1/2** switch sends the same
+presses back meanwhile, so the app only does it after a quiet minute, and the status dot in the top bar pulses
+while it runs. A **Mute outputs 1/2** switch sends the same
 command Cortex Cloud's global setting does, handy when you monitor through a DAW over USB. It
 works without control mode, shows the pedal's own report of the switch, and while muted a
 small _1/2_ badge sits next to the tempo in the top bar.
