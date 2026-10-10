@@ -606,7 +606,7 @@ export class GigView {
       tile.dataset.cat = key === "gate" || key === "cab" ? key : "none";
       tile.addEventListener("click", () => this.onTileTap(key));
       // Editing: hold an FX tile for its model and parameters, the gate for its threshold.
-      onHold(tile, () => (key === "gate" ? this.editor.openGate() : key !== "cab" ? this.editor.openFx(key) : undefined), () => this.editor.canEdit);
+      if (key !== "cab") onHold(tile, () => (key === "gate" ? this.editor.openGate() : this.editor.openFx(key)), () => this.editor.canEdit);
       // Expression badge: label with the range, and a live fill of the mapped value.
       // No text: a translucent band marks the assigned range, a solid fill the value inside it.
       const exp = el("div", "t-exp");

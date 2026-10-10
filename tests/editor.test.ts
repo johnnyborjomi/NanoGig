@@ -23,9 +23,9 @@ afterEach(() => {
   engines = [];
 });
 
-async function setup(opts: { editing?: boolean; writes?: boolean } = {}) {
+async function setup(opts: { editing?: boolean; writes?: boolean; device?: ConstructorParameters<typeof MockTransport>[0] } = {}) {
   const store = new Store({ editing: opts.editing ?? true });
-  const mock = new MockTransport({ latencyMs: 3, packetGapMs: 1, replayRealDumpFirst: false });
+  const mock = new MockTransport({ latencyMs: 3, packetGapMs: 1, replayRealDumpFirst: false, ...opts.device });
   const engine = new SyncEngine(mock, store, { writesEnabled: opts.writes ?? true, inactivityMs: 150, confirmDelayMs: 20 });
   engines.push(engine);
   await mock.connect();
@@ -164,4 +164,38 @@ describe('edit controller', () => {
     expect(sent(mock, EDIT_MSG.PRESET_CHANGED)).toHaveLength(1);
     expect(store.get().connection).toBe('connected');
   });
+
+  it("IR off then on goes back to the preset's own IR (slot 6)", async () => {
+    const { store, mock, edit } = await setup({ device: { initialState: { cabOn: true, cabSlot: 6 } } });
+    await until(() => store.get().cabSlot.value === 6);
+    await edit.setIrOn(false);
+    await until(() => store.get().cabOn.value === false && store.get().cabOn.source === 'dump');
+    await edit.setIrOn(true);
+    await until(() => mock.device.cabOn && store.get().cabOn.source === 'dump');
+    expect(mock.device.cabSlot).toBe(6);
+  });
+
+  it('a capture volume of 0 (field 44 left out) still reads as a value', async () => {
+    const { store, edit } = await setup();
+    edit.setCaptureVolume(0);
+    await until(() => store.get().captureVolume.source === 'dump');
+    expect(store.get().captureVolume.value).toBe(0);
+  });
+
+  it('a delete answered after the timeout still clears the name', async () => {
+    const { store, mock, edit } = await setup();
+    const realWrite = mock.writeCommand.bind(mock);
+    // Hold the pedal's answer back past the 3 s timeout.
+    (mock as unknown as { writeCommand: typeof realWrite }).writeCommand = async (bytes) => {
+      if (bytes[bytes.length - 4] === EDIT_MSG.PRESET_DELETE) {
+        setTimeout(() => void realWrite(bytes), 3300);
+        return;
+      }
+      return realWrite(bytes);
+    };
+    await edit.deletePreset(10);
+    await until(() => store.get().edit.preset.result?.message === 'No answer from the pedal', 3500);
+    expect(store.get().presetNames.value[10]).toBe('Djent 8 String');
+    await until(() => store.get().presetNames.value[10] === '', 1500);
+  }, 8000);
 });

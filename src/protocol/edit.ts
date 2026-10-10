@@ -275,9 +275,12 @@ export function cabValueText(param: CabParam, n: number): string {
   return `${v.toFixed(s.decimals)} ${s.unit}`;
 }
 
-/** IR slot select (selector 3): slot 1..5 on the pedal's IR list, 0 = IR off: `08 C0 18 03 20 <slot> 1C 00 00 00`. */
+/**
+ * IR slot select (selector 3): slot 1..5 on the pedal's IR list, 6 = the preset's own IR (state field 12 for most
+ * presets), 0 = IR off: `08 C0 18 03 20 <slot> 1C 00 00 00`. Up to 0x7F like the firmware's builder.
+ */
 export function cabSelectFrame(slot: number): Uint8Array {
-  checkIndex('IR slot', slot, CAB_SLOT_COUNT);
+  checkIndex('IR slot', slot, 0x7f);
   return new Pb().varint(3, 3).varint(4, slot).frame(EDIT_MSG.ENCODER);
 }
 

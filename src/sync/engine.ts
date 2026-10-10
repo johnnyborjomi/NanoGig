@@ -753,7 +753,8 @@ export class SyncEngine {
     this.store.setField('captureOn', captureOn, captureStale ? 'optimistic' : 'dump', at);
     if (stale || gateStale || cabStale || captureStale || editHeld) this.scheduleConfirm();
     this.store.setField('captureSlot', state.captureSlot ?? 0, editHeld ? 'optimistic' : 'dump', at);
-    this.store.setField('captureVolume', state.captureVolumeRaw, 'dump', at);
+    // Field 44 absent = raw 0 (-24 dB): the pedal leaves zero varints out.
+    this.store.setField('captureVolume', state.captureVolumeRaw ?? 0, 'dump', at);
     this.store.setField('gateThreshold', state.gateThresholdRaw, 'dump', at);
     this.store.setField('cabSlot', state.cabOn ? state.cabSlot : null, 'dump', at);
     this.store.setField('irName', state.ir?.shortName || null, 'dump', at);

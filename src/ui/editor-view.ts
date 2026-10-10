@@ -291,6 +291,7 @@ export class EditorView {
     });
     this.fxModelBtn.addEventListener("click", () => {
       this.fxModels.hidden = !this.fxModels.hidden;
+      this.fxModelsKey = "";
       this.renderFxModels();
     });
     this.fxRetry.addEventListener("click", () => this.run(() => this.edit().retryFx()));
@@ -301,10 +302,16 @@ export class EditorView {
     sh.body.append(top, this.fxModels, status, this.fxParams);
   }
 
+  private fxModelsKey = "";
+
   private renderFxModels() {
     const slot = this.fxSlot;
     if (!slot || this.fxModels.hidden) return;
     const current = this.s.fxModels.value[slot]?.id;
+    // Rebuilt only when it shows something else: a chip replaced mid-tap loses the tap.
+    const key = `${slot}:${current}`;
+    if (key === this.fxModelsKey && this.fxModels.childElementCount) return;
+    this.fxModelsKey = key;
     const groups = new Map<string, ReturnType<typeof fxSlotModels>>();
     for (const m of fxSlotModels(slot)) groups.set(m.category, [...(groups.get(m.category) ?? []), m]);
     this.fxModels.replaceChildren();
@@ -1038,7 +1045,7 @@ export class EditorView {
     this.renderSource();
     this.renderGate();
     this.renderPreset();
-    if (prev.edit.library !== s.edit.library || prev.captureName !== s.captureName || prev.irName !== s.irName) this.renderLibrary();
+    if (prev.edit.library !== s.edit.library || prev.captureName.value !== s.captureName.value || prev.irName.value !== s.irName.value || prev.activePreset.value !== s.activePreset.value) this.renderLibrary();
     this.renderList();
   }
 }

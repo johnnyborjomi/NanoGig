@@ -113,6 +113,8 @@ export class EditController {
   /** A capture load into this slot (1..5) awaits the pedal's 0x51; then the slot is selected. */
   private loadingCaptureSlot: number | null = null;
   private presetTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A preset write whose answer timed out: a late answer still applies (a delete is done on the pedal either way). */
+  private lateOp: { kind: 'rename' | 'create' | 'delete'; index: number; name: string } | null = null;
 
   constructor(private readonly host: EditHost) {}
 
@@ -281,14 +283,12 @@ export class EditController {
 
   openFx(slot: FxSlot): void {
     this.fxAsked = null;
-    this.fxReads = [];
     this.patchEdit({ fx: { slot, type: this.slotType(slot), preset: this.activePreset(), values: null, status: 'loading' } });
     this.fxTick();
   }
 
   closeFx(): void {
     this.patchEdit({ fx: null });
-    this.fxReads = [];
     this.fxAsked = null;
   }
 
@@ -318,8 +318,8 @@ export class EditController {
       const cur = this.store.get().edit.fx;
       if (cur?.status === 'loading') {
         this.host.log('warn', `FX parameters of ${slot} unanswered`);
+        // The read stays queued: a late reply still pops its own entry, not the next read's.
         this.patchEdit({ fx: { ...cur, status: 'error' } });
-        this.fxReads = [];
         this.fxAsked = null; // the next state may ask again
       }
     }, READ_TIMEOUT_MS);
@@ -453,7 +453,8 @@ export class EditController {
   /** Where "on" goes: the slot this preset last played, else the preset's saved IR on the pedal's list, else 1. */
   irSlotForOn(): number {
     const s = this.store.get();
-    if (this.lastIr && this.lastIr.preset === s.activePreset.value && this.lastIr.slot <= CAB_SLOT_COUNT) return this.lastIr.slot;
+    // The slot it last played, 6 (the preset's own IR) included: that restores the preset's own.
+    if (this.lastIr && this.lastIr.preset === s.activePreset.value) return this.lastIr.slot;
     const md = this.host.metadata();
     const preset = s.activePreset.value;
     const saved = preset !== null ? md?.presets[preset]?.irShortName.trim().toLowerCase() : '';
@@ -503,14 +504,12 @@ export class EditController {
 
   openIr(): void {
     this.irAsked = null;
-    this.irReads = [];
     this.patchEdit({ ir: { preset: this.activePreset(), slot: this.store.get().cabSlot.value, settings: null, status: 'loading' } });
     this.irTick();
   }
 
   closeIr(): void {
     this.patchEdit({ ir: null });
-    this.irReads = [];
     this.irAsked = null;
   }
 
@@ -544,7 +543,6 @@ export class EditController {
       if (cur?.status === 'loading') {
         this.host.log('warn', 'IR settings unanswered');
         this.patchEdit({ ir: { ...cur, status: 'error' } });
-        this.irReads = [];
         this.irAsked = null;
       }
     }, READ_TIMEOUT_MS);
@@ -706,17 +704,33 @@ export class EditController {
     if (this.presetTimer) clearTimeout(this.presetTimer);
     this.presetTimer = setTimeout(() => {
       this.presetTimer = null;
-      if (this.store.get().edit.preset.busy) this.presetAnswer(false, 'No answer from the pedal');
+      const late = this.store.get().edit.preset.busy;
+      if (!late) return;
+      this.presetAnswer(false, 'No answer from the pedal');
+      this.lateOp = late;
     }, PRESET_REPLY_TIMEOUT_MS);
   }
 
-  private presetAnswer(ok: boolean, message: string): void {
+  /** Send a preset write that `presetBusy` registered; a failed send answers at once. */
+  private async sendPreset(frame: Uint8Array, label: string): Promise<void> {
+    try {
+      await this.send(frame, label);
+    } catch (err) {
+      this.presetAnswer(false, 'Not connected to the pedal');
+      throw err;
+    }
+  }
+
+  private presetAnswer(ok: boolean, message: string, op = this.store.get().edit.preset.busy): void {
     const p = this.store.get().edit.preset;
-    const busy = p.busy;
+    const busy = op;
     if (this.presetTimer) clearTimeout(this.presetTimer);
     this.presetTimer = null;
+    this.lateOp = null;
     if (!busy) return;
     this.patchEdit({ preset: { ...p, busy: null, result: { kind: busy.kind, index: busy.index, ok, message, at: Date.now() } } });
+    // A refused delete: the cached list may be stale (the slot already empty on the pedal); read it again.
+    if (!ok && busy.kind === 'delete' && message !== 'No answer from the pedal' && message !== 'Not connected to the pedal' && message !== 'Connection to the pedal lost') this.host.refreshNames();
     if (!ok) return;
     const md = this.host.metadata();
     const names = this.store.get().presetNames.value.slice();
@@ -757,7 +771,7 @@ export class EditController {
     if (problem) throw new Error(problem);
     const frame = presetRenameFrame(index, name);
     this.presetBusy('rename', index, name);
-    await this.send(frame, `Rename preset ${index + 1} → "${name}"`);
+    await this.sendPreset(frame, `Rename preset ${index + 1} → "${name}"`);
   }
 
   /** Cortex Cloud's "create preset": the shown preset stored as `index` under `name` (an empty slot named). */
@@ -769,14 +783,14 @@ export class EditController {
     this.presetBusy('create', index, name);
     const p = this.store.get().edit.preset;
     if (p.nameNew === index) this.patchEdit({ preset: { ...p, nameNew: null } });
-    await this.send(frame, `Create preset ${index + 1} "${name}"`);
+    await this.sendPreset(frame, `Create preset ${index + 1} "${name}"`);
   }
 
   async deletePreset(index: number): Promise<void> {
     this.assertEdit();
     const frame = presetDeleteFrame(index);
     this.presetBusy('delete', index, this.store.get().presetNames.value[index] ?? '');
-    await this.send(frame, `Delete preset ${index + 1}`);
+    await this.sendPreset(frame, `Delete preset ${index + 1}`);
   }
 
   /** Put a preset on one of the pedal's footswitches; the pedal answers like a select and the dump shows it. */
@@ -796,8 +810,10 @@ export class EditController {
     const kind = msgType === EDIT_MSG.RENAME_REPLY ? 'rename' : msgType === EDIT_MSG.PRESET_CREATED ? 'create' : 'delete';
     this.host.log(reply?.ok ? 'info' : 'warn', `Preset ${kind}${reply ? ` ${reply.preset + 1}` : ''}: ${reply?.ok ? 'ok' : 'refused'}`, hex);
     const busy = this.store.get().edit.preset.busy;
-    if (!reply || !busy || busy.index !== reply.preset || busy.kind !== kind) return; // not ours
-    this.presetAnswer(reply.ok, reply.ok ? 'Done' : kind === 'delete' ? 'The pedal did not delete it' : 'The pedal did not accept this name');
+    const mine = (op: typeof busy) => !!op && !!reply && op.index === reply.preset && op.kind === kind;
+    const op = mine(busy) ? busy : mine(this.lateOp) ? this.lateOp : null;
+    if (!reply || !op) return; // not ours
+    this.presetAnswer(reply.ok, reply.ok ? 'Done' : kind === 'delete' ? 'The pedal did not delete it' : 'The pedal did not accept this name', op);
   }
 
   /**

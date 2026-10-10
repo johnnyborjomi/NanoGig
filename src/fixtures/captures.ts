@@ -166,7 +166,7 @@ export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset
     ]),
   );
   body.push(...varintField(38, 10), ...varintField(39, 16));
-  body.push(...varintField(44, state.captureVolumeRaw));
+  body.push(...varintFieldOpt(44, state.captureVolumeRaw)); // raw 0 left out, like the pedal
   for (const slot of FX_SLOTS) body.push(...bytesField(48 + FX_SLOTS.indexOf(slot), (state.fxModelIds ?? MODEL_IDS)[slot]));
   const threshold = state.gateThresholdRaw ?? 158;
   if (threshold > 0) body.push(...fixed32FloatField(53, threshold / 255)); // a zero is left out, like the pedal
