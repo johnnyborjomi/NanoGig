@@ -22,6 +22,11 @@ footswitch press:
 - **Optional control mode**: tap a tile to toggle a block, tap capture or cab to bypass them,
   and pick presets from a bank strip. Off by default; the pedal stays read-only until you
   turn it on.
+- **Editing (experimental)**: with Settings → Editing on top of control mode, hold an FX tile to
+  change its model and parameters, tap the capture or IR name for capture volume, IR level /
+  filters / phase / microphone and the pedal's whole capture and IR library (with your own IR
+  folders), hold Gate for its threshold, and hold the preset name to rename it, name an empty
+  slot, put it on a footswitch or delete it. Menu → Presets lists all 64.
 
 Nothing is installed on the pedal and nothing leaves your device: no account, no server, no
 analytics. It is a web page.
@@ -166,6 +171,22 @@ preset edits and work without it too. Every change is confirmed against the peda
 so the screen shows what the pedal did, not what the app asked for. Fast taps are safe: one
 preset select is on the wire at a time and the newest target goes out on its ack (the pedal
 never loads the presets skipped past), and a report that predates a tile tap cannot undo it.
+
+### Editing (experimental)
+
+Settings → Pedal → **Editing**, off by default, needs control mode too. Ported from the
+[NanoGig Screen](https://github.com/johnnyborjomi/NanoGigScreen) firmware, whose frames are
+Cortex Cloud's own; the app shows every change at once and confirms it against the pedal.
+
+| Where | Gesture | What |
+| --- | --- | --- |
+| FX tile | hold | Model (every model the slot takes, by category) and its parameters, live as the sliders move. A bypassed block is never read: turn it on first. |
+| Gate | hold | On / off and threshold. |
+| Capture / IR name | tap | Capture: slots 1–5, on / off, volume in dB. IR: slots, on / off, level, high and low pass, phase, microphone and position (factory IRs). Both open the pedal's library: a capture goes into the slot the preset plays (every preset on that slot hears it), an IR loads into the preset. IR folders are kept in this browser. |
+| Preset name, a preset button, Menu → Presets → ⋯ | hold / tap | Rename, name an empty slot (stores the sound playing now there), put the preset on IA / IB / IIA / IIB, delete (tap twice). |
+
+Changes are live, like turning a knob on the pedal: **save on the pedal to keep them**.
+Renames, creates and deletes are stored at once.
 
 > **Back up your presets in Cortex Cloud before turning control mode on**, and try it on a
 > preset you don't mind losing first. The protocol is reverse-engineered; a firmware update can

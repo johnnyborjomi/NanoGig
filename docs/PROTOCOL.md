@@ -299,6 +299,43 @@ NanoGig requests the assignments after every state dump whose preset differs fro
 request, remembers which preset it asked for (the reply carries none), and shows a bar at the
 right edge for the position plus an `EXP min–max %` badge with a value fill on each assigned tile.
 
+## Editing (Settings → Editing, on top of control mode)
+
+Ported from the NanoGig Screen firmware (`components/nano_protocol/nano_build.c`, 2026-10-10), where each frame
+is byte-exact against a Cortex Cloud Android HCI snoop (2026-10-07 … 10-10) or DrD85/nano-cortex-controller (MIT)
+and was tried on the user's pedal from the screen. **Not yet tried from this app on a pedal.** Builders:
+`src/protocol/edit.ts`, with the firmware's test vectors in `tests/edit.test.ts`. All are live edits (audible, the
+preset is only saved by the pedal's save button) except rename / create / delete, which the pedal stores at once.
+
+| Action | Frame | Reply |
+| --- | --- | --- |
+| FX model | `<len> C0 18 <slot 0..4> 20 <type varint> 88 00 00 00` (type = the varint the dump's model ID spells: `FA2E` = 6010) | state dump confirms |
+| FX parameters read | `08 C0 08 03 18 <slot> 89 00 00 00`, **only for a block that is on** (DrD85 saw the pedal crash on a bypassed one) | `0x8A`: field 4 = every parameter's 0..1 as packed f32, in the model's order (`src/protocol/fx-params.ts`) |
+| FX parameter | `0F C0 08 01 18 <slot> 20 <param> 2D <f32 0..1> 63 00 00 00` | — |
+| Capture volume | `0A C0 18 0A 20 <raw 0..255> 28 00 1A 00 00 00` (`0B C0` from raw 128) | state field 44 |
+| Gate threshold | `<len> C0 18 0B 20 <raw 0..255> 28 00 1A 00 00 00` | state field 53 = f32 raw / 255 |
+| Capture slot | `08 C0 18 01 20 <slot 1..5, 6 = the preset's own, 0 = off> 1C 00 00 00` | field 11 |
+| IR slot | `08 C0 18 03 20 <slot 1..5, 0 = off> 1C 00 00 00` | field 12 |
+| IR settings read | `08 C0 18 00 20 <field 12 − 1> 5F 00 00 00` | `0x60`: `5 {1 kind, 2 name, 3 position, 4 mic}` factory / `6 {1 kind, 2 name}` user, `7` mics (repeated), `8 {1 level, 2 high pass, 3 low pass (f32), 4 phase}` |
+| IR level / high pass / low pass | `09 C0 <2D / 35 / 3D> <f32 0..1> 5E 00 00 00` | — |
+| IR phase | `06 C0 40 <1 inverted / 0> 5E 00 00 00` | — |
+| IR microphone / position (factory IR) | `<len> C0 1A <n> {08 <kind> 12 <IR name> 18 <position 0..5> 22 <mic>} 5E 00 00 00` | read again |
+| Library | `0C C0 18 01 20 01 28 01 30 01 4C 00 00 00` (fields 3..6: factory captures, factory IRs, user captures, user IRs) | `0x4D`, multi-packet: `3` / `5` = capture `{1 hash, 2 name}`, `4` / `6` = IR name; an item's index is its place in its list |
+| Load a library IR | `<len> C0 <1A factory / 22 user> <n> {08 <index> 12 <name>} 5E 00 00 00` | state dump |
+| Load a library capture ("Use") | `<len> C0 18 <slot 0..24> <22 factory / 2A user> <n> {08 <index> 12 <name>} 50 00 00 00`, then the capture slot select above | `0x51` `08 06 18 01` |
+| Rename | `<len> C0 08 01 18 <preset> 22 <n> <name> 6F 00 00 00` | `0x70` `08 06 18 <preset> 20 <1 ok>` |
+| Create (the shown preset stored under a name) | `<len> C0 08 01 18 <preset> 2A <n> <name> 03 00 00 00` | `0x04`, same shape |
+| Delete | `08 C0 08 02 18 <preset> 32 00 00 00` | `0x33`, same shape |
+| Footswitch | the preset select with field 4 = −1, field 5..8 (IA, IB, IIA, IIB) = the preset on the chosen one, the others −1, field 9 = 2 | as a select (`0x1F`, `0x1E`) |
+| Saved on the pedal | — | `0x1B` with field 3 = 2 (the pedal's save button) |
+
+Scales (fitted to Cortex Cloud's readouts): capture volume raw = 255 · ((dB + 24) / 36)^1.708 (0 dB = raw 128);
+IR level = −96 + 108 · n^(1/3.5) dB, high pass = 20 + 780 · n^(5/3) Hz, low pass = 1000 + 19000 · n^(5/3) Hz.
+
+The pedal itself checks no preset name (it took "", 3 characters, duplicates and 32 characters); the app keeps
+DrD85's rules: 4 to 31 characters, unique, no spaces at the ends. A preset saved on the pedal while it has no name
+stays unnamed and refuses renames: as Cortex Cloud does, the app then asks for a name and writes a create.
+
 ## Fixtures
 
 Real packets from the hardware sessions live in `src/fixtures/hardware-2026-09-12.ts`,
