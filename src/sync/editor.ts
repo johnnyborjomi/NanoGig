@@ -83,6 +83,15 @@ const PRESET_REPLY_TIMEOUT_MS = 3000;
 const READ_TIMEOUT_MS = 2500;
 const LIBRARY_TIMEOUT_MS = 15000;
 
+/**
+ * A write made at `writtenAt` is newer than what a dump requested at `requestedAt` shows. The same millisecond
+ * counts as newer: Date.now() ticks in ms, and a dump asked just before a write in the same ms (a slow machine,
+ * CI) shows the pedal before it. 0 = never written.
+ */
+export function writtenSince(writtenAt: number, requestedAt: number): boolean {
+  return writtenAt > 0 && writtenAt >= requestedAt;
+}
+
 type Read = { preset: number | null; key: string; at: number };
 
 export class EditController {
@@ -189,26 +198,26 @@ export class EditController {
     const samePreset = state.activePreset === s.activePreset.value;
     let held = false;
     for (const slot of FX_SLOTS) {
-      if (this.writtenAt.model[slot] > requestedAt && samePreset) {
+      if (writtenSince(this.writtenAt.model[slot], requestedAt) && samePreset) {
         state.fxModelIds[slot] = s.fxModels.value[slot]?.id ?? state.fxModelIds[slot];
         held = true;
       }
     }
-    if (this.writtenAt.captureVolume > requestedAt && samePreset && s.captureVolume.value !== null) {
+    if (writtenSince(this.writtenAt.captureVolume, requestedAt) && samePreset && s.captureVolume.value !== null) {
       state.captureVolumeRaw = s.captureVolume.value;
       held = true;
     }
-    if (this.writtenAt.gateThreshold > requestedAt && samePreset && s.gateThreshold.value !== null) {
+    if (writtenSince(this.writtenAt.gateThreshold, requestedAt) && samePreset && s.gateThreshold.value !== null) {
       state.gateThresholdRaw = s.gateThreshold.value;
       held = true;
     }
-    if (this.writtenAt.ir > requestedAt && samePreset) {
+    if (writtenSince(this.writtenAt.ir, requestedAt) && samePreset) {
       state.cabOn = s.cabOn.value ?? state.cabOn;
       state.cabSlot = s.cabSlot.value;
       if (state.ir && s.irName.value) state.ir = { ...state.ir, shortName: s.irName.value };
       held = true;
     }
-    if (this.writtenAt.capture > requestedAt && samePreset) {
+    if (writtenSince(this.writtenAt.capture, requestedAt) && samePreset) {
       state.captureSlot = s.captureOn.value ? (s.captureSlot.value ?? state.captureSlot) : 0;
       if (state.capture && s.captureName.value) state.capture = { ...state.capture, name: s.captureName.value };
       held = true;

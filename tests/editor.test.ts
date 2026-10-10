@@ -1,8 +1,10 @@
 /**
  * Editing against the mock pedal with real (short) timers: mock transport → sync engine → edit controller → store.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EDIT_MSG, fxModelType } from '../src/protocol/edit';
+import type { CurrentState } from '../src/protocol/decode';
+import { writtenSince } from '../src/sync/editor';
 import { Store } from '../src/state/store';
 import { SyncEngine } from '../src/sync/engine';
 import { MockTransport } from '../src/transport/mock';
@@ -198,4 +200,21 @@ describe('edit controller', () => {
     expect(store.get().presetNames.value[10]).toBe('Djent 8 String');
     await until(() => store.get().presetNames.value[10] === '', 1500);
   }, 8000);
+
+  it('a dump requested in the same millisecond as a write (just before it) does not undo it', async () => {
+    const { store, edit } = await setup();
+    const t = Date.now() + 1000;
+    const now = vi.spyOn(Date, 'now').mockReturnValue(t);
+    try {
+      edit.setCaptureVolume(0);
+      // The pedal before the write, from a dump asked at the same ms.
+      const stale = { activePreset: store.get().activePreset.value, captureVolumeRaw: 127, fxModelIds: {} } as unknown as CurrentState;
+      expect(edit.filterState(stale, t)).toBe(true);
+      expect(stale.captureVolumeRaw).toBe(0);
+    } finally {
+      now.mockRestore();
+    }
+    expect(writtenSince(0, 0)).toBe(false); // never written: an unsolicited dump (asked at 0) is not held
+    expect(writtenSince(5, 6)).toBe(false);
+  });
 });

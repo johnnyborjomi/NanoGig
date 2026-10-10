@@ -77,7 +77,7 @@ import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
 import type { LogDirection, NotifyPacket, Transport } from '../transport/types';
 import type { MidiOut } from '../transport/webmidi';
 import { metadataFingerprint, type MetadataCache } from './metadata-cache';
-import { EditController } from './editor';
+import { EditController, writtenSince } from './editor';
 
 export interface EngineOptions {
   writesEnabled?: boolean;
@@ -730,7 +730,7 @@ export class SyncEngine {
     if (state.fxOn) {
       const fxOn = { ...state.fxOn };
       for (const slot of FX_SLOTS) {
-        if (this.writtenAt.fx[slot] > requestedAt) {
+        if (writtenSince(this.writtenAt.fx[slot], requestedAt)) {
           fxOn[slot] = prev.fxOn.value[slot] ?? fxOn[slot];
           stale = true;
         }
@@ -740,15 +740,15 @@ export class SyncEngine {
     const models = {} as FxModelsBySlot;
     for (const slot of FX_SLOTS) models[slot] = lookupFxModel(state.fxModelIds[slot]);
     this.store.setField('fxModels', models, 'dump', at);
-    const gateStale = this.writtenAt.gate > requestedAt;
+    const gateStale = writtenSince(this.writtenAt.gate, requestedAt);
     this.store.setField('gateOn', gateStale ? prev.gateOn.value : state.gateOn, gateStale ? 'optimistic' : 'dump', at);
-    const cabStale = this.writtenAt.cab > requestedAt;
+    const cabStale = writtenSince(this.writtenAt.cab, requestedAt);
     this.store.setField('cabOn', cabStale ? prev.cabOn.value : state.cabOn, cabStale ? 'optimistic' : 'dump', at);
     this.store.setField('captureName', state.capture?.name || null, 'dump', at); // '' (no capture) → null
     // Capture on/off follows field 11 (rotary position, 0/absent = bypassed) as in the web editor.
     // Field 32.1 ("enabled") is NOT used: hardware dumps show it stuck at 1 after a bypass
     // (2026-09-13) and at 0 with position 4 (2026-09-12), so it means something else.
-    const captureStale = this.writtenAt.capture > requestedAt;
+    const captureStale = writtenSince(this.writtenAt.capture, requestedAt);
     const captureOn = captureStale ? prev.captureOn.value : (state.captureSlot ?? 0) > 0;
     this.store.setField('captureOn', captureOn, captureStale ? 'optimistic' : 'dump', at);
     if (stale || gateStale || cabStale || captureStale || editHeld) this.scheduleConfirm();
