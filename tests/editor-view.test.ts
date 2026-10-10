@@ -123,6 +123,20 @@ describe('edit gestures', () => {
     await until(() => Math.abs((mock.fxParams.post3[0] ?? 0) - 0.75) < 1e-6);
   });
 
+  it('the model list stays open after a pick; the mark moves to the new model', async () => {
+    const { root, store } = await setup(true);
+    await hold(root.querySelector('.tile[data-key="post2"]')!);
+    tap(root.querySelector('.fx-sheet .ed-model-btn')!);
+    const list = root.querySelector<HTMLElement>('.fx-sheet .ed-models')!;
+    expect(list.hidden).toBe(false);
+    const tape = Array.from(list.querySelectorAll<HTMLElement>('.ed-chip')).find((b) => b.textContent === 'Tape Delay')!;
+    tap(tape);
+    await until(() => store.get().fxModels.value.post2?.name === 'Tape Delay');
+    expect(list.hidden).toBe(false);
+    expect(tape.isConnected).toBe(true);
+    expect(Array.from(list.querySelectorAll<HTMLElement>('.ed-chip[data-active="true"]')).map((b) => b.textContent)).toEqual(['Tape Delay']);
+  });
+
   it('the capture name opens amp & cab; hold the gate for its threshold; hold the name to rename', async () => {
     const { root, store, toggles, open } = await setup(true);
     (root.querySelector('.capture.sub-name') as HTMLElement).click();

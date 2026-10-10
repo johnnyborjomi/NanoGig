@@ -339,9 +339,13 @@ export class EditorView {
     const slot = this.fxSlot;
     if (!slot || this.fxModels.hidden) return;
     const current = this.s.fxModels.value[slot]?.id;
-    // Rebuilt only when it shows something else: a chip replaced mid-tap loses the tap.
-    const key = `${slot}:${current}`;
-    if (key === this.fxModelsKey && this.fxModels.childElementCount) return;
+    const chips = () => Array.from(this.fxModels.querySelectorAll<HTMLElement>(".ed-chip"));
+    // Rebuilt only for another slot (a chip replaced mid-tap loses the tap); a new model only moves the mark.
+    const key = slot;
+    if (key === this.fxModelsKey && this.fxModels.childElementCount) {
+      for (const b of chips()) b.dataset.active = String(b.dataset.id === String(current));
+      return;
+    }
     this.fxModelsKey = key;
     const groups = new Map<string, ReturnType<typeof fxSlotModels>>();
     for (const m of fxSlotModels(slot)) groups.set(m.category, [...(groups.get(m.category) ?? []), m]);
@@ -353,9 +357,10 @@ export class EditorView {
       for (const m of models) {
         const b = el("button", "ed-chip", m.name);
         b.dataset.cat = slug(m.category);
+        b.dataset.id = String(m.id);
         b.dataset.active = String(m.id === current);
+        // The list stays open: models can be tried one after another.
         b.addEventListener("click", () => {
-          this.fxModels.hidden = true;
           this.run(this.edit().setFxModel(slot, m.type));
         });
         row.append(b);
