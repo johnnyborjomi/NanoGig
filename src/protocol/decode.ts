@@ -175,6 +175,13 @@ export interface CurrentState {
   amp: AmpKnobs;
   captureSlot: number | null;
   captureVolumeRaw: number | null;
+  /**
+   * Gate threshold as the write's raw 0..255: field 53 is f32 raw / 255 (screen firmware, verified 2026-10-10:
+   * 199 written, 0.78 read). A zero is left out by the pedal, so absent = 0 in a dump that has state.
+   */
+  gateThresholdRaw: number;
+  /** Field 12 as sent: the IR slot 1..5 on the pedal's IR list (6 for most presets: the preset's own IR); null = absent. */
+  cabSlot: number | null;
   /** Preset tempo in BPM: field 56 (fixed32 float). Confirmed on hardware 2026-09-14 (follows tap tempo live). */
   tempoBpm: number | null;
   /** Tuner reference pitch in Hz: field 46 (fixed32 float, 440.0 on the user's pedal). */
@@ -263,6 +270,12 @@ export function decodeCurrentState(bytes: Uint8Array): CurrentState | null {
     },
     captureSlot: firstVarint(f, 11),
     captureVolumeRaw: firstVarint(f, 44),
+    gateThresholdRaw: (() => {
+      const v = firstFixed32Float(f, 53);
+      if (v === null || !Number.isFinite(v) || v <= 0) return 0;
+      return v >= 1 ? 255 : Math.round(v * 255);
+    })(),
+    cabSlot: cabField && cabField.wire === 0 && cabField.value! > 0 ? cabField.value! : null,
     tempoBpm: (() => {
       const v = firstFixed32Float(f, 56);
       return v !== null && Number.isFinite(v) && v >= 20 && v <= 400 ? v : null;
