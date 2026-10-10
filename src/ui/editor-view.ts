@@ -123,6 +123,7 @@ class Slider {
       }
       this.input.value = String(v);
       this.value.textContent = this.format(v);
+      this.paint();
       this.onInput(v);
     };
     this.minus.type = this.plus.type = "button";
@@ -140,6 +141,7 @@ class Slider {
     this.input.addEventListener("input", () => {
       const v = Number(this.input.value);
       this.value.textContent = this.format(v);
+      this.paint();
       this.onInput(v);
     });
     if (onReset) {
@@ -161,7 +163,13 @@ class Slider {
     if (!this.dragging || document.activeElement !== this.input) {
       this.input.value = String(v);
       this.value.textContent = this.format(v);
+      this.paint();
     }
+  }
+
+  /** The track's fill up to the thumb (the slider is drawn in CSS, which has no fill of its own in WebKit). */
+  private paint() {
+    this.input.style.setProperty("--pct", `${(Number(this.input.value) / this.max) * 100}%`);
   }
 }
 
