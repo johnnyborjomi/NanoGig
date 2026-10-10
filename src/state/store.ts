@@ -6,6 +6,7 @@
 import { DEFAULT_LABEL_STYLE, DEFAULT_PRESETS_PER_BANK, PRESET_COUNT, TUNER_REFERENCE_DEFAULT_HZ, type FxSlot, type PresetLabelStyle } from '../protocol/frames';
 import type { LogLine, TransportStatus } from '../transport/types';
 import type { FxModelsBySlot } from '../protocol/models';
+import type { CabSettings, LibraryItem, LibraryKind } from '../protocol/edit';
 import { EMPTY_EXPRESSION_VALUES, type ExpressionAssignments, type ExpressionValues, type FootswitchAssignments, type TunerReading } from '../protocol/decode';
 
 /** 'cache' = restored from the last session's metadata, pending a background refresh. */
@@ -50,6 +51,57 @@ export interface TunerState {
   readingAt: number | null;
 }
 
+/** The FX editor's block: its parameters as the pedal last reported them (0..1 each, the model's order). */
+export interface FxEditState {
+  slot: FxSlot;
+  /** Model type the values belong to (state field 48-52 as a varint). */
+  type: number;
+  preset: number | null;
+  values: number[] | null;
+  /** loading: a read is out; off: the block is bypassed (never read: DrD85 saw the pedal crash); unknown: no parameter table. */
+  status: 'loading' | 'ready' | 'off' | 'empty' | 'unknown' | 'error';
+}
+
+/** The IR panel: the settings of the IR the preset plays (type 0x60 reply). */
+export interface IrEditState {
+  preset: number | null;
+  slot: number | null;
+  settings: CabSettings | null;
+  status: 'loading' | 'ready' | 'off' | 'error';
+}
+
+/** Every capture and IR on the pedal (type 0x4D reply), kept for the session. */
+export interface LibraryState {
+  captures: LibraryItem[] | null;
+  irs: LibraryItem[] | null;
+  loading: LibraryKind | null;
+  error: string | null;
+}
+
+/** A preset write in flight (rename / create / delete) and the last answer. */
+export interface PresetOpState {
+  busy: { kind: 'rename' | 'create' | 'delete'; index: number; name: string } | null;
+  result: { kind: 'rename' | 'create' | 'delete'; index: number; ok: boolean; message: string; at: number } | null;
+  /** The pedal saved an unnamed preset (its own save button): Cortex Cloud asks for a name, so does the app. */
+  nameNew: number | null;
+}
+
+export interface EditState {
+  fx: FxEditState | null;
+  ir: IrEditState | null;
+  library: LibraryState;
+  preset: PresetOpState;
+}
+
+export function emptyEdit(): EditState {
+  return {
+    fx: null,
+    ir: null,
+    library: { captures: null, irs: null, loading: null, error: null },
+    preset: { busy: null, result: null, nameNew: null },
+  };
+}
+
 export interface GigState {
   connection: TransportStatus;
   transportName: string;
@@ -85,6 +137,13 @@ export interface GigState {
    * firmware's rule, 2026-09-27: a fade made the indicators feel laggy on stage).
    */
   expressionShow: boolean;
+  /**
+   * User setting (experimental, off by default): editing on top of control mode: hold an FX tile for its model and
+   * parameters, tap the capture / IR line for their panel (volume, IR settings, the pedal's library), hold the preset
+   * name to rename / manage it, the gate's threshold. Ported from the NanoGig Screen firmware; the frames are
+   * Cortex Cloud's, but this app has not been tried on a pedal with them yet.
+   */
+  editing: boolean;
   /** A metadata (names) stream is in flight on a live link; footswitch events queue behind it. */
   namesRefreshing: boolean;
   /** PWA: the browser offered an install prompt and the app is not installed yet. */
@@ -103,6 +162,14 @@ export interface GigState {
   captureOn: Field<boolean | null>;
   /** Whether the current capture maps to one of the pedal's 25 slots (needed to re-enable it). null = not known yet. */
   captureSlotKnown: Field<boolean | null>;
+  /** Field 11 as sent: the capture slot 1..5, 6 = the preset's own capture, 0 = bypassed. */
+  captureSlot: Field<number | null>;
+  /** Capture volume, raw 0..255 (state field 44; captureVolumeDb for the readout). */
+  captureVolume: Field<number | null>;
+  /** Gate threshold, raw 0..255 (state field 53 × 255). */
+  gateThreshold: Field<number | null>;
+  /** Field 12 as sent: the IR slot 1..5 (6 = the preset's own IR), null = off / absent. */
+  cabSlot: Field<number | null>;
   irName: Field<string | null>;
   /** Whether the current IR maps to one of the pedal's IR slots (needed to re-enable the cab). null = not known yet. */
   cabSlotKnown: Field<boolean | null>;
@@ -121,6 +188,7 @@ export interface GigState {
   outputsMuted: Field<boolean | null>;
   tuner: TunerState;
   expression: ExpressionState;
+  edit: EditState;
 
   lastStateSyncAt: number | null;
   lastMetadataAt: number | null;
@@ -161,6 +229,7 @@ export function initialState(transportName = 'none'): GigState {
     autoRefreshNames: true,
     liveTuner: true,
     expressionShow: true,
+    editing: false,
     namesRefreshing: false,
     installable: false,
     updateReady: false,
@@ -173,6 +242,10 @@ export function initialState(transportName = 'none'): GigState {
     captureName: field<string | null>(null),
     captureOn: field<boolean | null>(null),
     captureSlotKnown: field<boolean | null>(null),
+    captureSlot: field<number | null>(null),
+    captureVolume: field<number | null>(null),
+    gateThreshold: field<number | null>(null),
+    cabSlot: field<number | null>(null),
     irName: field<string | null>(null),
     cabSlotKnown: field<boolean | null>(null),
     firmware: field<string | null>(null),
@@ -182,6 +255,7 @@ export function initialState(transportName = 'none'): GigState {
     outputsMuted: field<boolean | null>(null),
     tuner: { on: false, referenceHz: TUNER_REFERENCE_DEFAULT_HZ, muted: false, reading: null, readingAt: null },
     expression: emptyExpression(),
+    edit: emptyEdit(),
     lastStateSyncAt: null,
     lastMetadataAt: null,
     lastEventAt: null,
@@ -244,12 +318,18 @@ export class Store {
       captureName: s.captureName,
       captureOn: s.captureOn,
       captureSlotKnown: s.captureSlotKnown,
+      captureSlot: s.captureSlot,
+      captureVolume: s.captureVolume,
+      gateThreshold: s.gateThreshold,
+      cabSlot: s.cabSlot,
       irName: s.irName,
       cabSlotKnown: s.cabSlotKnown,
       outputsMuted: s.outputsMuted,
       tuner: { ...this.state.tuner, on: false, reading: null, readingAt: null },
       tapTempo: false,
       expression: emptyExpression(),
+      // The library is the pedal's, not the preset's: kept across a reconnect.
+      edit: { ...emptyEdit(), library: { ...this.state.edit.library, loading: null } },
       namesRefreshing: false,
       syncPhase: 'idle',
     };
