@@ -181,7 +181,7 @@ Cortex Cloud's own; the app shows every change at once and confirms it against t
 
 | Where | Gesture | What |
 | --- | --- | --- |
-| FX tile | hold | Model (every model the slot takes, by category) and its parameters, live as the sliders move. A bypassed block is never read: turn it on first. While another model is tried, the preset's saved one is outlined and Discard puts it back. |
+| FX tile | hold | Model (every model the slot takes, by category) and its parameters, live as the sliders move. A bypassed block is never read: turn it on first. While another model is tried, the preset's saved one is outlined. Once the block differs from the preset as saved (model or values), the sheet's Discard puts that block back; other blocks keep their changes. |
 | Gate | hold | On / off and threshold. |
 | Capture / IR name | tap | Capture: slots 1–5, on / off, volume in dB. IR: slots, on / off, level, high and low pass, phase, microphone and position (factory IRs). Both open the pedal's library: a capture goes into the slot the preset plays (every preset on that slot hears it), an IR loads into the preset. Library folders of your own, for captures and IRs alike: New folder at the top of a list, hold an item (or drag it, with a mouse) to move it into one; rename or delete a folder from inside it. Folders are kept in this browser. |
 | Preset name, a preset button, Menu → Presets → ⋯ | hold / tap | Rename, name an empty slot (stores the sound playing now there), put the preset on IA / IB / IIA / IIB, delete (tap twice). |

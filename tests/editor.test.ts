@@ -2,7 +2,7 @@
  * Editing against the mock pedal with real (short) timers: mock transport → sync engine → edit controller → store.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EDIT_MSG, fxModelType } from '../src/protocol/edit';
+import { EDIT_MSG, fxModelType, fxSlotModels } from '../src/protocol/edit';
 import type { CurrentState } from '../src/protocol/decode';
 import { writtenSince } from '../src/sync/editor';
 import { Store } from '../src/state/store';
@@ -199,6 +199,43 @@ describe('edit controller', () => {
     await until(() => store.get().activePreset.value === 9 && store.get().activePreset.source === 'dump');
     await edit.savePreset();
     expect(store.get().edit.preset.nameNew).toBe(9);
+  });
+
+  it("a block's Discard puts back its saved model and values; another block keeps its edits", async () => {
+    const { store, mock, edit } = await setup();
+    const ready = () => store.get().edit.fx?.status === 'ready';
+    // Delay (post2): a value changed, left as it is.
+    edit.openFx('post2');
+    await until(ready);
+    edit.setFxParam('post2', 0, 0.123);
+    await until(() => Math.abs(mock.fxParams.post2[0]! - 0.123) < 1e-6);
+    edit.closeFx();
+    // Reverb (post3): values changed, then another model.
+    edit.openFx('post3');
+    await until(ready);
+    const saved = store.get().edit.fx!.values!.slice();
+    const savedId = store.get().fxModels.value.post3!.id;
+    expect(edit.fxChanged('post3')).toBe(false);
+    edit.setFxParam('post3', 1, 0.9);
+    expect(edit.fxChanged('post3')).toBe(true);
+    await until(() => Math.abs(mock.fxParams.post3[1]! - 0.9) < 1e-6);
+    await edit.discardFx('post3');
+    await until(() => ready() && Math.abs(store.get().edit.fx!.values![1]! - saved[1]!) < 1e-6);
+    expect(mock.fxParams.post3[1]).toBeCloseTo(saved[1]!, 6);
+    expect(edit.fxChanged('post3')).toBe(false);
+    // Model and values together.
+    const other = fxSlotModels('post3').find((m) => m.category === 'Reverb' && m.id !== savedId)!;
+    await edit.setFxModel('post3', other.type);
+    await until(() => ready() && store.get().edit.fx!.type === other.type);
+    edit.setFxParam('post3', 0, 0.01);
+    expect(edit.fxChanged('post3')).toBe(true);
+    await edit.discardFx('post3');
+    await until(() => ready() && store.get().fxModels.source === 'dump' && store.get().fxModels.value.post3?.id === savedId);
+    await until(() => ready() && store.get().edit.fx!.type === fxModelType(savedId));
+    expect(store.get().edit.fx!.values!.map((v) => Math.round(v * 1e5))).toEqual(saved.map((v) => Math.round(v * 1e5)));
+    expect(edit.fxChanged('post3')).toBe(false);
+    // The delay's edit stays.
+    expect(mock.fxParams.post2[0]).toBeCloseTo(0.123, 6);
   });
 
   it('assigns a footswitch', async () => {

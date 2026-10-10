@@ -299,7 +299,7 @@ export class EditorView {
   private readonly fxStatus = el("p", "ed-msg");
   private readonly fxRetry = el("button", "ed-retry", "Read again");
   private readonly fxModelBtn = el("button", "ed-model-btn");
-  /** Shown when the slot holds another model than the preset has saved: puts the saved one back. */
+  /** Shown when the block differs from the preset as saved (model or parameters): puts it back as saved. */
   private readonly fxDiscard = el("button", "ghost ed-discard");
   private readonly fxModels = el("div", "ed-models");
   private readonly fxParams = el("div", "ed-params");
@@ -335,7 +335,7 @@ export class EditorView {
     this.fxDiscard.type = "button";
     this.fxDiscard.append(icon(Undo2), el("span", "", "Discard"));
     this.fxDiscard.addEventListener("click", () => {
-      if (this.fxSlot) this.run(this.edit().discardFxModel(this.fxSlot));
+      if (this.fxSlot) this.run(this.edit().discardFx(this.fxSlot));
     });
     sh.actions.append(this.fxDiscard);
     const top = el("div", "ed-row");
@@ -406,10 +406,15 @@ export class EditorView {
     this.fxPower.dataset.on = String(on === true);
     (this.fxPower.lastChild as HTMLElement).textContent = on ? "On" : on === false ? "Off" : "—";
     this.fxPower.disabled = on === null || !model;
-    // Room kept while hidden (no shift of the title); the saved model's name in the tooltip.
+    // Room kept while hidden (no shift of the title). Only this block goes back; the others keep their edits.
     const saved = this.savedModel(slot);
-    this.fxDiscard.dataset.shown = String(!!saved);
-    this.fxDiscard.title = saved ? `Back to ${lookupFxModel(saved)?.name ?? "the saved model"}, the model this preset has saved` : "";
+    const changed = this.actions.edit()?.fxChanged(slot) ?? false;
+    this.fxDiscard.dataset.shown = String(changed);
+    this.fxDiscard.title = !changed
+      ? ""
+      : saved
+        ? `Back to ${lookupFxModel(saved)?.name ?? "the saved model"} as this preset has it saved; other blocks keep their changes`
+        : "Back to this block's saved values; other blocks keep their changes";
     const status = fx?.status ?? "loading";
     // One line that is always there: its text changes, the layout does not.
     const msg: Record<string, string> = {

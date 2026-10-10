@@ -95,12 +95,22 @@ export interface SavedModels {
   ids: Record<FxSlot, string | null>;
 }
 
+/**
+ * Each block's parameters as the preset has them saved: the first read of a block on its saved model after the
+ * preset loaded or was saved (the pedal's own controls do not reach FX parameters, so that read is the saved one).
+ */
+export interface SavedParams {
+  preset: number;
+  slots: Partial<Record<FxSlot, { type: number; values: number[] }>>;
+}
+
 export interface EditState {
   fx: FxEditState | null;
   ir: IrEditState | null;
   library: LibraryState;
   preset: PresetOpState;
   savedModels: SavedModels | null;
+  savedParams: SavedParams | null;
 }
 
 export function emptyEdit(): EditState {
@@ -110,6 +120,7 @@ export function emptyEdit(): EditState {
     library: { captures: null, irs: null, loading: null, error: null },
     preset: { busy: null, result: null, nameNew: null },
     savedModels: null,
+    savedParams: null,
   };
 }
 

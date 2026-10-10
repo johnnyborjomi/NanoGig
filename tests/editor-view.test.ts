@@ -123,6 +123,22 @@ describe('edit gestures', () => {
     await until(() => Math.abs((mock.fxParams.post3[0] ?? 0) - 0.75) < 1e-6);
   });
 
+  it("a moved slider shows the sheet's Discard, which puts the block's saved value back", async () => {
+    const { root, store, mock } = await setup(true);
+    await hold(root.querySelector('.tile[data-key="post3"]')!);
+    await until(() => store.get().edit.fx?.status === 'ready');
+    const saved = store.get().edit.fx!.values![0]!;
+    const discard = root.querySelector<HTMLElement>('.fx-sheet .ed-discard')!;
+    expect(discard.dataset.shown).toBe('false');
+    const input = root.querySelector<HTMLInputElement>('.fx-sheet .ed-slider input')!;
+    input.value = String(Math.round(saved * 1000) === 750 ? 250 : 750);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(discard.dataset.shown).toBe('true');
+    tap(discard);
+    await until(() => store.get().edit.fx?.status === 'ready' && discard.dataset.shown === 'false');
+    expect(mock.fxParams.post3[0]).toBeCloseTo(saved, 6);
+  });
+
   it('the model list stays open after a pick; the mark moves to the new model', async () => {
     const { root, store } = await setup(true);
     await hold(root.querySelector('.tile[data-key="post2"]')!);

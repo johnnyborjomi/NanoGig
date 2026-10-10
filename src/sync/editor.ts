@@ -60,7 +60,7 @@ import {
 import { CAB_SLOT_COUNT, FX_SLOTS, type FxSlot } from '../protocol/frames';
 import { toHex } from '../protocol/hex';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
-import type { EditState, FxEditState, IrEditState, SavedModels, Store } from '../state/store';
+import type { EditState, FxEditState, IrEditState, SavedModels, SavedParams, Store } from '../state/store';
 import type { LogDirection, Transport } from '../transport/types';
 
 /** What the editor needs from the sync engine. */
@@ -350,6 +350,18 @@ export class EditController {
     if (this.fxTimer) clearTimeout(this.fxTimer);
     this.fxTimer = null;
     this.patchEdit({ fx: { ...fx, values: values.length ? values : null, status: values.length ? 'ready' : 'error' } });
+    if (values.length) this.noteSavedParams(fx.slot, values);
+  }
+
+  /** The first read of a block on its saved model, since the preset loaded or was saved: its saved parameters. */
+  private noteSavedParams(slot: FxSlot, values: number[]): void {
+    const s = this.store.get();
+    const saved = s.edit.savedParams;
+    const preset = s.activePreset.value;
+    if (!saved || saved.preset !== preset || saved.slots[slot]) return;
+    const id = s.fxModels.value[slot]?.id ?? null;
+    if (!id || s.edit.savedModels?.preset !== preset || s.edit.savedModels.ids[slot] !== id) return;
+    this.patchEdit({ savedParams: { ...saved, slots: { ...saved.slots, [slot]: { type: fxModelType(id), values: values.slice() } } } });
   }
 
   /** Load a model into a slot. Shown at once from the catalogue; the pedal loads the model's defaults. */
@@ -377,10 +389,43 @@ export class EditController {
     return id === (s.fxModels.value[slot]?.id ?? null) ? null : id;
   }
 
-  /** Discard: the preset's saved model back in the slot (a model write, like any other pick). */
-  async discardFxModel(slot: FxSlot): Promise<void> {
+  /** The block's saved parameters, when known for the preset shown. */
+  private savedParamsOf(slot: FxSlot): { type: number; values: number[] } | null {
+    const saved = this.store.get().edit.savedParams;
+    return saved && saved.preset === this.store.get().activePreset.value ? (saved.slots[slot] ?? null) : null;
+  }
+
+  /** The block differs from the preset as saved: another model, or (open in the editor) other parameter values. */
+  fxChanged(slot: FxSlot): boolean {
+    if (this.savedModelChanged(slot)) return true;
+    const base = this.savedParamsOf(slot);
+    const fx = this.store.get().edit.fx;
+    if (!base || fx?.slot !== slot || !fx.values || fx.type !== base.type) return false;
+    return base.values.some((v, i) => Math.abs(v - (fx.values![i] ?? v)) > 1e-4);
+  }
+
+  /**
+   * Discard the block's edits: the saved model back in the slot, then its saved parameter values (when the block was
+   * read on its saved model), then a read so the editor shows what the pedal has. Other blocks keep their edits.
+   */
+  async discardFx(slot: FxSlot): Promise<void> {
+    this.assertEdit();
     const id = this.savedModelChanged(slot);
     if (id) await this.setFxModel(slot, fxModelType(id));
+    const base = this.savedParamsOf(slot);
+    if (!base || this.slotType(slot) !== base.type || !this.slotOn(slot)) return;
+    // A slider write still queued for this block would land after these.
+    for (const key of Array.from(this.queued.keys())) if (key.startsWith(`fx:${slot}:`)) this.queued.delete(key);
+    const fx = this.store.get().edit.fx;
+    const now = fx?.slot === slot && fx.type === base.type ? fx.values : null;
+    if (fx?.slot === slot) this.patchEdit({ fx: { ...fx, type: base.type, values: base.values.slice() } });
+    const def = fxDef(base.type);
+    for (let i = 0; i < base.values.length; i++) {
+      // Every value after a model change (the pedal may load its defaults); only the changed ones otherwise.
+      if (!id && now && Math.abs((now[i] ?? -1) - base.values[i]!) <= 1e-4) continue;
+      await this.send(fxParamFrame(slot, i, base.values[i]!), `FX ${slot} ${def?.params[i]?.name ?? i} → ${base.values[i]!.toFixed(4)} (discard)`);
+    }
+    if (this.store.get().edit.fx?.slot === slot) this.fxTick(true);
   }
 
   /**
@@ -395,7 +440,11 @@ export class EditController {
   private rememberSavedModels(preset: number, models: FxModelsBySlot): void {
     const ids = {} as SavedModels['ids'];
     for (const slot of FX_SLOTS) ids[slot] = models[slot]?.id ?? null;
-    this.patchEdit({ savedModels: { preset, ids } });
+    // Parameters are known only for blocks read since: the open one's values now, the others at their next read.
+    const slots: SavedParams['slots'] = {};
+    const fx = this.store.get().edit.fx;
+    if (fx?.values && fx.status === 'ready' && fx.preset === preset && fx.type === fxModelType(ids[fx.slot])) slots[fx.slot] = { type: fx.type, values: fx.values.slice() };
+    this.patchEdit({ savedModels: { preset, ids }, savedParams: { preset, slots } });
   }
 
   /** One parameter, live while a slider moves; the editor shows the value at once. */
