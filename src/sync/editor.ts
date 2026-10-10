@@ -687,6 +687,13 @@ export class EditController {
   // Presets
   // -------------------------------------------------------------------------
 
+  /** The capture and IR the shown preset has saved (its metadata record): the library marks them. */
+  savedNames(): { capture: string; ir: string } {
+    const preset = this.activePreset();
+    const rec = preset !== null ? this.host.metadata()?.presets[preset] : undefined;
+    return { capture: rec?.captureName ?? '', ir: rec?.irShortName ?? '' };
+  }
+
   /** Why a name cannot be written, null when it can. */
   nameProblem(index: number, name: string): string | null {
     return presetNameProblem(name, index, this.store.get().presetNames.value);

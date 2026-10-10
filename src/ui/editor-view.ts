@@ -82,15 +82,38 @@ class Slider {
   private readonly value = el("span", "ed-value");
   private dragging = false;
 
+  private readonly minus = el("button", "ed-fine", "−");
+  private readonly plus = el("button", "ed-fine", "+");
+
   constructor(
     label: string,
-    max: number,
+    private readonly max: number,
     private readonly onInput: (v: number) => void,
     private readonly format: (v: number) => string,
     onReset?: () => void,
+    /** −/+ fine steps, in slider units (the screen firmware's fine steps). */
+    fineStep = 1,
+    /** Fine steps go on until the readout changes (capture volume: the pedal's next 0.1 dB, not the next raw). */
+    stepToNextReadout = false,
   ) {
     const head = el("div", "ed-slider-head");
     head.append(el("span", "ed-label", label), this.value);
+    const step = (d: number) => {
+      const clampV = (x: number) => Math.min(this.max, Math.max(0, x));
+      let v = clampV(Number(this.input.value) + d * fineStep);
+      if (stepToNextReadout) {
+        const text = this.format(Number(this.input.value));
+        while (this.format(v) === text && v > 0 && v < this.max) v = clampV(v + d * fineStep);
+      }
+      this.input.value = String(v);
+      this.value.textContent = this.format(v);
+      this.onInput(v);
+    };
+    this.minus.type = this.plus.type = "button";
+    this.minus.setAttribute("aria-label", `${label} down`);
+    this.plus.setAttribute("aria-label", `${label} up`);
+    this.minus.addEventListener("click", () => step(-1));
+    this.plus.addEventListener("click", () => step(1));
     this.input.type = "range";
     this.input.min = "0";
     this.input.max = String(max);
@@ -108,11 +131,13 @@ class Slider {
       this.value.classList.add("resettable");
       this.value.addEventListener("dblclick", onReset);
     }
-    this.root.append(head, this.input);
+    const track = el("div", "ed-track");
+    track.append(this.minus, this.input, this.plus);
+    this.root.append(head, track);
   }
 
   set(v: number | null, enabled = true) {
-    this.input.disabled = !enabled || v === null;
+    this.input.disabled = this.minus.disabled = this.plus.disabled = !enabled || v === null;
     if (v === null) {
       this.value.textContent = "—";
       return;
@@ -360,7 +385,8 @@ export class EditorView {
               },
             });
           } else {
-            const slider = new Slider(param.name, 1000, (v) => this.run(() => this.edit().setFxParam(slot, index, v / 1000)), (v) => fxParamText(param, v / 1000));
+            const fine = Math.max(1, Math.round((param.step / (param.max - param.min || 1)) * 1000));
+            const slider = new Slider(param.name, 1000, (v) => this.run(() => this.edit().setFxParam(slot, index, v / 1000)), (v) => fxParamText(param, v / 1000), undefined, fine);
             this.fxParams.append(slider.root);
             this.fxSliders.push({ index, set: (n, enabled) => slider.set(n === null ? null : Math.round(n * 1000), enabled) });
           }
@@ -392,6 +418,8 @@ export class EditorView {
     (v) => this.run(() => this.edit().setCaptureVolume(v)),
     (v) => captureVolumeText(v),
     () => this.run(() => this.edit().setCaptureVolume(CAPTURE_VOLUME_DEFAULT_RAW)),
+    1,
+    true,
   );
   private readonly irName = el("div", "ed-big");
   private readonly irSlot = el("span", "ed-slot");
@@ -645,7 +673,7 @@ export class EditorView {
       this.run(this.presetMode(i) === "create" ? this.edit().createPreset(i, name) : this.edit().renamePreset(i, name));
     });
     for (const fs of FOOTSWITCHES) {
-      const b = el("button", "ed-chip", fs.toUpperCase());
+      const b = el("button", "ed-chip ed-fs", fs.toUpperCase());
       b.dataset.fs = fs;
       b.addEventListener("click", () => {
         if (this.presetIndex !== null) this.run(this.edit().assignFootswitch(this.presetIndex, fs as Footswitch));
@@ -706,8 +734,13 @@ export class EditorView {
     const fs = s.footswitches.value;
     for (const b of Array.from(this.fsRow.children) as HTMLButtonElement[]) {
       const key = b.dataset.fs as Footswitch;
-      b.dataset.active = String(fs ? fs[key] === i : false);
+      const on = fs ? fs[key] : null;
+      b.dataset.active = String(on === i);
       b.disabled = !!busy || mode === "create";
+      // Which preset each footswitch holds now, as the screen's footswitch chooser shows it.
+      const holds = on === null ? "" : on === i ? "this preset" : s.presetNames.value[on] || `preset ${on + 1}`;
+      b.replaceChildren(el("strong", "", key.toUpperCase()), el("span", "ed-fs-now", holds));
+      b.title = on === null ? "" : `${key.toUpperCase()} plays ${holds} now`;
     }
     this.deleteBtn.disabled = !!busy || mode === "create";
     (this.deleteBtn.lastChild as HTMLElement).textContent = this.deleteArmed ? "Tap again to delete" : "Delete preset";
@@ -851,6 +884,8 @@ export class EditorView {
 
     const q = this.libSearch.value.trim().toLowerCase();
     const current = (irs ? s.irName.value : s.captureName.value)?.trim().toLowerCase() ?? "";
+    const savedNames = this.actions.edit()?.savedNames();
+    const saved = (irs ? savedNames?.ir : savedNames?.capture)?.trim().toLowerCase() ?? "";
     const shown = items.filter(
       (it) =>
         it.list === this.libList &&
@@ -863,6 +898,7 @@ export class EditorView {
         const key = `${it.list}:${it.index}`;
         const row = el("div", "ed-item");
         row.dataset.current = String(it.name.trim().toLowerCase() === current);
+        row.dataset.saved = String(!!saved && it.name.trim().toLowerCase() === saved);
         row.dataset.selected = String(this.libSelected === key);
         const name = el("button", "ed-item-name");
         name.append(el("span", "ed-item-index", String(it.index + 1)), el("span", "", it.name || "(no name)"));
@@ -871,6 +907,7 @@ export class EditorView {
           const f = fid !== null ? this.folders.folders(it.list).find((x) => x.id === fid) : null;
           if (f && this.libFolder === "all") name.append(el("span", "ed-item-folder", f.name));
         }
+        if (row.dataset.saved === "true") name.append(el("span", "ed-item-saved", "saved"));
         name.addEventListener("click", () => {
           this.libSelected = this.libSelected === key ? null : key;
           this.libFiling = null;
@@ -948,6 +985,11 @@ export class EditorView {
       pick.append(label, name, fs);
       pick.addEventListener("click", () => {
         const s = this.store.get();
+        // An empty slot, as Cortex Cloud's "Empty" tile: create it (with Editing on).
+        if (!(s.presetNames.value[i] ?? "").trim() && this.canEdit) {
+          this.openPreset(i);
+          return;
+        }
         if (!s.writesEnabled || s.connection !== "connected") {
           this.actions.toast(new Error("Turn on Control to switch presets"));
           return;
