@@ -2022,8 +2022,10 @@ button.warn {
   align-items: flex-start;
 }
 .card.sheet {
-  margin: min(6vh, 56px) auto 0;
-  max-height: calc(100% - min(6vh, 56px));
+  /* A little air above on tall screens only: none at all on a short (landscape) one, where every row counts. */
+  --sheet-top: clamp(0px, calc((100vh - 700px) / 4), 56px);
+  margin: var(--sheet-top) auto 0;
+  max-height: calc(100% - var(--sheet-top));
   max-width: 720px;
   gap: 14px;
   border-top: 4px solid var(--fx, var(--accent));
@@ -2614,6 +2616,38 @@ button.warn {
 }
 .ed-more[hidden] {
   display: none;
+}
+/* Short screens (a phone or iPad in landscape): a tighter sheet, so the parameters get the room. */
+@media (max-height: 560px) {
+  .edit-sheet {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  .card.sheet {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    gap: 8px;
+  }
+  .card.sheet .sheet-head {
+    --pad: 12px;
+    padding-bottom: 4px;
+  }
+  .card.sheet .sheet-title {
+    font-size: 22px;
+  }
+  .card.sheet .sheet-sub {
+    font-size: 11px;
+  }
+  .card.sheet .sheet-head .icon-btn {
+    min-height: 40px;
+    width: 40px;
+    height: 40px;
+  }
+  .sheet-body,
+  .ed-pane,
+  .ed-params {
+    gap: 8px;
+  }
 }
 /* `hidden` wins over the flex / grid displays above. */
 .edit-sheet [hidden] {
