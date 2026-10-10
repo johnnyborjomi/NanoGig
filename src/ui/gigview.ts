@@ -268,7 +268,7 @@ export class GigView {
   private readonly consoleEl = el("div", "console");
   private readonly consoleBody = el("div", "c-body");
   private readonly overlay = el("div", "overlay connect open");
-  private readonly overlayErr = el("div", "err");
+  private readonly overlayErr = el("div", "err page-err");
   private readonly resumeTip = el("div", "hint resume-tip");
   private readonly connectBtn = el("button", "primary", "Connect Nano Cortex");
   private readonly connectAllBtn = el("button", "", "Show all BT devices");
@@ -320,7 +320,9 @@ export class GigView {
   private readonly settingsOverlay = el("div", "overlay settings");
   private readonly settingsPreview = el("p", "hint");
   private readonly muteCheck = el("input", "menu-check");
-  private readonly muteHint = el("p", "hint");
+  private readonly muteHint = el("p", "hint", "Silences the pedal's outputs 1/2 while you monitor through the DAW over USB.");
+  /** What the pedal says now: its own line, so the settings under it stay put as it changes. */
+  private readonly muteState = el("p", "hint hint-line");
   /** On the searching page while auto-reconnecting: stops the retries and opens the device chooser. */
   private readonly reconnectBtn = el("button", "primary", "Pick from the list…");
   private lastRenderedLine: LogLine | null = null;
@@ -368,7 +370,8 @@ export class GigView {
     this.liveTunerEl.dataset.tune = "silent";
     this.liveTunerEl.hidden = true;
     this.liveTunerEl.addEventListener("click", () => this.openTuner());
-    status.append(this.dot, this.statusText, this.tempoEl, this.muteBadge, this.liveTunerEl);
+    // The mute badge goes last: it comes and goes, and nothing after it moves.
+    status.append(this.dot, this.statusText, this.tempoEl, this.liveTunerEl, this.muteBadge);
     const actions = el("div", "actions");
     this.refreshBtn.addEventListener(
       "click",
@@ -859,7 +862,7 @@ export class GigView {
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, liveRow, liveHint, expRow, expHint, close);
+      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, this.muteState, liveRow, liveHint, expRow, expHint, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -1018,7 +1021,6 @@ export class GigView {
     );
     this.installBlock.append(this.installBtn, installText);
     this.installBlock.hidden = true;
-    main.append(this.installBlock);
     if (!this.opts.bluetoothAvailable) {
       main.append(
         el(
@@ -1087,6 +1089,8 @@ export class GigView {
       cta.append(link, sub);
       block.append(text, cta);
       side.append(block);
+      // Install (PWA): the browser offers it a moment after load. Last in the side column, so it moves nothing.
+      side.append(this.installBlock);
     }
       main.append(this.resumeTip);
     }
@@ -1133,13 +1137,13 @@ export class GigView {
           "search-help",
           "Press and hold the Exit and Capture buttons on your Nano Cortex at the same time, and keep this device within 2 meters. The pedal pairs with one app at a time: close Cortex Cloud first.",
         ),
-        this.searchHint,
       );
       this.cancelBtn.title = "Stop looking for the pedal";
       this.cancelBtn.addEventListener("click", () => void this.actions.disconnect());
       const btns = el("div", "search-actions");
       btns.append(this.reconnectBtn, this.cancelBtn);
-      sc.append(panel, bracket, hold, body, btns);
+      // The hint comes after half a minute: last, so nothing moves when it does.
+      sc.append(panel, bracket, hold, body, btns, this.searchHint);
       this.searchOverlay.append(sc);
     }
 
@@ -1467,7 +1471,37 @@ export class GigView {
       nameWidthRef,
       maxPx,
     });
-    this.slotEl.style.fontSize = `${px}px`;
+    // Before the names are read the only name is the placeholder ("Reading pedal…"): use the size the names gave
+    // last time at this width, so the row does not shrink when they arrive.
+    const sizeKey = `${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}`;
+    const remembered = names.length ? null : GigView.rememberedFont(sizeKey);
+    this.slotEl.style.fontSize = `${remembered ?? px}px`;
+    if (names.length) GigView.rememberFont(sizeKey, px);
+  }
+
+  private static readonly FONT_KEY = "nanogig.presetFont";
+
+  private static rememberedFont(key: string): number | null {
+    try {
+      const v = (JSON.parse(localStorage.getItem(GigView.FONT_KEY) ?? "{}") as Record<string, number>)[key];
+      return typeof v === "number" && v > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private static rememberFont(key: string, px: number) {
+    try {
+      const all = JSON.parse(localStorage.getItem(GigView.FONT_KEY) ?? "{}") as Record<string, number>;
+      if (all[key] === px) return;
+      all[key] = px;
+      // A few window sizes are plenty.
+      const keys = Object.keys(all);
+      for (const k of keys.slice(0, Math.max(0, keys.length - 12))) delete all[k];
+      localStorage.setItem(GigView.FONT_KEY, JSON.stringify(all));
+    } catch {
+      /* storage unavailable */
+    }
   }
 
   /** State keys whose change alone needs no full re-render (high-frequency: tuner readings, log lines). */
@@ -1573,13 +1607,18 @@ export class GigView {
     this.statusText.textContent = demo
       ? `${this.statusText.textContent} · demo`
       : this.statusText.textContent;
-    if (s.namesRefreshing && s.connection === "connected") this.statusText.textContent += " · updating names…";
+    // Updating names: the dot pulses (more text here would push the tempo and the tuner along).
+    const busy = s.namesRefreshing && s.connection === "connected";
+    this.dot.dataset.busy = String(busy);
+    this.dot.title = busy ? "Updating preset names…" : "";
     // The chooser is the way out of a reconnect loop on Web Bluetooth; while "connecting" it is already open.
     this.reconnectBtn.hidden = s.connection !== "reconnecting" || !this.opts.bluetoothAvailable || s.transportName === "mock";
     {
       const bpm = s.connection === "connected" ? s.tempo.value : null;
       this.tempoText.textContent = bpm === null ? "" : String(Math.round(bpm * 10) / 10);
-      this.tempoEl.hidden = bpm === null;
+      // Its room is kept while connected: the tempo arriving does not push the tuner along.
+      this.tempoEl.hidden = s.connection !== "connected";
+      this.tempoEl.dataset.empty = String(bpm === null);
       this.tempoEl.classList.toggle("tapping", s.tapTempo && bpm !== null);
       this.tempoUnit.textContent = s.tapTempo && bpm !== null ? "TAP" : "BPM";
       this.muteBadge.hidden = !(s.connection === "connected" && s.outputsMuted.value === true);
@@ -1645,14 +1684,13 @@ export class GigView {
       const muted = s.outputsMuted.value;
       this.muteCheck.disabled = !connected;
       if (this.muteCheck.checked !== (muted === true)) this.muteCheck.checked = muted === true;
-      const what = "Silences the pedal's outputs 1/2 while you monitor through the DAW over USB.";
-      this.muteHint.textContent = !connected
-        ? `${what} Connect the pedal to change it.`
+      this.muteState.textContent = !connected
+        ? "Connect the pedal to change it."
         : muted === null
-          ? `${what} Not read from the pedal yet.`
+          ? "Not read from the pedal yet."
           : s.outputsMuted.source === "optimistic"
             ? "Sending to the pedal…"
-            : `${what} Outputs 1/2 are ${muted ? "muted" : "on"}.`;
+            : `Outputs 1/2 are ${muted ? "muted" : "on"}.`;
     }
     this.sourceTag.textContent =
       s.activePreset.source === "inferred"

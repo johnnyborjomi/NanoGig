@@ -68,9 +68,11 @@ describe('GigView', () => {
     expect(root.querySelector('.tiles > .vsep')?.nextElementSibling?.querySelector('.tile')?.getAttribute('data-key')).toBe('post1'); // pre | post divider
     expect(root.querySelector('.capture')?.textContent).toBe('Brit 1959 Crunch');
     expect(root.querySelector('.ir')?.textContent).toBe('412 UK GRN V30');
-    expect(root.querySelector<HTMLElement>('.status .tempo')?.hidden).toBe(true);
+    // Connected: the tempo's room is kept (no layout shift when it arrives), empty until read.
+    expect(root.querySelector<HTMLElement>('.status .tempo')?.dataset.empty).toBe('true');
     store.setField('tempo', 132, 'dump');
     expect(root.querySelector<HTMLElement>('.status .tempo')?.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>('.status .tempo')?.dataset.empty).toBe('false');
     expect(root.querySelector('.status .tempo-text')?.textContent).toBe('132');
     expect(root.querySelector('.status .tempo-unit')?.textContent).toBe('BPM');
     expect(root.querySelector('.status .tempo svg')).not.toBeNull();
@@ -343,14 +345,14 @@ describe('GigView tile colour category', () => {
 });
 
 describe('GigView outputs 1/2 mute setting', () => {
-  it('shows a "1/2" muted badge after the tempo only while the pedal reports outputs muted', () => {
+  it('shows a "1/2" muted badge last in the status line only while the pedal reports outputs muted', () => {
     const root = document.createElement('div');
     const store = new Store();
     new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
     store.patch({ connection: 'connected' });
     const badge = root.querySelector<HTMLElement>('.status .mute-badge')!;
     expect(badge.hidden).toBe(true);
-    expect(badge.previousElementSibling?.classList.contains('tempo')).toBe(true);
+    expect(badge.nextElementSibling).toBeNull(); // last: it comes and goes without moving anything
     store.setField('outputsMuted', true, 'dump');
     expect(badge.hidden).toBe(false);
     expect(badge.textContent).toBe('1/2');
@@ -380,8 +382,8 @@ describe('GigView outputs 1/2 mute setting', () => {
     expect(sent).toEqual([true]);
     store.setField('outputsMuted', true, 'event');
     expect(box.checked).toBe(true);
-    const hint = row.nextElementSibling as HTMLElement;
-    expect(hint.textContent).toContain('muted');
+    const state = row.nextElementSibling!.nextElementSibling as HTMLElement; // the hint, then its one-line state
+    expect(state.textContent).toContain('muted');
     store.patch({ connection: 'disconnected' });
     expect(box.disabled).toBe(true);
   });
@@ -415,17 +417,20 @@ describe('GigView connect screen: resume tip', () => {
 });
 
 describe('GigView names refresh indicator', () => {
-  it('appends "updating names…" to the connection status while a silent names stream is in flight', () => {
+  it('pulses the status dot (no extra text that would push the top bar) while a silent names stream is in flight', () => {
     const root = document.createElement('div');
     const store = new Store();
     new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
     store.patch({ connection: 'connected' });
     const status = root.querySelector('.status')!;
-    expect(status.textContent).not.toContain('updating names');
+    const dot = root.querySelector<HTMLElement>('.status .dot')!;
+    const text = status.textContent;
     store.patch({ namesRefreshing: true });
-    expect(status.textContent).toContain('updating names…');
+    expect(dot.dataset.busy).toBe('true');
+    expect(dot.title).toContain('Updating preset names');
+    expect(status.textContent).toBe(text);
     store.patch({ namesRefreshing: false });
-    expect(status.textContent).not.toContain('updating names');
+    expect(dot.dataset.busy).toBe('false');
   });
 });
 
