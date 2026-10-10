@@ -13,7 +13,7 @@
  *                and the pedal's own save button (0x1B)
  *
  * All of these are live edits: audible at once, the preset is only saved by the pedal's save button (renames,
- * creates and deletes are stored at once). Gated by control mode AND the experimental Editing setting.
+ * creates and deletes are stored at once). Gated by control mode AND Edit mode (the top bar's Edit button).
  *
  * Shown at once (optimistic) and confirmed by a state dump, like the tile taps: a dump requested before a write
  * keeps the written value (`filterState`, the firmware's block_edits_filter). Slider writes are coalesced: one
@@ -129,7 +129,7 @@ export class EditController {
   private assertEdit() {
     if (this.host.transport.status !== 'connected') throw new Error('Not connected');
     if (!this.host.writesEnabled()) throw new Error('Control mode is off');
-    if (!this.store.get().editing) throw new Error('Editing is off (Settings → Editing)');
+    if (!this.store.get().editing) throw new Error('Edit mode is off (the Edit button in the top bar)');
   }
 
   private activePreset(): number | null {

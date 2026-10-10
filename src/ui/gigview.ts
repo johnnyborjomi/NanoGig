@@ -30,6 +30,7 @@ import {
   Menu,
   Minimize,
   Music,
+  Pencil,
   Power,
   RefreshCw,
   ScrollText,
@@ -86,7 +87,7 @@ export interface GigViewActions {
     expressionShow?: boolean;
     editing?: boolean;
   }): void;
-  /** The edit controller of the live link (Settings → Editing); null while there is none. */
+  /** The edit controller of the live link (the Edit button); null while there is none. */
   edit?(): EditController | null;
   /** A "Support project" button was tapped (for anonymous stats). */
   onSupportClick?(source: "card" | "menu"): void;
@@ -292,7 +293,9 @@ export class GigView {
   private readonly tunerBtn = el("button", "menu-item", "Tuner");
   private readonly tempoBtn = el("button", "menu-item", "Tempo");
   private readonly presetsBtn = el("button", "menu-item", "Presets");
-  private readonly editingCheck = el("input", "menu-check");
+  /** Edit mode: Control plus the edit gestures and sheets. */
+  private readonly editBtn = el("button", "ghost edit-btn", "");
+  private readonly editState = el("span", "btn-state");
   private editor!: EditorView;
   // Tempo view: the big BPM, −/+ (auto-repeat while held), Done. Follows the pedal's tap tempo mode.
   private readonly tempoOverlay = el("div", "overlay tempo");
@@ -387,9 +390,24 @@ export class GigView {
     );
     this.writesState.dataset.on = "false";
     this.writesBtn.append(el("span", "", "Control"), this.writesState);
-    this.writesBtn.addEventListener("click", () =>
-      this.actions.setWritesEnabled(!this.store.get().writesEnabled),
-    );
+    this.writesBtn.addEventListener("click", () => {
+      const on = !this.store.get().writesEnabled;
+      // Editing needs control: control off ends it.
+      if (!on && this.store.get().editing) this.actions.setSettings({ editing: false });
+      this.actions.setWritesEnabled(on);
+    });
+    // Edit: control and editing together; off again leaves control as it is.
+    this.editBtn.title =
+      "Edit mode (turns Control on too): hold an FX tile for its model and parameters, hold Gate for its threshold, tap the capture or IR name for volume, IR settings and the library, hold the preset name to rename or manage it. Changes are live: save on the pedal to keep them.";
+    this.editState.append(lucideElement(Pencil, { "stroke-width": 2.5, "aria-hidden": "true" }));
+    this.editState.dataset.on = "false";
+    this.editBtn.setAttribute("aria-label", "Edit");
+    this.editBtn.append(el("span", "btn-label", "Edit"), this.editState);
+    this.editBtn.addEventListener("click", () => {
+      const on = !this.store.get().editing;
+      if (on && !this.store.get().writesEnabled) this.actions.setWritesEnabled(true);
+      this.actions.setSettings({ editing: on });
+    });
     this.reconnectBtn.hidden = true;
     this.reconnectBtn.title = "Stop retrying and pick the pedal from the Bluetooth chooser (put it in pairing mode first)";
     this.reconnectBtn.addEventListener("click", () => this.doConnect("chooser"));
@@ -494,6 +512,7 @@ export class GigView {
     );
     actions.append(
       this.exitDemoBtn,
+      this.editBtn,
       this.writesBtn,
       this.fullscreenBtn,
       menuWrap,
@@ -835,24 +854,11 @@ export class GigView {
         "hint",
         "The position bar at the right edge and, on every FX block the pedal controls in the current preset, a track with the assigned range and the value it produces. On: always on screen. Off: never.",
       );
-      const editRow = el("label", "setting-row");
-      const editLabel = el("span", "", "Editing ");
-      editLabel.append(el("em", "experimental", "(experimental)"));
-      editRow.append(editLabel);
-      this.editingCheck.type = "checkbox";
-      this.editingCheck.classList.add("experimental");
-      this.editingCheck.addEventListener("change", () => this.actions.setSettings({ editing: this.editingCheck.checked }));
-      editRow.append(this.editingCheck);
-      const editHint = el(
-        "p",
-        "hint",
-        "With Control on: hold an FX tile for its model and parameters, hold Gate for its threshold, tap the capture or IR name for volume, IR settings and the pedal's library, hold the preset name (or a preset in Menu → Presets) to rename it, name an empty slot, put it on a footswitch or delete it. Changes are live like turning a knob: save on the pedal to keep them (renames and deletes are stored at once). Ported from NanoGig Screen; not yet tried from this app on a real pedal.",
-      );
       const close = el("button", "primary", "Done");
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, liveRow, liveHint, expRow, expHint, editRow, editHint, close);
+      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, liveRow, liveHint, expRow, expHint, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -1578,7 +1584,13 @@ export class GigView {
       this.muteBadge.hidden = !(s.connection === "connected" && s.outputsMuted.value === true);
     }
     if (this.liveTunerCheck.checked !== s.liveTuner) this.liveTunerCheck.checked = s.liveTuner;
-    if (this.editingCheck.checked !== s.editing) this.editingCheck.checked = s.editing;
+    {
+      const editing = s.editing && s.writesEnabled && s.connection === "connected";
+      this.editState.dataset.on = String(editing);
+      this.editBtn.classList.toggle("on", editing);
+      this.editBtn.setAttribute("aria-pressed", String(editing));
+      this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit;
+    }
     this.root.dataset.editing = String(s.editing && s.writesEnabled && s.connection === "connected");
     if (this.expShowCheck.checked !== s.expressionShow) this.expShowCheck.checked = s.expressionShow;
     this.renderLiveTuner(s);

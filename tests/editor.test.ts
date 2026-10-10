@@ -38,7 +38,7 @@ const sent = (mock: MockTransport, type: number) => mock.edits.filter((e) => e.t
 describe('edit controller', () => {
   it('refuses to write unless control mode and editing are both on', async () => {
     const off = await setup({ editing: false });
-    expect(() => off.edit.setCaptureVolume(100)).toThrow(/Editing is off/);
+    expect(() => off.edit.setCaptureVolume(100)).toThrow(/Edit mode is off/);
     const ro = await setup({ writes: false });
     expect(() => ro.edit.setCaptureVolume(100)).toThrow(/Control mode/);
   });

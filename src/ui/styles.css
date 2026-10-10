@@ -345,6 +345,21 @@ button.warn {
   background: var(--warn);
   color: var(--on-text);
 }
+/* Edit (control + the edit sheets): blue, so it reads apart from Control's orange. */
+.topbar .edit-btn .btn-state[data-on='true'] {
+  background: var(--accent);
+  color: #041021;
+}
+.topbar .actions > button.edit-btn.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+/* A phone: Edit is its pencil alone, so the top bar stays one row. */
+@media (max-width: 480px) {
+  .topbar .edit-btn .btn-label {
+    display: none;
+  }
+}
 .topbar .icon-btn {
   /* Square: as tall as the text buttons beside it, and exactly as wide. */
   padding: 0;

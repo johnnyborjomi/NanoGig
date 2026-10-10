@@ -1,5 +1,5 @@
 /**
- * Edit sheets over the gig view (Settings → Editing, on top of control mode). Ported from the NanoGig Screen
+ * Edit sheets over the gig view (the top bar's Edit button: control mode plus these). Ported from the NanoGig Screen
  * firmware's pages, laid out for a bigger screen: one scrolling sheet per thing instead of paged screens.
  *
  *   FX sheet        hold an FX tile: model (every model the slot takes) and parameters
@@ -239,7 +239,7 @@ export class EditorView {
     store.subscribe((s) => this.render(s));
   }
 
-  /** Editing is possible: connected, control mode and the Editing setting on. */
+  /** Editing is possible: connected, control mode and Edit on. */
   get canEdit(): boolean {
     const s = this.store.get();
     return s.connection === "connected" && s.writesEnabled && s.editing && this.actions.edit() !== null;
@@ -1171,7 +1171,7 @@ export class EditorView {
       pick.append(label, name, fs);
       pick.addEventListener("click", () => {
         const s = this.store.get();
-        // An empty slot, as Cortex Cloud's "Empty" tile: create it (with Editing on).
+        // An empty slot, as Cortex Cloud's "Empty" tile: create it (in Edit mode).
         if (!(s.presetNames.value[i] ?? "").trim() && this.canEdit) {
           this.openPreset(i);
           return;

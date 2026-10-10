@@ -151,7 +151,7 @@ export class SyncEngine {
   private selectAckWaiter: (() => void) | null = null;
   private lastSelectAt = 0;
   private readonly opts: Required<EngineOptions>;
-  /** FX models / parameters, capture / IR / gate edits, the library and preset rename (Settings → Editing). */
+  /** FX models / parameters, capture / IR / gate edits, the library and preset rename (Edit mode). */
   readonly edit: EditController;
 
   /** Minimum gap between two state requests: a select's notices ask twice; one dump is enough. */

@@ -302,7 +302,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(8); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner, expression values, editing
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(7); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner, expression values (Edit is a top-bar button)
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
@@ -811,5 +811,46 @@ describe('GigView views the pedal opens (tempo, tuner)', () => {
       expect(overlay.classList.contains('open')).toBe(false);
       expect(calls).toEqual(['startTuner']);
     }
+  });
+});
+
+describe('GigView Edit button', () => {
+  it('sits left of Control; Edit turns on editing and control, Control off ends editing, Edit off keeps control', () => {
+    const root = document.createElement('div');
+    const store = new Store();
+    let writes = false;
+    const actions = {
+      ...noopActions(),
+      setWritesEnabled: (on: boolean) => {
+        writes = on;
+        store.patch({ writesEnabled: on });
+      },
+      setSettings: (patch: Parameters<Store['patch']>[0]) => store.patch(patch),
+      edit: () => null,
+    };
+    new GigView(root, store, actions, { bluetoothAvailable: true, showMockButton: false });
+    const edit = root.querySelector<HTMLButtonElement>('.topbar .edit-btn')!;
+    expect(edit.hidden).toBe(true); // not connected
+    store.patch({ connection: 'connected' });
+    expect(edit.hidden).toBe(false);
+    const control = edit.nextElementSibling as HTMLButtonElement;
+    expect(control.textContent).toContain('Control');
+    expect(root.querySelector('.overlay.settings')!.textContent).not.toContain('Editing');
+
+    edit.click();
+    expect(writes).toBe(true);
+    expect(store.get().editing).toBe(true);
+    expect(edit.getAttribute('aria-pressed')).toBe('true');
+    expect(root.dataset.editing).toBe('true');
+
+    edit.click(); // Edit off: control stays
+    expect(store.get().editing).toBe(false);
+    expect(writes).toBe(true);
+
+    edit.click();
+    control.click(); // Control off: editing goes with it
+    expect(writes).toBe(false);
+    expect(store.get().editing).toBe(false);
+    expect(edit.getAttribute('aria-pressed')).toBe('false');
   });
 });

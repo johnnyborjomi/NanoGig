@@ -22,7 +22,7 @@ footswitch press:
 - **Optional control mode**: tap a tile to toggle a block, tap capture or cab to bypass them,
   and pick presets from a bank strip. Off by default; the pedal stays read-only until you
   turn it on.
-- **Editing (experimental)**: with Settings → Editing on top of control mode, hold an FX tile to
+- **Edit mode**: the **Edit** button in the top bar (it turns Control on too) — hold an FX tile to
   change its model and parameters, tap the capture or IR name for capture volume, IR level /
   filters / phase / microphone and the pedal's whole capture and IR library (in folders of your
   own), hold Gate for its threshold, and hold the preset name to rename it, name an empty
@@ -172,9 +172,10 @@ so the screen shows what the pedal did, not what the app asked for. Fast taps ar
 preset select is on the wire at a time and the newest target goes out on its ack (the pedal
 never loads the presets skipped past), and a report that predates a tile tap cannot undo it.
 
-### Editing (experimental)
+### Edit mode
 
-Settings → Pedal → **Editing**, off by default, needs control mode too. Ported from the
+The **Edit** button in the top bar, left of Control: it turns control mode on too (Control alone
+only switches presets and blocks; Control off ends Edit). Off at every launch. Ported from the
 [NanoGig Screen](https://github.com/johnnyborjomi/NanoGigScreen) firmware, whose frames are
 Cortex Cloud's own; the app shows every change at once and confirms it against the pedal.
 

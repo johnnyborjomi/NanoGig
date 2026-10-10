@@ -299,7 +299,7 @@ NanoGig requests the assignments after every state dump whose preset differs fro
 request, remembers which preset it asked for (the reply carries none), and shows a bar at the
 right edge for the position plus an `EXP min–max %` badge with a value fill on each assigned tile.
 
-## Editing (Settings → Editing, on top of control mode)
+## Editing (the Edit button: control mode plus the edit sheets)
 
 Ported from the NanoGig Screen firmware (`components/nano_protocol/nano_build.c`, 2026-10-10), where each frame
 is byte-exact against a Cortex Cloud Android HCI snoop (2026-10-07 … 10-10) or DrD85/nano-cortex-controller (MIT)
