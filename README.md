@@ -22,6 +22,11 @@ footswitch press:
 - **Optional control mode**: tap a tile to toggle a block, tap capture or cab to bypass them,
   and pick presets from a bank strip. Off by default; the pedal stays read-only until you
   turn it on.
+- **Edit mode**: the **Edit** button in the top bar (it turns Control on too) — hold an FX tile to
+  change its model and parameters, tap the capture or IR name for capture volume, IR level /
+  filters / phase / microphone and the pedal's whole capture and IR library (in folders of your
+  own), hold Gate for its threshold, and hold the preset name to rename it, name an empty
+  slot, put it on a footswitch or delete it. Menu → Presets lists all 64.
 
 Nothing is installed on the pedal and nothing leaves your device: no account, no server, no
 analytics. It is a web page.
@@ -113,8 +118,8 @@ next to the label, whether to show the Nano's own footswitch assignments as IA /
 IIA / IIB badges, for playing without a MIDI controller, and whether to show the preset list
 under the FX tiles at all. Under **Pedal**, **Re-read preset names when idle** (on by default)
 can be switched off for a gig: the pedal takes about 6 s to send the list and holds footswitch
-presses back meanwhile, so the app only does it after a quiet minute and says _updating names_
-in the top bar while it runs. A **Mute outputs 1/2** switch sends the same
+presses back meanwhile, so the app only does it after a quiet minute, and the status dot in the top bar pulses
+while it runs. A **Mute outputs 1/2** switch sends the same
 command Cortex Cloud's global setting does, handy when you monitor through a DAW over USB. It
 works without control mode, shows the pedal's own report of the switch, and while muted a
 small _1/2_ badge sits next to the tempo in the top bar.
@@ -166,6 +171,23 @@ preset edits and work without it too. Every change is confirmed against the peda
 so the screen shows what the pedal did, not what the app asked for. Fast taps are safe: one
 preset select is on the wire at a time and the newest target goes out on its ack (the pedal
 never loads the presets skipped past), and a report that predates a tile tap cannot undo it.
+
+### Edit mode
+
+The **Edit** button in the top bar, left of Control: it turns control mode on too (Control alone
+only switches presets and blocks; Control off ends Edit). Both are remembered across reloads. Ported from the
+[NanoGig Screen](https://github.com/johnnyborjomi/NanoGigScreen) firmware, whose frames are
+Cortex Cloud's own; the app shows every change at once and confirms it against the pedal.
+
+| Where | Gesture | What |
+| --- | --- | --- |
+| FX tile | hold | Model (every model the slot takes, by category) and its parameters, live as the sliders move. A bypassed block is never read: turn it on first. |
+| Gate | hold | On / off and threshold. |
+| Capture / IR name | tap | Capture: slots 1–5, on / off, volume in dB. IR: slots, on / off, level, high and low pass, phase, microphone and position (factory IRs). Both open the pedal's library: a capture goes into the slot the preset plays (every preset on that slot hears it), an IR loads into the preset. Library folders of your own, for captures and IRs alike: New folder at the top of a list, hold an item (or drag it, with a mouse) to move it into one; rename or delete a folder from inside it. Folders are kept in this browser. |
+| Preset name, a preset button, Menu → Presets → ⋯ | hold / tap | Rename, name an empty slot (stores the sound playing now there), put the preset on IA / IB / IIA / IIB, delete (tap twice). |
+
+Changes are live, like turning a knob on the pedal: **save on the pedal to keep them**.
+Renames, creates and deletes are stored at once.
 
 > **Back up your presets in Cortex Cloud before turning control mode on**, and try it on a
 > preset you don't mind losing first. The protocol is reverse-engineered; a firmware update can

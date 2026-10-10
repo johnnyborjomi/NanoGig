@@ -38,6 +38,11 @@ import { HW_DEVICE_SETTINGS_REPLY, HW_DEVICE_SETTINGS_REPLY_UNMUTED, HW_OUTPUTS_
 import { HW_BYPASS_CHANGED } from '../fixtures/hardware-2026-09-12';
 import { HW_EXP_ASSIGN_REPLY_58, HW_PRESET_SELECT_ACK } from '../fixtures/hardware-2026-09-19';
 import { TUNER_OFF } from '../protocol/frames';
+import { EDIT_MSG, FX_SLOT_MODELS, fxDef, fxModelId, type CabSettings } from '../protocol/edit';
+import { fromHex } from '../protocol/hex';
+import { bytesField, firstBytes, firstVarint, fixed32FloatField, parseFields, stringField, varintField } from '../protocol/proto';
+import { frameSingle, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
+import { defaultMockModelIds } from '../fixtures/captures';
 import {
   Emitter,
   type ConnectOptions,
@@ -95,8 +100,9 @@ export class MockTransport implements Transport {
       stateReplyShape: opts.stateReplyShape ?? 'alternate',
       acceptedMidi: opts.acceptedMidi ?? 'c304-select',
     };
-    this.presets = this.opts.presets;
-    this.device = { ...defaultMockDeviceState(), ...this.opts.initialState };
+    // A copy: renames and deletes change it, and the demo list is shared.
+    this.presets = this.opts.presets.map((p) => ({ ...p }));
+    this.device = { fxModelIds: defaultMockModelIds(), gateThresholdRaw: 158, cabSlot: 1, ...defaultMockDeviceState(), ...this.opts.initialState };
   }
 
   get status() {
@@ -194,9 +200,11 @@ export class MockTransport implements Transport {
       return; // the pedal's reply to this MIDI-path ack is not captured
     }
     // Preset select (Cortex Cloud, 2026-09-19): 36 C0 18 00 20 <preset> … 1D 00 00 00
-    if (bytes.length === 56 && bytes[0] === 0x36 && bytes[1] === 0xc0 && bytes[2] === 0x18 && bytes[4] === 0x20 && bytes[52] === 0x1d) {
+    if (bytes.length === 56 && bytes[0] === 0x36 && bytes[1] === 0xc0 && bytes[2] === 0x18 && bytes[4] === 0x20 && bytes[52] === 0x1d && bytes[51] !== 0x02) {
+      // (field 9 = 2 is a footswitch assignment, not a select: handled with the edits)
       if (this.opts.acceptedMidi !== 'c304-select') return; // other firmware: ignored
       this.device.activePreset = bytes[5]!;
+      this.device.captureNameOverride = this.device.irNameOverride = null; // a preset load drops unsaved edits
       // The real pedal answers with a bypass-changed notice, then the 0x1E ack; no 0x1D event.
       this.schedule(() => {
         this.emit(HW_BYPASS_CHANGED);
@@ -251,13 +259,251 @@ export class MockTransport implements Transport {
     // Slot-select family: 08 C0 18 <sel> 20 <v> 1C 00 00 00
     if (bytes.length === 10 && bytes[0] === 0x08 && bytes[1] === 0xc0 && bytes[2] === 0x18 && bytes[4] === 0x20 && bytes[6] === 0x1c) {
       const sel = bytes[3]!;
-      const v = bytes[5]!;
-      if (sel === 0x01 && v === 0) this.device.captureOn = false; // capture bypass
-      else if (sel === 0x04) this.device.captureOn = true; // capture select (enable)
-      else if (sel === 0x03) this.device.cabOn = v !== 0; // cab/IR slot, 0 = bypass
-      return;
+      if (sel === 0x04) {
+        this.device.captureOn = true; // capture select (enable)
+        return;
+      }
+      // Selector 1 (capture slot / bypass) and 3 (IR slot / off): the editing handler below.
     }
+    if (this.handleEdit(bytes)) return;
     this.log('warn', 'mock: unrecognised command frame ignored', toHex(bytes));
+  }
+
+  // -------------------------------------------------------------------------
+  // Editing (frames from the NanoGig Screen firmware, replies shaped like the pedal's)
+  // -------------------------------------------------------------------------
+
+  /** FX parameter values per slot (0..1, the model's order); a model write resets them. */
+  readonly fxParams: Record<FxSlot, number[]> = { pre1: [], pre2: [], post1: [], post2: [], post3: [] };
+  readonly ir: CabSettings = {
+    level: 0.66212219,
+    highPass: 0.1,
+    lowPass: 0.8,
+    factory: true,
+    kind: 3,
+    irName: '412 UK GRN V30',
+    position: 1,
+    mic: 'Dynamic 57',
+    mics: ['Dynamic 57', 'Dynamic 421', 'Condenser 414', 'Ribbon 160'],
+    phaseInverted: false,
+  };
+  /** Library: factory and user captures / IRs (each list indexed on its own). */
+  readonly library = {
+    captures: { factory: ['Brit 1959 Crunch', 'Cali Recto Modern', 'Jazz 120 Clean', 'Tweed 57 Deluxe', 'NoMatch Chief 1', 'Comet 60 6'], user: ['My Plexi', 'Studio Rectifier'] },
+    irs: { factory: ['412 UK GRN V30', '212 UK GRN V30', '412 US OS V30', '212 US JAZ', '112 US TWD P12Q', '110 US PRN C10R'], user: ['Tay816 M251 Pz1', 'YA'] },
+  };
+  /** Frames the mock understood as edits, for tests. */
+  readonly edits: { type: number; hex: string }[] = [];
+
+  private paramsFor(slot: FxSlot): number[] {
+    const def = fxDef(this.slotType(slot));
+    const have = this.fxParams[slot];
+    if (def && have.length !== def.params.length) this.fxParams[slot] = def.params.map((_, i) => (i % 3) / 2);
+    return this.fxParams[slot];
+  }
+
+  private slotType(slot: FxSlot): number {
+    const id = (this.device.fxModelIds ?? defaultMockModelIds())[slot];
+    let type = 0;
+    id.forEach((b, i) => (type += (b & 0x7f) * 2 ** (7 * i)));
+    return type;
+  }
+
+  private reply(body: number[], type: number) {
+    this.schedule(() => this.emit(frameSingle([...body, type, 0, 0, 0])), this.opts.latencyMs);
+  }
+
+  private handleEdit(bytes: Uint8Array): boolean {
+    const h = parseFrameHeader(bytes);
+    if (!h) return false;
+    const { payload, msgType } = splitTrailer(bytes.subarray(2));
+    if (msgType === null) return false;
+    const f = parseFields(payload);
+    const v = (n: number) => firstVarint(f, n) ?? 0;
+    const sub = (n: number) => {
+      const raw = firstBytes(f, n);
+      return raw ? parseFields(raw) : null;
+    };
+    const text = (fields: ReturnType<typeof parseFields> | null, n: number) => {
+      const raw = fields ? firstBytes(fields, n) : null;
+      return raw ? new TextDecoder().decode(raw) : '';
+    };
+    const ok = (preset?: number) => [...varintField(1, 6), ...(preset ? varintField(3, preset) : []), ...varintField(4, 1)];
+    switch (msgType) {
+      case EDIT_MSG.FX_MODEL: {
+        const slot = FX_SLOTS[v(3)];
+        const type = v(4);
+        if (!slot || !FX_SLOT_MODELS[v(3)]!.includes(type)) return true; // the pedal ignores a model the slot does not take
+        this.device.fxModelIds![slot] = Array.from(fromHex(fxModelId(type)));
+        this.fxParams[slot] = [];
+        this.reply([...varintField(1, 1)], 0x73); // "something changed"
+        break;
+      }
+      case EDIT_MSG.FX_PARAMS_REQUEST: {
+        const slot = FX_SLOTS[v(3)];
+        if (!slot || !this.device.fxOn[slot]) return true; // the real pedal may crash; the mock stays silent
+        const values = this.paramsFor(slot);
+        const packed = new Uint8Array(values.length * 4);
+        values.forEach((x, i) => new DataView(packed.buffer).setFloat32(i * 4, x, true));
+        this.reply([...varintField(1, 6), ...bytesField(4, packed)], EDIT_MSG.FX_PARAMS);
+        break;
+      }
+      case EDIT_MSG.FX_PARAM: {
+        const slot = FX_SLOTS[v(3)];
+        const raw = f.find((x) => x.field === 5 && x.wire === 5)?.raw;
+        if (slot && raw) this.paramsFor(slot)[v(4)] = new DataView(raw.buffer, raw.byteOffset, 4).getFloat32(0, true);
+        break;
+      }
+      case EDIT_MSG.KNOB: {
+        if (v(3) === 10) this.device.captureVolumeRaw = v(4);
+        else if (v(3) === 11) this.device.gateThresholdRaw = v(4);
+        else return false;
+        break;
+      }
+      case EDIT_MSG.ENCODER: {
+        // Selector 1: capture slot 1..6 (0 = off); selector 3: IR slot (0 = off).
+        if (v(3) === 1) {
+          this.device.captureOn = v(4) > 0;
+          if (v(4) > 0) this.device.captureSlot = v(4);
+          if (v(4) > 0 && v(4) <= 5) this.device.captureNameOverride = this.metadataCaptures()[v(4) - 1] ?? null;
+          if (v(4) === 6) this.device.captureNameOverride = null;
+        } else if (v(3) === 3) {
+          this.device.cabOn = v(4) > 0;
+          if (v(4) > 0) {
+            this.device.cabSlot = v(4);
+            this.device.irNameOverride = this.metadataIrs()[v(4) - 1] ?? null;
+          }
+        } else return false;
+        this.reply([...varintField(1, 1)], 0x73);
+        break;
+      }
+      case EDIT_MSG.CAB_SETTINGS_REQUEST: {
+        if (!this.device.cabOn) return true;
+        const ir = this.ir;
+        const name = this.device.irNameOverride || this.currentPreset().irShortName || ir.irName;
+        const settings = [
+          ...(ir.level ? fixed32FloatField(1, ir.level) : []),
+          ...(ir.highPass ? fixed32FloatField(2, ir.highPass) : []),
+          ...(ir.lowPass ? fixed32FloatField(3, ir.lowPass) : []),
+          ...(ir.phaseInverted ? varintField(4, 1) : []),
+        ];
+        const user = this.library.irs.user.includes(name);
+        this.reply(
+          [
+            ...varintField(1, 6),
+            ...bytesField(user ? 6 : 5, [...varintField(1, ir.kind), ...stringField(2, name), ...(user ? [] : [...varintField(3, ir.position), ...stringField(4, ir.mic)])]),
+            ...(user ? [] : ir.mics.flatMap((m) => stringField(7, m))),
+            ...bytesField(8, settings),
+          ],
+          EDIT_MSG.CAB_SETTINGS,
+        );
+        break;
+      }
+      case EDIT_MSG.CAB_SETTING: {
+        for (const x of f) {
+          if (x.wire === 5 && x.field >= 5 && x.field <= 7) {
+            const n = new DataView(x.raw.buffer, x.raw.byteOffset, 4).getFloat32(0, true);
+            if (x.field === 5) this.ir.level = n;
+            else if (x.field === 6) this.ir.highPass = n;
+            else this.ir.lowPass = n;
+          } else if (x.field === 8 && x.wire === 0) {
+            this.ir.phaseInverted = x.value !== 0;
+          } else if ((x.field === 3 || x.field === 4) && x.wire === 2) {
+            const g = parseFields(x.raw);
+            const name = text(g, 2);
+            if (firstVarint(g, 3) !== null) this.ir.position = firstVarint(g, 3)!;
+            if (text(g, 4)) this.ir.mic = text(g, 4);
+            if (name) {
+              this.device.irNameOverride = name;
+              this.device.cabOn = true;
+            }
+          }
+        }
+        break;
+      }
+      case EDIT_MSG.LIBRARY_REQUEST: {
+        const body: number[] = [...varintField(1, 6)];
+        const cap = (name: string, i: number) => [...stringField(1, i.toString(16).padStart(64, '0')), ...stringField(2, name)];
+        if (v(3)) this.library.captures.factory.forEach((n, i) => body.push(...bytesField(3, cap(n, i))));
+        if (v(4)) this.library.irs.factory.forEach((n) => body.push(...stringField(4, n)));
+        if (v(5)) this.library.captures.user.forEach((n, i) => body.push(...bytesField(5, cap(n, 100 + i))));
+        if (v(6)) this.library.irs.user.forEach((n) => body.push(...stringField(6, n)));
+        body.push(EDIT_MSG.LIBRARY, 0, 0, 0);
+        this.emitStream(segmentStream(Uint8Array.from(body), 120));
+        break;
+      }
+      case EDIT_MSG.CAPTURE_SLOT_LOAD: {
+        const item = sub(4) ?? sub(5);
+        const slot = v(3);
+        if (item) this.slotCaptures[slot] = text(item, 2);
+        this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_SLOT_LOADED);
+        break;
+      }
+      case EDIT_MSG.CAPTURE_PREVIEW: {
+        const item = sub(3) ?? sub(4);
+        if (item) {
+          this.device.captureNameOverride = text(item, 2);
+          this.device.captureOn = true;
+        }
+        this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEWED);
+        break;
+      }
+      case EDIT_MSG.RENAME:
+      case EDIT_MSG.PRESET_CREATE: {
+        const index = v(3);
+        const name = text(f, msgType === EDIT_MSG.RENAME ? 4 : 5);
+        while (this.presets.length <= index) this.presets.push({ name: '', captureName: '', irShortName: '' });
+        const p = this.presets[index]!;
+        if (msgType === EDIT_MSG.PRESET_CREATE) {
+          p.captureName = this.device.captureNameOverride || this.currentPreset().captureName || 'Capture 1';
+          p.irShortName = this.device.irNameOverride || this.currentPreset().irShortName || 'IR 1';
+        }
+        p.name = name;
+        this.reply(ok(index), msgType === EDIT_MSG.RENAME ? EDIT_MSG.RENAME_REPLY : EDIT_MSG.PRESET_CREATED);
+        break;
+      }
+      case EDIT_MSG.PRESET_DELETE: {
+        const index = v(3);
+        if (this.presets[index]) this.presets[index] = { name: '', captureName: '', irShortName: '' };
+        this.reply(ok(index), EDIT_MSG.PRESET_DELETED);
+        break;
+      }
+      case EDIT_MSG.PRESET_CHANGED: {
+        // Footswitch assignment: field 9 = 2, the footswitch's field holds the preset (the others -1).
+        if (v(9) !== 2) return false;
+        const fields = [5, 6, 7, 8];
+        const at = fields.find((n) => (firstVarint(f, n) ?? 0) < 64);
+        if (at !== undefined) this.footswitches[at - 5] = v(at);
+        this.schedule(() => {
+          this.emit(HW_BYPASS_CHANGED);
+          this.emit(HW_PRESET_SELECT_ACK);
+        }, this.opts.latencyMs);
+        break;
+      }
+      default:
+        return false;
+    }
+    this.edits.push({ type: msgType, hex: toHex(bytes) });
+    return true;
+  }
+
+  /** The capture slots' names after library loads (slot 0..24). */
+  readonly slotCaptures: Record<number, string> = {};
+  /** Preset index on IA, IB, IIA, IIB. */
+  readonly footswitches = [3, 7, 10, 16];
+
+  private metadataCaptures(): string[] {
+    const base = [...new Set(this.presets.map((p) => p.captureName).filter(Boolean))];
+    return base.map((n, i) => this.slotCaptures[i] ?? n);
+  }
+
+  private metadataIrs(): string[] {
+    return [...new Set(this.presets.map((p) => p.irShortName).filter(Boolean))].slice(0, 5);
+  }
+
+  /** Test hook: the pedal's own save button (0x1B, field 3 = 2). */
+  pressSave() {
+    this.emit(Uint8Array.from([0x08, 0xc0, 0x08, 0x01, 0x18, 0x02, 0x1b, 0x00, 0x00, 0x00]));
   }
 
   async writeMidi(bytes: Uint8Array, strategy: MidiStrategy): Promise<void> {
@@ -342,6 +588,7 @@ export class MockTransport implements Transport {
     const populated = this.presets.map((p, idx) => (p.name ? idx : -1)).filter((x) => x >= 0);
     const next = populated[(populated.indexOf(this.device.activePreset) + 1) % populated.length] ?? 0;
     this.device.activePreset = next;
+    this.device.captureNameOverride = this.device.irNameOverride = null;
     // Alternate between the hardware-observed message and the 2-byte MIDI shape.
     if (i % 2 === 0) this.emit(buildPresetChangedEvent(next));
     else this.emit(Uint8Array.from([0xc0, next]));
@@ -355,6 +602,7 @@ export class MockTransport implements Transport {
   /** Test hook: change the preset as a footswitch press would. */
   pressFootswitch(preset: number) {
     this.device.activePreset = preset;
+    this.device.captureNameOverride = this.device.irNameOverride = null;
     this.emit(buildPresetChangedEvent(preset));
     this.emit(Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x1f, 0x00, 0x00, 0x00])); // bypass-changed follows on hardware
   }

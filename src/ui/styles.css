@@ -135,6 +135,13 @@ button.warn {
 .status .tempo[hidden] {
   display: none;
 }
+/* Connected, tempo not read yet: the room is kept, nothing shows. */
+.status .tempo[data-empty='true'] {
+  visibility: hidden;
+}
+.status .tempo-text:empty::before {
+  content: '000';
+}
 /* The pedal is in its tap tempo mode: the value follows every tap. */
 .status .tempo.tapping {
   color: var(--warn);
@@ -146,6 +153,8 @@ button.warn {
   opacity: 0.85;
 }
 .status .tempo-text {
+  min-width: 3ch; /* 92 and 120 take the same room */
+  text-align: right;
   font-size: 1.25em;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -250,6 +259,7 @@ button.warn {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 30px; /* the live tuner's height: the line does not grow when it shows */
   color: var(--muted);
   font-size: 15px;
   flex: 1;
@@ -269,6 +279,10 @@ button.warn {
 .dot[data-state='connected'] {
   background: var(--on);
   box-shadow: 0 0 14px rgba(45, 212, 160, 0.6);
+}
+/* Updating the preset names. */
+.dot[data-state='connected'][data-busy='true'] {
+  animation: pulse 0.8s infinite alternate;
 }
 .dot[data-state='connecting'],
 .dot[data-state='reconnecting'] {
@@ -344,6 +358,21 @@ button.warn {
 .topbar button .btn-state[data-on='true'] {
   background: var(--warn);
   color: var(--on-text);
+}
+/* Edit (control + the edit sheets): blue, so it reads apart from Control's orange. */
+.topbar .edit-btn .btn-state[data-on='true'] {
+  background: var(--accent);
+  color: #041021;
+}
+.topbar .actions > button.edit-btn.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+/* A phone: Edit is its pencil alone, so the top bar stays one row. */
+@media (max-width: 480px) {
+  .topbar .edit-btn .btn-label {
+    display: none;
+  }
 }
 .topbar .icon-btn {
   /* Square: as tall as the text buttons beside it, and exactly as wide. */
@@ -1725,7 +1754,9 @@ button.warn {
   max-width: 1040px;
   max-height: none;
   min-height: 0;
-  margin: auto;
+  /* Anchored at the top, not centred: what shows up later (an error, the install offer, the search hint) grows
+     the page downward and moves nothing above it. */
+  margin: clamp(0px, 6vh, 64px) auto 0;
   padding: max(28px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1992,4 +2023,703 @@ button.warn {
   .search-plus {
     margin-top: 16px;
   }
+}
+
+/* ---------- edit sheets (Settings → Editing) ---------- */
+#app[data-editing='true'] .sub-name {
+  cursor: pointer;
+  text-decoration: underline dotted color-mix(in srgb, var(--muted) 60%, transparent);
+  text-underline-offset: 0.2em;
+}
+.edit-sheet {
+  z-index: 32; /* over the settings / tuner overlays it can be opened from */
+  /* Anchored at the top, not centred: a sheet that grows (parameters read, a row opened) grows downward and
+     nothing above moves. */
+  align-items: flex-start;
+}
+.card.sheet {
+  /* A little air above on tall screens only: none at all on a short (landscape) one, where every row counts. */
+  --sheet-top: clamp(0px, calc((100vh - 700px) / 4), 56px);
+  margin: var(--sheet-top) auto 0;
+  max-height: calc(100% - var(--sheet-top));
+  max-width: 720px;
+  gap: 14px;
+  border-top: 4px solid var(--fx, var(--accent));
+  user-select: none;
+  -webkit-user-select: none;
+}
+.card.sheet[data-cat='overdrive'] { --fx: var(--fx-overdrive); }
+.card.sheet[data-cat='compressor'] { --fx: var(--fx-compressor); }
+.card.sheet[data-cat='modulation'] { --fx: var(--fx-modulation); }
+.card.sheet[data-cat='delay'] { --fx: var(--fx-delay); }
+.card.sheet[data-cat='reverb'] { --fx: var(--fx-reverb); }
+.card.sheet[data-cat='pitch'] { --fx: var(--fx-pitch); }
+.card.sheet[data-cat='wah'] { --fx: var(--fx-wah); }
+.card.sheet[data-cat='filter'] { --fx: var(--fx-filter); }
+.card.sheet[data-cat='utility'] { --fx: var(--fx-utility); }
+.card.sheet[data-cat='eq'] { --fx: var(--fx-eq); }
+.card.sheet.gate-sheet { --fx: var(--fx-gate); }
+.card.sheet.src-sheet { --fx: var(--fx-cab); }
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  /* Stays at the top while the sheet scrolls (long parameter lists, the presets list). */
+  position: sticky;
+  --pad: clamp(18px, 4vh, 32px);
+  top: calc(-1 * var(--pad));
+  margin-top: calc(-1 * var(--pad));
+  padding: var(--pad) 0 8px;
+  background: var(--panel);
+  z-index: 2;
+}
+.sheet-titles {
+  min-width: 0;
+}
+.sheet-sub {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.card .sheet-title {
+  font-size: clamp(22px, 4vw, 30px);
+  overflow-wrap: anywhere;
+}
+.sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ed-row > .ed-input {
+  flex: 1 1 200px;
+}
+.ed-power {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 96px;
+  justify-content: center;
+  font-weight: 700;
+}
+.ed-power svg {
+  width: 20px;
+  height: 20px;
+}
+.ed-power[data-on='true'] {
+  background: var(--on);
+  color: var(--on-text);
+  border-color: transparent;
+}
+/*
+ * Messages that come and go (loading, "turn it on", a name's problem, the pedal's answer) never move the layout:
+ * the line is always there, one line high, and only its text and tone change. A button that comes with a message
+ * (Read again) keeps its room too (visibility, not display).
+ */
+.card .ed-msg {
+  margin: 0;
+  height: 1.4em;
+  line-height: 1.4em;
+  font-size: 15px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.card .ed-msg[data-tone='warn'] {
+  color: var(--warn);
+}
+.card .ed-msg[data-tone='ok'] {
+  color: var(--on);
+}
+.ed-msg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+}
+.ed-msg-row .ed-msg {
+  flex: 1 1 auto;
+}
+.ed-retry {
+  flex: none;
+  min-height: 36px;
+  padding: 6px 14px;
+}
+.ed-retry[data-shown='false'] {
+  visibility: hidden;
+}
+/* An intro whose text changes with the slot (empty / named): room for two lines. */
+.card .ed-intro {
+  margin: 0;
+  line-height: 1.4;
+  min-height: 2.8em;
+}
+.ed-model-btn {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+.ed-model-btn > span:nth-child(2) {
+  flex: 1;
+  font-weight: 700;
+}
+.ed-model-btn svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+.ed-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ed-models {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--panel-2);
+}
+.ed-group-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.ed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ed-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 15px;
+}
+.ed-chip svg {
+  width: 16px;
+  height: 16px;
+}
+.ed-chip[data-cat] {
+  border-left: 4px solid var(--fx, #3a4450);
+}
+.ed-chip[data-cat='overdrive'] { --fx: var(--fx-overdrive); }
+.ed-chip[data-cat='compressor'] { --fx: var(--fx-compressor); }
+.ed-chip[data-cat='modulation'] { --fx: var(--fx-modulation); }
+.ed-chip[data-cat='delay'] { --fx: var(--fx-delay); }
+.ed-chip[data-cat='reverb'] { --fx: var(--fx-reverb); }
+.ed-chip[data-cat='pitch'] { --fx: var(--fx-pitch); }
+.ed-chip[data-cat='wah'] { --fx: var(--fx-wah); }
+.ed-chip[data-cat='filter'] { --fx: var(--fx-filter); }
+.ed-chip[data-cat='utility'] { --fx: var(--fx-utility); }
+.ed-chip[data-cat='eq'] { --fx: var(--fx-eq); }
+.ed-chip[data-active='true'] {
+  background: var(--accent);
+  color: #041021;
+  border-color: transparent;
+  font-weight: 700;
+}
+.ed-params {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ed-params[data-dim='true'] {
+  opacity: 0.45;
+}
+.ed-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.ed-slider .ed-label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+.ed-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 17px;
+}
+.ed-value.resettable {
+  cursor: pointer;
+}
+.ed-slider input[type='range'],
+.ed-pane input[type='range'] {
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  accent-color: var(--fx, var(--accent));
+  touch-action: pan-y;
+}
+.ed-enum {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ed-enum .ed-label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+.ed-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--panel-2);
+}
+.ed-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  min-height: 40px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.ed-tab[data-active='true'] {
+  background: #2a3340;
+  color: var(--text);
+}
+.ed-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ed-pane[hidden] {
+  display: none;
+}
+.ed-big {
+  font-size: clamp(22px, 4.5vw, 32px);
+  font-weight: 700;
+  line-height: 1.2;
+  /* Names change as slots are stepped: one line on a wide card, two kept on a narrow one, so the controls under
+     the name stay where the finger is. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 600px) {
+  .ed-big {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    min-height: 2.4em;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+}
+.ed-big[data-off='true'] {
+  color: var(--off-text);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+.ed-step-btn {
+  width: 52px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ed-step-btn svg {
+  width: 24px;
+  height: 24px;
+}
+.ed-slot {
+  flex: 1 1 120px;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ed-lib-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: 600;
+}
+.ed-lib-btn svg {
+  width: 20px;
+  height: 20px;
+}
+.ed-mic {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ed-mic[hidden] {
+  display: none;
+}
+.ed-pos {
+  min-width: 48px;
+  justify-content: center;
+}
+.ed-input {
+  font: inherit;
+  font-size: 17px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid #2a323d;
+  border-radius: 12px;
+  padding: 10px 14px;
+  min-height: 44px;
+  min-width: 0;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ed-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.ed-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  align-self: flex-start;
+}
+.ed-delete svg {
+  width: 18px;
+  height: 18px;
+}
+.ed-delete[data-armed='true'] {
+  background: var(--error);
+  color: #1a0306;
+  border-color: transparent;
+  font-weight: 700;
+}
+.ed-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid #2a323d;
+}
+.ed-search svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+  flex: none;
+}
+.ed-search .ed-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding-left: 0;
+}
+.ed-search .ed-input:focus {
+  outline: none;
+}
+/* The library's bar: [New folder | < All | x Cancel] title [rename] [delete], or the name field while naming.
+   Always 48px whatever it holds. */
+.ed-libbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+}
+.ed-libbar > button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  height: 44px;
+  padding-block: 0;
+}
+.ed-libbar svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.ed-libbar > .ed-input {
+  flex: 1 1 auto;
+  height: 44px;
+  min-height: 44px;
+  padding-block: 0;
+}
+.ed-bar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 14px;
+}
+.ed-bar-title > * {
+  flex: none;
+}
+.ed-bar-title strong {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 16px;
+}
+.ed-bar-title[data-kind='hint'] {
+  display: block;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--dim);
+}
+.ed-bar-title svg {
+  color: var(--accent);
+}
+.ed-bar-delete span:empty {
+  display: none;
+}
+.ed-bar-delete[data-armed='true'] {
+  background: var(--error);
+  color: #1a0306;
+  border-color: transparent;
+  font-weight: 700;
+}
+.ed-folder-row .ed-item-name svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--accent);
+}
+.ed-folder-row .ed-item-name {
+  font-weight: 600;
+}
+.ed-folder-row[data-top='true'] .ed-item-name,
+.ed-new-folder {
+  color: var(--muted);
+  font-weight: 400;
+}
+.ed-folder-row[data-top='true'] svg,
+.ed-new-folder svg {
+  color: var(--muted);
+}
+.ed-folder-name,
+.ed-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ed-count + .ed-item-saved {
+  margin-left: 0;
+}
+.ed-item-name[data-drop='true'],
+.ed-bar-main[data-drop='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.ed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ed-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-radius: 12px;
+  padding: 2px;
+}
+.ed-item[data-selected='true'] {
+  background: var(--panel-2);
+  padding: 8px;
+}
+.ed-item-name {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+  min-height: 48px;
+}
+.ed-preset-row .ed-item-name {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.ed-item[data-current='true'] .ed-item-name,
+.ed-item[data-active='true'] .ed-item-name {
+  border-color: var(--on);
+  color: var(--on);
+  font-weight: 700;
+}
+.ed-item-index {
+  min-width: 2.6em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+.ed-item-folder {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid #2a323d;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.ed-item-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ed-item-actions svg {
+  width: 18px;
+  height: 18px;
+}
+.ed-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ed-item .hint {
+  flex: 1 1 100%;
+  margin: 0;
+}
+.ed-preset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-item[data-empty='true'] .ed-preset-name {
+  color: var(--dim);
+  font-style: italic;
+}
+.ed-more svg {
+  width: 20px;
+  height: 20px;
+}
+.ed-more[hidden] {
+  display: none;
+}
+/* Short screens (a phone or iPad in landscape): a tighter sheet, so the parameters get the room. */
+@media (max-height: 560px) {
+  .edit-sheet {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  .card.sheet {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    gap: 8px;
+  }
+  .card.sheet .sheet-head {
+    --pad: 12px;
+    padding-bottom: 4px;
+  }
+  .card.sheet .sheet-title {
+    font-size: 22px;
+  }
+  .card.sheet .sheet-sub {
+    font-size: 11px;
+  }
+  .sheet-body,
+  .ed-pane,
+  .ed-params {
+    gap: 8px;
+  }
+}
+/* `hidden` wins over the flex / grid displays above. */
+.edit-sheet [hidden] {
+  display: none !important;
+}
+.ed-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ed-track input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+.ed-fine {
+  width: 44px;
+  padding: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  flex: none;
+}
+.ed-fs {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  border-radius: 14px;
+  min-width: 120px;
+  max-width: 100%;
+}
+.ed-fs-now {
+  font-size: 12px;
+  opacity: 0.75;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The preset's saved capture / IR (the screen marks it teal). */
+.ed-item[data-saved='true'] .ed-item-name {
+  color: #2dd4bf;
+}
+.ed-item-saved {
+  margin-left: auto;
+  font-size: 12px;
+  color: #2dd4bf;
+  border: 1px solid color-mix(in srgb, #2dd4bf 50%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.ed-item-folder + .ed-item-saved {
+  margin-left: 0;
+}
+/* A one-line status under a settings hint: its text changes, its height does not. */
+.card .hint-line {
+  margin-top: -0.4em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The connect screen's error line keeps two lines of room (a failed connect does not push the page down). */
+.overlay.page .card .page-err {
+  min-height: 2.8em;
 }

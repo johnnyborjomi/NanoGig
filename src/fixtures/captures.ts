@@ -95,6 +95,15 @@ export interface MockDeviceState {
   tempoBpm: number;
   /** The mock pedal is in tap tempo mode (after a tempo-set write, until the exit frame). */
   tapTempo: boolean;
+  /** FX model per slot as the dump's raw ID bytes (editing: a model write replaces it). */
+  fxModelIds?: Record<FxSlot, number[]>;
+  /** Gate threshold, raw 0..255 (state field 53 = raw / 255). */
+  gateThresholdRaw?: number;
+  /** IR slot (field 12) while on; 6 = the preset's own. */
+  cabSlot?: number;
+  /** Names loaded from the library over the preset's own (until the next preset change). */
+  captureNameOverride?: string | null;
+  irNameOverride?: string | null;
 }
 
 export function defaultMockDeviceState(): MockDeviceState {
@@ -123,6 +132,11 @@ const MODEL_IDS: Record<FxSlot, number[]> = {
 };
 
 /** Build a current-state dump BODY (no packet header) from a mock device state. */
+/** The demo's default model IDs (Transpose, Green 808, Chief DC2W, Analog Delay, Mind Hall). */
+export function defaultMockModelIds(): Record<FxSlot, number[]> {
+  return { pre1: [...MODEL_IDS.pre1], pre2: [...MODEL_IDS.pre2], post1: [...MODEL_IDS.post1], post2: [...MODEL_IDS.post2], post3: [...MODEL_IDS.post3] };
+}
+
 export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset): Uint8Array {
   const body: number[] = [];
   body.push(...varintField(1, 1));
@@ -132,7 +146,7 @@ export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset
   body.push(...varintField(6, state.amp.mid));
   body.push(...varintField(7, state.amp.treble));
   body.push(...varintField(11, state.captureOn ? state.captureSlot : 0));
-  if (state.cabOn) body.push(...varintField(12, 1));
+  if (state.cabOn) body.push(...varintField(12, state.cabSlot ?? 1));
   body.push(...varintFieldOpt(13, state.activePreset)); // absent on preset 1, like the pedal
   body.push(...varintField(14, 3), ...varintField(15, 7));
   body.push(...stringField(24, state.firmware));
@@ -140,21 +154,22 @@ export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset
   body.push(
     ...bytesField(32, [
       ...varintField(1, state.captureOn ? 1 : 0),
-      ...stringField(2, preset.captureName || 'Capture 1'),
+      ...stringField(2, state.captureNameOverride || preset.captureName || 'Capture 1'),
       ...stringField(3, 'd48b4316dbcc764b4b4b3f634d8878ab66c966883d480f92648825f9ca3a0030'),
     ]),
   );
   body.push(
     ...bytesField(33, [
       ...varintField(1, 1),
-      ...stringField(2, preset.irShortName || 'IR 1'),
+      ...stringField(2, state.irNameOverride || preset.irShortName || 'IR 1'),
       ...stringField(3, preset.irFullName ?? `${preset.irShortName || 'IR 1'}/Ribbon 160/2`),
     ]),
   );
   body.push(...varintField(38, 10), ...varintField(39, 16));
-  body.push(...varintField(44, state.captureVolumeRaw));
-  for (const slot of FX_SLOTS) body.push(...bytesField(48 + FX_SLOTS.indexOf(slot), MODEL_IDS[slot]));
-  body.push(...fixed32FloatField(53, (50 + 108) / 255));
+  body.push(...varintFieldOpt(44, state.captureVolumeRaw)); // raw 0 left out, like the pedal
+  for (const slot of FX_SLOTS) body.push(...bytesField(48 + FX_SLOTS.indexOf(slot), (state.fxModelIds ?? MODEL_IDS)[slot]));
+  const threshold = state.gateThresholdRaw ?? 158;
+  if (threshold > 0) body.push(...fixed32FloatField(53, threshold / 255)); // a zero is left out, like the pedal
   if (!state.gateOn) body.push(...varintField(54, 1));
   body.push(...fixed32FloatField(56, state.tempoBpm)); // preset tempo (2026-09-14)
   if (state.tapTempo) body.push(...varintField(60, 1)); // tap tempo mode (2026-09-26)

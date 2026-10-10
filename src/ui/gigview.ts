@@ -22,6 +22,7 @@ import {
   Coffee,
   Copy,
   Download,
+  ListOrdered,
   Lock,
   Metronome,
   LogOut,
@@ -29,6 +30,7 @@ import {
   Menu,
   Minimize,
   Music,
+  Pencil,
   Power,
   RefreshCw,
   ScrollText,
@@ -37,6 +39,10 @@ import {
   createElement as lucideElement,
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
+import { EditorView } from "./editor-view";
+import { onHold } from "./hold";
+export { HOLD_MS } from "./hold";
+import type { EditController } from "../sync/editor";
 
 /** Where a coffee goes. Also in the README's Sponsor section. */
 export const SUPPORT_URL = "https://buymeacoffee.com/johnnyborjomi";
@@ -79,7 +85,10 @@ export interface GigViewActions {
     autoRefreshNames?: boolean;
     liveTuner?: boolean;
     expressionShow?: boolean;
+    editing?: boolean;
   }): void;
+  /** The edit controller of the live link (the Edit button); null while there is none. */
+  edit?(): EditController | null;
   /** A "Support project" button was tapped (for anonymous stats). */
   onSupportClick?(source: "card" | "menu"): void;
   /** A "Support project" button came on screen, reported once per session per source (for anonymous stats). */
@@ -108,6 +117,7 @@ export function footswitchFor(index: number, fs: FootswitchAssignments | null): 
   return null;
 }
 
+/** How long a press must last to count as a hold (opens an editor instead of toggling). */
 /** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
 export const PRESET_STRIP_COUNT = 7;
 
@@ -258,7 +268,7 @@ export class GigView {
   private readonly consoleEl = el("div", "console");
   private readonly consoleBody = el("div", "c-body");
   private readonly overlay = el("div", "overlay connect open");
-  private readonly overlayErr = el("div", "err");
+  private readonly overlayErr = el("div", "err page-err");
   private readonly resumeTip = el("div", "hint resume-tip");
   private readonly connectBtn = el("button", "primary", "Connect Nano Cortex");
   private readonly connectAllBtn = el("button", "", "Show all BT devices");
@@ -282,6 +292,11 @@ export class GigView {
   private readonly settingsBtn = el("button", "menu-item", "Settings");
   private readonly tunerBtn = el("button", "menu-item", "Tuner");
   private readonly tempoBtn = el("button", "menu-item", "Tempo");
+  private readonly presetsBtn = el("button", "menu-item", "Presets");
+  /** Edit mode: Control plus the edit gestures and sheets. */
+  private readonly editBtn = el("button", "ghost edit-btn", "");
+  private readonly editState = el("span", "btn-state");
+  private editor!: EditorView;
   // Tempo view: the big BPM, −/+ (auto-repeat while held), Done. Follows the pedal's tap tempo mode.
   private readonly tempoOverlay = el("div", "overlay tempo");
   private readonly tempoBig = el("div", "tempo-big", "—");
@@ -305,7 +320,9 @@ export class GigView {
   private readonly settingsOverlay = el("div", "overlay settings");
   private readonly settingsPreview = el("p", "hint");
   private readonly muteCheck = el("input", "menu-check");
-  private readonly muteHint = el("p", "hint");
+  private readonly muteHint = el("p", "hint", "Silences the pedal's outputs 1/2 while you monitor through the DAW over USB.");
+  /** What the pedal says now: its own line, so the settings under it stay put as it changes. */
+  private readonly muteState = el("p", "hint hint-line");
   /** On the searching page while auto-reconnecting: stops the retries and opens the device chooser. */
   private readonly reconnectBtn = el("button", "primary", "Pick from the list…");
   private lastRenderedLine: LogLine | null = null;
@@ -327,6 +344,13 @@ export class GigView {
   private build() {
     const root = this.root;
     root.replaceChildren();
+    this.editor = new EditorView(this.store, {
+      edit: () => this.actions.edit?.() ?? null,
+      toggleFx: (slot) => this.actions.toggleFx(slot),
+      toggleGate: () => this.actions.toggleGate(),
+      selectPreset: (i) => this.actions.selectPreset(i),
+      toast: (e) => this.toast(e),
+    });
 
     // Top bar -----------------------------------------------------------
     const top = el("div", "topbar");
@@ -346,7 +370,8 @@ export class GigView {
     this.liveTunerEl.dataset.tune = "silent";
     this.liveTunerEl.hidden = true;
     this.liveTunerEl.addEventListener("click", () => this.openTuner());
-    status.append(this.dot, this.statusText, this.tempoEl, this.muteBadge, this.liveTunerEl);
+    // The mute badge goes last: it comes and goes, and nothing after it moves.
+    status.append(this.dot, this.statusText, this.tempoEl, this.liveTunerEl, this.muteBadge);
     const actions = el("div", "actions");
     this.refreshBtn.addEventListener(
       "click",
@@ -368,9 +393,24 @@ export class GigView {
     );
     this.writesState.dataset.on = "false";
     this.writesBtn.append(el("span", "", "Control"), this.writesState);
-    this.writesBtn.addEventListener("click", () =>
-      this.actions.setWritesEnabled(!this.store.get().writesEnabled),
-    );
+    this.writesBtn.addEventListener("click", () => {
+      const on = !this.store.get().writesEnabled;
+      // Editing needs control: control off ends it.
+      if (!on && this.store.get().editing) this.actions.setSettings({ editing: false });
+      this.actions.setWritesEnabled(on);
+    });
+    // Edit: control and editing together; off again leaves control as it is.
+    this.editBtn.title =
+      "Edit mode (turns Control on too): hold an FX tile for its model and parameters, hold Gate for its threshold, tap the capture or IR name for volume, IR settings and the library, hold the preset name to rename or manage it. Changes are live: save on the pedal to keep them.";
+    this.editState.append(lucideElement(Pencil, { "stroke-width": 2.5, "aria-hidden": "true" }));
+    this.editState.dataset.on = "false";
+    this.editBtn.setAttribute("aria-label", "Edit");
+    this.editBtn.append(el("span", "btn-label", "Edit"), this.editState);
+    this.editBtn.addEventListener("click", () => {
+      const on = !this.store.get().editing;
+      if (on && !this.store.get().writesEnabled) this.actions.setWritesEnabled(true);
+      this.actions.setSettings({ editing: on });
+    });
     this.reconnectBtn.hidden = true;
     this.reconnectBtn.title = "Stop retrying and pick the pedal from the Bluetooth chooser (put it in pairing mode first)";
     this.reconnectBtn.addEventListener("click", () => this.doConnect("chooser"));
@@ -404,12 +444,14 @@ export class GigView {
     // Items: icon on the left, label, separators between; device info at the bottom.
     const items: [HTMLButtonElement, typeof Settings, string][] = [
       [this.settingsBtn, Settings, "Settings"],
-      [this.refreshBtn, RefreshCw, "Refresh"],
+      [this.presetsBtn, ListOrdered, "Presets"],
       [this.tempoBtn, Metronome, "Tempo"],
       [this.tunerBtn, Music, "Tuner"],
-      [this.consoleBtn, ScrollText, "Log"],
       [this.disconnectBtn, LogOut, "Disconnect"],
       [this.menuInstallBtn, Download, "Install app"],
+      // Rarely needed: at the bottom.
+      [this.refreshBtn, RefreshCw, "Refresh"],
+      [this.consoleBtn, ScrollText, "Log"],
     ];
     items.forEach(([b, icon, label], i) => {
       b.className = "menu-item";
@@ -442,6 +484,7 @@ export class GigView {
       this.settingsOverlay.classList.add("open"),
     );
     this.tunerBtn.addEventListener("click", () => this.openTuner());
+    this.presetsBtn.addEventListener("click", () => this.editor.openPresetList());
     this.tempoBtn.addEventListener("click", () => this.openTempo());
     this.menuInfo.hidden = true;
     this.menu.append(el("div", "menu-sep strong"), this.menuInfo);
@@ -452,6 +495,7 @@ export class GigView {
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         this.menu.classList.remove("open");
+        if (this.editor.closeTop()) return;
         if (this.tunerOverlay.classList.contains("open")) this.closeTuner();
         if (this.tempoOverlay.classList.contains("open")) this.closeTempo();
       }
@@ -472,6 +516,7 @@ export class GigView {
     );
     actions.append(
       this.exitDemoBtn,
+      this.editBtn,
       this.writesBtn,
       this.fullscreenBtn,
       menuWrap,
@@ -505,6 +550,14 @@ export class GigView {
     irLbl.append(this.irState);
     capLbl.addEventListener("click", () => this.onLabelTap("capture"));
     irLbl.addEventListener("click", () => this.onLabelTap("cab"));
+    // Editing: the names open the amp & cab sheet (the labels keep their on / off toggle).
+    this.captureEl.addEventListener("click", () => this.editor.openSource("capture"));
+    this.irEl.addEventListener("click", () => this.editor.openSource("ir"));
+    // Editing: hold the preset name to rename / manage the preset.
+    onHold(this.nameEl, () => {
+      const i = this.store.get().activePreset.value;
+      if (i !== null) this.editor.openPreset(i);
+    }, () => this.editor.canEdit);
     this.subLabels = [capLbl, irLbl];
     const capWrap = el("span", "sub-item");
     capWrap.append(capLbl, this.captureEl);
@@ -533,6 +586,8 @@ export class GigView {
       const category = el("div", "t-cat", "");
       tile.dataset.cat = key === "gate" || key === "cab" ? key : "none";
       tile.addEventListener("click", () => this.onTileTap(key));
+      // Editing: hold an FX tile for its model and parameters, the gate for its threshold.
+      if (key !== "cab") onHold(tile, () => (key === "gate" ? this.editor.openGate() : this.editor.openFx(key)), () => this.editor.canEdit);
       // Expression badge: label with the range, and a live fill of the mapped value.
       // No text: a translucent band marks the assigned range, a solid fill the value inside it.
       const exp = el("div", "t-exp");
@@ -586,6 +641,7 @@ export class GigView {
         if (!st.writesEnabled || st.connection !== "connected") return;
         void this.actions.selectPreset(entry.index).catch((e) => this.toast(e));
       });
+      onHold(root, () => this.editor.openPreset(entry.index), () => this.editor.canEdit);
       this.presetBtns.push(entry);
       grid.append(root);
     }
@@ -608,6 +664,37 @@ export class GigView {
     this.stripNext.addEventListener("click", () => this.pageStrip(1));
     grid.prepend(this.stripPrev);
     grid.append(this.stripNext);
+    // Swipe the strip sideways to page it, like the arrows (a bigger screen than the NanoGig Screen's paged
+    // lists); the tap that ends a swipe selects nothing.
+    {
+      let start: { x: number; y: number } | null = null;
+      let swiped = false;
+      grid.addEventListener("pointerdown", (e) => {
+        start = { x: e.clientX, y: e.clientY };
+        swiped = false;
+      });
+      grid.addEventListener("pointerup", (e) => {
+        if (!start) return;
+        const dx = e.clientX - start.x;
+        const dy = e.clientY - start.y;
+        start = null;
+        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        swiped = true;
+        this.pageStrip(dx < 0 ? 1 : -1);
+      });
+      grid.addEventListener("pointercancel", () => (start = null));
+      grid.addEventListener(
+        "click",
+        (e) => {
+          if (!swiped) return;
+          swiped = false;
+          e.stopPropagation();
+          e.preventDefault();
+        },
+        true,
+      );
+      grid.style.touchAction = "pan-y";
+    }
     this.presetStrip.append(el("div", "hsep"), grid);
     blocks.append(this.presetStrip);
 
@@ -775,7 +862,7 @@ export class GigView {
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, liveRow, liveHint, expRow, expHint, close);
+      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, this.muteState, liveRow, liveHint, expRow, expHint, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -934,7 +1021,6 @@ export class GigView {
     );
     this.installBlock.append(this.installBtn, installText);
     this.installBlock.hidden = true;
-    main.append(this.installBlock);
     if (!this.opts.bluetoothAvailable) {
       main.append(
         el(
@@ -1003,6 +1089,8 @@ export class GigView {
       cta.append(link, sub);
       block.append(text, cta);
       side.append(block);
+      // Install (PWA): the browser offers it a moment after load. Last in the side column, so it moves nothing.
+      side.append(this.installBlock);
     }
       main.append(this.resumeTip);
     }
@@ -1049,13 +1137,13 @@ export class GigView {
           "search-help",
           "Press and hold the Exit and Capture buttons on your Nano Cortex at the same time, and keep this device within 2 meters. The pedal pairs with one app at a time: close Cortex Cloud first.",
         ),
-        this.searchHint,
       );
       this.cancelBtn.title = "Stop looking for the pedal";
       this.cancelBtn.addEventListener("click", () => void this.actions.disconnect());
       const btns = el("div", "search-actions");
       btns.append(this.reconnectBtn, this.cancelBtn);
-      sc.append(panel, bracket, hold, body, btns);
+      // The hint comes after half a minute: last, so nothing moves when it does.
+      sc.append(panel, bracket, hold, body, btns, this.searchHint);
       this.searchOverlay.append(sc);
     }
 
@@ -1087,6 +1175,7 @@ export class GigView {
       this.settingsOverlay,
       this.tunerOverlay,
       this.tempoOverlay,
+      ...this.editor.overlays,
       this.overlay,
       this.searchOverlay,
       this.expBar,
@@ -1382,7 +1471,37 @@ export class GigView {
       nameWidthRef,
       maxPx,
     });
-    this.slotEl.style.fontSize = `${px}px`;
+    // Before the names are read the only name is the placeholder ("Reading pedal…"): use the size the names gave
+    // last time at this width, so the row does not shrink when they arrive.
+    const sizeKey = `${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}`;
+    const remembered = names.length ? null : GigView.rememberedFont(sizeKey);
+    this.slotEl.style.fontSize = `${remembered ?? px}px`;
+    if (names.length) GigView.rememberFont(sizeKey, px);
+  }
+
+  private static readonly FONT_KEY = "nanogig.presetFont";
+
+  private static rememberedFont(key: string): number | null {
+    try {
+      const v = (JSON.parse(localStorage.getItem(GigView.FONT_KEY) ?? "{}") as Record<string, number>)[key];
+      return typeof v === "number" && v > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private static rememberFont(key: string, px: number) {
+    try {
+      const all = JSON.parse(localStorage.getItem(GigView.FONT_KEY) ?? "{}") as Record<string, number>;
+      if (all[key] === px) return;
+      all[key] = px;
+      // A few window sizes are plenty.
+      const keys = Object.keys(all);
+      for (const k of keys.slice(0, Math.max(0, keys.length - 12))) delete all[k];
+      localStorage.setItem(GigView.FONT_KEY, JSON.stringify(all));
+    } catch {
+      /* storage unavailable */
+    }
   }
 
   /** State keys whose change alone needs no full re-render (high-frequency: tuner readings, log lines). */
@@ -1488,18 +1607,31 @@ export class GigView {
     this.statusText.textContent = demo
       ? `${this.statusText.textContent} · demo`
       : this.statusText.textContent;
-    if (s.namesRefreshing && s.connection === "connected") this.statusText.textContent += " · updating names…";
+    // Updating names: the dot pulses (more text here would push the tempo and the tuner along).
+    const busy = s.namesRefreshing && s.connection === "connected";
+    this.dot.dataset.busy = String(busy);
+    this.dot.title = busy ? "Updating preset names…" : "";
     // The chooser is the way out of a reconnect loop on Web Bluetooth; while "connecting" it is already open.
     this.reconnectBtn.hidden = s.connection !== "reconnecting" || !this.opts.bluetoothAvailable || s.transportName === "mock";
     {
       const bpm = s.connection === "connected" ? s.tempo.value : null;
       this.tempoText.textContent = bpm === null ? "" : String(Math.round(bpm * 10) / 10);
-      this.tempoEl.hidden = bpm === null;
+      // Its room is kept while connected: the tempo arriving does not push the tuner along.
+      this.tempoEl.hidden = s.connection !== "connected";
+      this.tempoEl.dataset.empty = String(bpm === null);
       this.tempoEl.classList.toggle("tapping", s.tapTempo && bpm !== null);
       this.tempoUnit.textContent = s.tapTempo && bpm !== null ? "TAP" : "BPM";
       this.muteBadge.hidden = !(s.connection === "connected" && s.outputsMuted.value === true);
     }
     if (this.liveTunerCheck.checked !== s.liveTuner) this.liveTunerCheck.checked = s.liveTuner;
+    {
+      const editing = s.editing && s.writesEnabled && s.connection === "connected";
+      this.editState.dataset.on = String(editing);
+      this.editBtn.classList.toggle("on", editing);
+      this.editBtn.setAttribute("aria-pressed", String(editing));
+      this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit;
+    }
+    this.root.dataset.editing = String(s.editing && s.writesEnabled && s.connection === "connected");
     if (this.expShowCheck.checked !== s.expressionShow) this.expShowCheck.checked = s.expressionShow;
     this.renderLiveTuner(s);
     this.renderExpression(s);
@@ -1552,14 +1684,13 @@ export class GigView {
       const muted = s.outputsMuted.value;
       this.muteCheck.disabled = !connected;
       if (this.muteCheck.checked !== (muted === true)) this.muteCheck.checked = muted === true;
-      const what = "Silences the pedal's outputs 1/2 while you monitor through the DAW over USB.";
-      this.muteHint.textContent = !connected
-        ? `${what} Connect the pedal to change it.`
+      this.muteState.textContent = !connected
+        ? "Connect the pedal to change it."
         : muted === null
-          ? `${what} Not read from the pedal yet.`
+          ? "Not read from the pedal yet."
           : s.outputsMuted.source === "optimistic"
             ? "Sending to the pedal…"
-            : `${what} Outputs 1/2 are ${muted ? "muted" : "on"}.`;
+            : `Outputs 1/2 are ${muted ? "muted" : "on"}.`;
     }
     this.sourceTag.textContent =
       s.activePreset.source === "inferred"

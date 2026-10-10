@@ -77,6 +77,7 @@ import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
 import type { LogDirection, NotifyPacket, Transport } from '../transport/types';
 import type { MidiOut } from '../transport/webmidi';
 import { metadataFingerprint, type MetadataCache } from './metadata-cache';
+import { EditController } from './editor';
 
 export interface EngineOptions {
   writesEnabled?: boolean;
@@ -150,6 +151,8 @@ export class SyncEngine {
   private selectAckWaiter: (() => void) | null = null;
   private lastSelectAt = 0;
   private readonly opts: Required<EngineOptions>;
+  /** FX models / parameters, capture / IR / gate edits, the library and preset rename (Edit mode). */
+  readonly edit: EditController;
 
   /** Minimum gap between two state requests: a select's notices ask twice; one dump is enough. */
   private static readonly STATE_MIN_GAP_MS = 200;
@@ -182,6 +185,22 @@ export class SyncEngine {
     this.midiStrategy = midiStrategyById(this.opts.midiStrategy);
     this.midiPinned = this.midiStrategy !== null;
     this.store.patch({ transportName: transport.name, writesEnabled: this.opts.writesEnabled });
+    this.edit = new EditController({
+      transport,
+      store,
+      writesEnabled: () => this.opts.writesEnabled,
+      log: (dir, text, hex) => this.log(dir, text, hex),
+      confirm: (delayMs) => this.scheduleConfirm(delayMs),
+      metadata: () => this.metadata,
+      metadataChanged: (md) => {
+        this.metadata = md;
+        this.store.setField('presetNames', md.presets.map((p) => p.name), 'metadata');
+        this.updateSlotKnowledge(Date.now());
+        this.persistMetadata(md);
+      },
+      refreshNames: () => void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Metadata refresh failed: ${(err as Error).message}`)),
+      lastState: () => this.lastState,
+    });
     this.assembler = new MessageAssembler({
       onMessage: (body, meta) => this.onAssembledMessage(body, meta),
       inactivityMs: this.opts.inactivityMs,
@@ -206,6 +225,7 @@ export class SyncEngine {
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.assembler.cancel();
+    this.edit.dispose();
     for (const t of [this.unknownEventTimer, this.metadataTimer, this.confirmTimer, this.idleTimer, this.stateGapTimer, this.expAssignTimer, this.tempoWriteTimer, this.tempoSettleTimer]) if (t) clearTimeout(t);
   }
 
@@ -233,6 +253,7 @@ export class SyncEngine {
       this.settingsRequestedThisLink = false;
       this.tunerOverlayOpen = false;
       this.expAssignReset();
+      this.edit.reset();
       this.pendingPreset = null;
       this.selectAckWaiter?.();
       this.settlePresetWaiters(-1);
@@ -402,7 +423,8 @@ export class SyncEngine {
         return;
       case 'fx-param-reply':
       case 'cab-param-reply':
-        // Parameter refresh replies are never requested by the gig view.
+        // FX parameters (0x8A) and IR settings (0x60) replies: the editor's reads.
+        this.onSingleMessage(pkt);
         return;
       case 'fragment':
         this.assembler.push(pkt.data);
@@ -418,6 +440,10 @@ export class SyncEngine {
     const header = parseFrameHeader(pkt.data);
     if (header) {
       const { payload, msgType } = splitTrailer(pkt.data.subarray(2));
+      if (msgType !== null && this.edit.onMessage(msgType, payload, toHex(pkt.data))) {
+        this.armIdleTimer();
+        return;
+      }
       if (msgType === MSG.DUMP || (msgType === null && payload.length > 40)) {
         this.handleDump(payload, { packets: 1, complete: true });
         return;
@@ -431,6 +457,7 @@ export class SyncEngine {
     if (!meta.complete) {
       this.log('warn', `Unterminated message flushed after inactivity (${body.length} B, ${meta.packets} pkts)`);
     }
+    if (msgType !== null && msgType !== MSG.DUMP && this.edit.onMessage(msgType, payload, toHex(payload.subarray(0, 32)))) return;
     if (msgType !== null && msgType !== MSG.DUMP) {
       this.log('warn', `Multi-packet message of unexpected type 0x${msgType.toString(16)} (${body.length} B)`, toHex(payload.subarray(0, 32)));
     }
@@ -690,6 +717,8 @@ export class SyncEngine {
     const prev = this.store.get();
     this.lastState = state;
     this.stateRequestInFlightSince = 0; // reply received; the next request may go out immediately
+    // Edits made after this dump was requested (model, volume, threshold, capture / IR slot) keep their value.
+    const editHeld = this.edit.filterState(state, requestedAt);
     if (this.stateGapTimer) {
       clearTimeout(this.stateGapTimer);
       this.stateGapTimer = null;
@@ -722,7 +751,12 @@ export class SyncEngine {
     const captureStale = this.writtenAt.capture > requestedAt;
     const captureOn = captureStale ? prev.captureOn.value : (state.captureSlot ?? 0) > 0;
     this.store.setField('captureOn', captureOn, captureStale ? 'optimistic' : 'dump', at);
-    if (stale || gateStale || cabStale || captureStale) this.scheduleConfirm();
+    if (stale || gateStale || cabStale || captureStale || editHeld) this.scheduleConfirm();
+    this.store.setField('captureSlot', state.captureSlot ?? 0, editHeld ? 'optimistic' : 'dump', at);
+    // Field 44 absent = raw 0 (-24 dB): the pedal leaves zero varints out.
+    this.store.setField('captureVolume', state.captureVolumeRaw ?? 0, 'dump', at);
+    this.store.setField('gateThreshold', state.gateThresholdRaw, 'dump', at);
+    this.store.setField('cabSlot', state.cabOn ? state.cabSlot : null, 'dump', at);
     this.store.setField('irName', state.ir?.shortName || null, 'dump', at);
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
     if (state.footswitchAssignments) this.store.setField('footswitches', state.footswitchAssignments, 'dump', at);
@@ -757,6 +791,7 @@ export class SyncEngine {
     }
     this.store.patch({ lastStateSyncAt: at, syncPhase: 'ready' });
     this.validateCachedNames(state);
+    this.edit.onState();
     this.expAssignTick();
     this.armIdleTimer();
     if (!this.settingsRequestedThisLink) {
