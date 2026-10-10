@@ -7,7 +7,7 @@ import { HOLD_MS, GigView } from '../src/ui/gigview';
 import { Store } from '../src/state/store';
 import { SyncEngine } from '../src/sync/engine';
 import { MockTransport } from '../src/transport/mock';
-import { IrFolders } from '../src/ui/ir-folders';
+import { LibraryFolders } from '../src/ui/library-folders';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until(cond: () => boolean, ms = 2000) {
@@ -19,6 +19,13 @@ async function until(cond: () => boolean, ms = 2000) {
 }
 
 const press = (node: Element, type: string, x = 10, y = 10) => node.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
+
+/** A tap as a finger makes it: pointerdown, pointerup, click. */
+function tap(node: Element) {
+  press(node, 'pointerdown');
+  press(node, 'pointerup');
+  (node as HTMLElement).click();
+}
 
 async function hold(node: Element) {
   press(node, 'pointerdown');
@@ -147,21 +154,89 @@ describe('edit gestures', () => {
   });
 });
 
-describe('IR folders', () => {
-  it('keeps unique names per list, files IRs and forgets a deleted folder', () => {
+describe('library folders', () => {
+  const memStorage = () => {
     const mem = new Map<string, string>();
-    const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
-    const f = new IrFolders(storage);
-    const a = f.create('factory', 'Marshall');
-    expect(() => f.create('factory', 'marshall')).toThrow(/already/);
-    expect(f.create('user', 'Marshall').list).toBe('user');
-    f.file('factory', '412 UK GRN V30', a.id);
-    f.file('user', 'YA', a.id); // the folder is the factory list's: refused
-    expect(f.folderOf('factory', '412 UK GRN V30')).toBe(a.id);
-    expect(f.folderOf('user', 'YA')).toBeNull();
-    const again = new IrFolders(storage);
-    expect(again.folders('factory').map((x) => x.name)).toEqual(['Marshall']);
+    return { mem, storage: { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) } };
+  };
+
+  it('keeps unique names per list, files items and forgets a deleted folder', () => {
+    const { storage } = memStorage();
+    const f = new LibraryFolders(storage);
+    const a = f.create('irs', 'factory', 'Marshall');
+    expect(() => f.create('irs', 'factory', 'marshall')).toThrow(/already/);
+    expect(f.create('irs', 'user', 'Marshall').list).toBe('user');
+    expect(f.create('captures', 'factory', 'Marshall').kind).toBe('captures');
+    f.file('irs', 'factory', '412 UK GRN V30', a.id);
+    f.file('irs', 'user', 'YA', a.id); // the folder is the factory list's: refused
+    f.file('captures', 'factory', 'Comet 60 6', a.id); // an IR folder: refused
+    expect(f.folderOf('irs', 'factory', '412 UK GRN V30')).toBe(a.id);
+    expect(f.folderOf('irs', 'user', 'YA')).toBeNull();
+    expect(f.folderOf('captures', 'factory', 'Comet 60 6')).toBeNull();
+    expect(f.size(a.id)).toBe(1);
+    const again = new LibraryFolders(storage);
+    expect(again.folders('irs', 'factory').map((x) => x.name)).toEqual(['Marshall']);
+    expect(again.folders('captures', 'factory')).toHaveLength(1);
     again.remove(a.id);
-    expect(again.folderOf('factory', '412 UK GRN V30')).toBeNull();
+    expect(again.folderOf('irs', 'factory', '412 UK GRN V30')).toBeNull();
+  });
+
+  it('takes over the IR folders kept before captures had folders', () => {
+    const { mem, storage } = memStorage();
+    mem.set('nanogig.irFolders', JSON.stringify({ folders: [{ id: 3, list: 'user', name: 'Mine' }], filed: { 'user:YA': 3 } }));
+    const f = new LibraryFolders(storage);
+    expect(f.folders('irs', 'user').map((x) => x.name)).toEqual(['Mine']);
+    expect(f.folderOf('irs', 'user', 'YA')).toBe(3);
+  });
+});
+
+describe('library sheet', () => {
+  it('captures have folders: make one, hold a capture to move it in, open the folder, delete it', async () => {
+    localStorage.clear();
+    const { root, store } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    (root.querySelector('.src-sheet .ed-lib-btn') as HTMLElement).click();
+    await until(() => (store.get().edit.library.captures?.length ?? 0) > 0 && root.querySelectorAll('.lib-sheet .ed-item').length > 0);
+    const sheet = root.querySelector('.lib-sheet')!;
+    const msg = sheet.querySelector('.ed-msg')!;
+    const bar = sheet.querySelector('.ed-libbar')!;
+    // The bar and the message line are always there.
+    expect(msg.hasAttribute('hidden')).toBe(false);
+    expect(bar.hasAttribute('hidden')).toBe(false);
+    // Opens on the current capture's list.
+    const current = sheet.querySelector('.ed-item[data-current="true"]');
+    expect(current).toBeTruthy();
+
+    // New folder.
+    (sheet.querySelector('.ed-bar-main') as HTMLElement).click();
+    const input = sheet.querySelector<HTMLInputElement>('.ed-libbar .ed-input')!;
+    input.value = 'Fenders';
+    input.dispatchEvent(new Event('input'));
+    (sheet.querySelector('.ed-libbar .primary') as HTMLElement).click();
+    // A new folder opens, empty.
+    expect(sheet.querySelector('.ed-bar-title')!.textContent).toBe('Fenders');
+    expect(msg.textContent).toMatch(/Empty/);
+    (sheet.querySelector('.ed-bar-main') as HTMLElement).click(); // back to the top
+
+    // Hold the current capture: the rows become the folders to put it in.
+    const name = current!.querySelector('.ed-item-label')!.textContent!;
+    await hold(current!.querySelector('.ed-item-name')!);
+    expect(sheet.querySelector('.ed-bar-title')!.textContent).toContain(name);
+    const target = Array.from(sheet.querySelectorAll('.ed-folder-row')).find((r) => r.textContent?.includes('Fenders'))!;
+    tap(target.querySelector('button')!);
+    // Back at the top: the folder holds it, the capture is no longer among the items in none.
+    const folderRow = Array.from(sheet.querySelectorAll('.ed-folder-row')).find((r) => r.textContent?.includes('Fenders'))!;
+    expect(folderRow.querySelector('.ed-count')!.textContent).toBe('1');
+    expect(Array.from(sheet.querySelectorAll('.ed-item-label')).map((n) => n.textContent)).not.toContain(name);
+    tap(folderRow.querySelector('button')!);
+    expect(Array.from(sheet.querySelectorAll('.ed-item-label')).map((n) => n.textContent)).toEqual([name]);
+
+    // Delete takes two taps; the capture goes back to the top.
+    const del = sheet.querySelector('.ed-bar-delete') as HTMLElement;
+    del.click();
+    expect(del.dataset.armed).toBe('true');
+    del.click();
+    expect(sheet.querySelectorAll('.ed-folder-row')).toHaveLength(0);
+    expect(Array.from(sheet.querySelectorAll('.ed-item-label')).map((n) => n.textContent)).toContain(name);
   });
 });

@@ -24,8 +24,8 @@ footswitch press:
   turn it on.
 - **Editing (experimental)**: with Settings → Editing on top of control mode, hold an FX tile to
   change its model and parameters, tap the capture or IR name for capture volume, IR level /
-  filters / phase / microphone and the pedal's whole capture and IR library (with your own IR
-  folders), hold Gate for its threshold, and hold the preset name to rename it, name an empty
+  filters / phase / microphone and the pedal's whole capture and IR library (in folders of your
+  own), hold Gate for its threshold, and hold the preset name to rename it, name an empty
   slot, put it on a footswitch or delete it. Menu → Presets lists all 64.
 
 Nothing is installed on the pedal and nothing leaves your device: no account, no server, no
@@ -182,7 +182,7 @@ Cortex Cloud's own; the app shows every change at once and confirms it against t
 | --- | --- | --- |
 | FX tile | hold | Model (every model the slot takes, by category) and its parameters, live as the sliders move. A bypassed block is never read: turn it on first. |
 | Gate | hold | On / off and threshold. |
-| Capture / IR name | tap | Capture: slots 1–5, on / off, volume in dB. IR: slots, on / off, level, high and low pass, phase, microphone and position (factory IRs). Both open the pedal's library: a capture goes into the slot the preset plays (every preset on that slot hears it), an IR loads into the preset. IR folders are kept in this browser. |
+| Capture / IR name | tap | Capture: slots 1–5, on / off, volume in dB. IR: slots, on / off, level, high and low pass, phase, microphone and position (factory IRs). Both open the pedal's library: a capture goes into the slot the preset plays (every preset on that slot hears it), an IR loads into the preset. Library folders of your own, for captures and IRs alike: New folder at the top of a list, hold an item (or drag it, with a mouse) to move it into one; rename or delete a folder from inside it. Folders are kept in this browser. |
 | Preset name, a preset button, Menu → Presets → ⋯ | hold / tap | Rename, name an empty slot (stores the sound playing now there), put the preset on IA / IB / IIA / IIB, delete (tap twice). |
 
 Changes are live, like turning a knob on the pedal: **save on the pedal to keep them**.

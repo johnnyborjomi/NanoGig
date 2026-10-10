@@ -2002,8 +2002,13 @@ button.warn {
 }
 .edit-sheet {
   z-index: 32; /* over the settings / tuner overlays it can be opened from */
+  /* Anchored at the top, not centred: a sheet that grows (parameters read, a row opened) grows downward and
+     nothing above moves. */
+  align-items: flex-start;
 }
 .card.sheet {
+  margin: min(6vh, 56px) auto 0;
+  max-height: calc(100% - min(6vh, 56px));
   max-width: 720px;
   gap: 14px;
   border-top: 4px solid var(--fx, var(--accent));
@@ -2081,25 +2086,50 @@ button.warn {
   color: var(--on-text);
   border-color: transparent;
 }
-.ed-status-row {
+/*
+ * Messages that come and go (loading, "turn it on", a name's problem, the pedal's answer) never move the layout:
+ * the line is always there, one line high, and only its text and tone change. A button that comes with a message
+ * (Read again) keeps its room too (visibility, not display).
+ */
+.card .ed-msg {
+  margin: 0;
+  height: 1.4em;
+  line-height: 1.4em;
+  font-size: 15px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.card .ed-msg[data-tone='warn'] {
+  color: var(--warn);
+}
+.card .ed-msg[data-tone='ok'] {
+  color: var(--on);
+}
+.ed-msg-row {
   display: flex;
   align-items: center;
   gap: 10px;
+  height: 40px;
 }
-.ed-status-row:has(> .ed-status[hidden]):has(> button[hidden]) {
-  display: none;
+.ed-msg-row .ed-msg {
+  flex: 1 1 auto;
 }
-.card .ed-status {
-  color: var(--muted);
-  font-size: 15px;
+.ed-retry {
+  flex: none;
+  min-height: 36px;
+  padding: 6px 14px;
 }
-.card .ed-status[data-ok='true'] {
-  color: var(--on);
+.ed-retry[data-shown='false'] {
+  visibility: hidden;
 }
-.card .ed-problem {
-  color: var(--warn);
-  font-size: 14px;
-  min-height: 1.2em;
+/* An intro whose text changes with the slot (empty / named): room for two lines. */
+.card .ed-intro {
+  margin: 0;
+  line-height: 1.4;
+  min-height: 2.8em;
 }
 .ed-model-btn {
   flex: 1 1 auto;
@@ -2255,7 +2285,23 @@ button.warn {
 .ed-big {
   font-size: clamp(22px, 4.5vw, 32px);
   font-weight: 700;
-  overflow-wrap: anywhere;
+  line-height: 1.2;
+  /* Names change as slots are stepped: one line on a wide card, two kept on a narrow one, so the controls under
+     the name stay where the finger is. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 600px) {
+  .ed-big {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    min-height: 2.4em;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
 }
 .ed-big[data-off='true'] {
   color: var(--off-text);
@@ -2360,9 +2406,112 @@ button.warn {
 .ed-search .ed-input:focus {
   outline: none;
 }
-.ed-folders[hidden],
-.ed-folder-edit[hidden] {
+/* The library's bar: [New folder | < All | x Cancel] title [rename] [delete], or the name field while naming.
+   Always 48px whatever it holds. */
+.ed-libbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+}
+.ed-libbar > button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  height: 44px;
+  padding-block: 0;
+}
+.ed-libbar svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.ed-libbar > .ed-input {
+  flex: 1 1 auto;
+  height: 44px;
+  min-height: 44px;
+  padding-block: 0;
+}
+.ed-bar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 14px;
+}
+.ed-bar-title > * {
+  flex: none;
+}
+.ed-bar-title strong {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 16px;
+}
+.ed-bar-title[data-kind='hint'] {
+  display: block;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--dim);
+}
+.ed-bar-title svg {
+  color: var(--accent);
+}
+.ed-bar-delete span:empty {
   display: none;
+}
+.ed-bar-delete[data-armed='true'] {
+  background: var(--error);
+  color: #1a0306;
+  border-color: transparent;
+  font-weight: 700;
+}
+.ed-folder-row .ed-item-name svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--accent);
+}
+.ed-folder-row .ed-item-name {
+  font-weight: 600;
+}
+.ed-folder-row[data-top='true'] .ed-item-name,
+.ed-new-folder {
+  color: var(--muted);
+  font-weight: 400;
+}
+.ed-folder-row[data-top='true'] svg,
+.ed-new-folder svg {
+  color: var(--muted);
+}
+.ed-folder-name,
+.ed-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ed-count + .ed-item-saved {
+  margin-left: 0;
+}
+.ed-item-name[data-drop='true'],
+.ed-bar-main[data-drop='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .ed-list {
   display: flex;
@@ -2414,6 +2563,15 @@ button.warn {
   border: 1px solid #2a323d;
   border-radius: 999px;
   padding: 2px 8px;
+}
+.ed-item-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ed-item-actions svg {
+  width: 18px;
+  height: 18px;
 }
 .ed-item-actions {
   display: flex;

@@ -39,6 +39,8 @@ import {
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { EditorView } from "./editor-view";
+import { onHold } from "./hold";
+export { HOLD_MS } from "./hold";
 import type { EditController } from "../sync/editor";
 
 /** Where a coffee goes. Also in the README's Sponsor section. */
@@ -115,50 +117,6 @@ export function footswitchFor(index: number, fs: FootswitchAssignments | null): 
 }
 
 /** How long a press must last to count as a hold (opens an editor instead of toggling). */
-export const HOLD_MS = 500;
-
-/**
- * Hold gesture on `node`: `onHold` after HOLD_MS without moving away; the click that ends the press is swallowed
- * so the tap action (a toggle) does not also run. Taps are left alone.
- */
-function onHold(node: HTMLElement, onHoldFn: () => void, enabled: () => boolean): void {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let held = false;
-  let start: { x: number; y: number } | null = null;
-  const cancel = () => {
-    if (timer) clearTimeout(timer);
-    timer = null;
-  };
-  node.addEventListener("pointerdown", (e) => {
-    held = false;
-    if (!enabled()) return;
-    start = { x: e.clientX, y: e.clientY };
-    cancel();
-    timer = setTimeout(() => {
-      timer = null;
-      held = true;
-      onHoldFn();
-    }, HOLD_MS);
-  });
-  node.addEventListener("pointermove", (e) => {
-    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) cancel();
-  });
-  for (const ev of ["pointerup", "pointercancel", "pointerleave"] as const) node.addEventListener(ev, cancel);
-  node.addEventListener("contextmenu", (e) => {
-    if (enabled()) e.preventDefault(); // long-press menu on touch screens
-  });
-  node.addEventListener(
-    "click",
-    (e) => {
-      if (!held) return;
-      held = false;
-      e.stopImmediatePropagation();
-      e.preventDefault();
-    },
-    true,
-  );
-}
-
 /** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
 export const PRESET_STRIP_COUNT = 7;
 
