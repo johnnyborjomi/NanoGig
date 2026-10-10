@@ -929,8 +929,10 @@ export class EditorView {
   openPresetList() {
     this.listSheet.open();
     this.renderList();
-    const active = this.s.activePreset.value;
-    if (active !== null) this.listRows[active]?.root.scrollIntoView({ block: "center" });
+    // The card scrolls (not the page): the active preset in its middle.
+    const row = this.listRows[this.s.activePreset.value ?? -1]?.root;
+    const card = this.listSheet.card;
+    if (row) card.scrollTop = Math.max(0, row.offsetTop - card.clientHeight / 2 + row.offsetHeight / 2);
   }
 
   private buildList() {

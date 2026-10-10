@@ -2027,6 +2027,14 @@ button.warn {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  /* Stays at the top while the sheet scrolls (long parameter lists, the presets list). */
+  position: sticky;
+  --pad: clamp(18px, 4vh, 32px);
+  top: calc(-1 * var(--pad));
+  margin-top: calc(-1 * var(--pad));
+  padding: var(--pad) 0 8px;
+  background: var(--panel);
+  z-index: 2;
 }
 .sheet-titles {
   min-width: 0;
@@ -2433,4 +2441,8 @@ button.warn {
 }
 .ed-more[hidden] {
   display: none;
+}
+/* `hidden` wins over the flex / grid displays above. */
+.edit-sheet [hidden] {
+  display: none !important;
 }
