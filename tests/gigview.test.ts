@@ -291,9 +291,9 @@ describe('GigView writes toggle and reconnect button', () => {
     const coffee = buttons[buttons.length - 1]!;
     expect(coffee.textContent).toBe('Support project'); // last in the list, always there
     expect(coffee.hidden).toBe(false);
-    expect(buttons.filter((b) => b !== install && b !== coffee).map((b) => b.textContent)).toEqual(['Settings', 'Refresh', 'Tempo', 'Tuner', 'Log', 'Disconnect']);
-    expect(menu.querySelectorAll('button svg').length).toBe(8); // an icon per item, install and coffee included
-    expect(Array.from(menu.querySelectorAll<HTMLElement>('.menu-sep')).filter((d) => !d.hidden).length).toBe(7); // between items + a stronger one above the info line
+    expect(buttons.filter((b) => b !== install && b !== coffee).map((b) => b.textContent)).toEqual(['Settings', 'Presets', 'Refresh', 'Tempo', 'Tuner', 'Log', 'Disconnect']);
+    expect(menu.querySelectorAll('button svg').length).toBe(9); // an icon per item, install and coffee included
+    expect(Array.from(menu.querySelectorAll<HTMLElement>('.menu-sep')).filter((d) => !d.hidden).length).toBe(8); // between items + a stronger one above the info line
     expect(menu.lastElementChild?.classList.contains('menu-info')).toBe(true); // device/firmware info at the bottom
     expect(menu.querySelector('button.danger')?.textContent).toBe('Disconnect');
     // Settings opens its own popup with the two selects and closes the menu.
@@ -302,7 +302,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const settings = root.querySelector('.overlay.settings')!;
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
-    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(7); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner, expression values
+    expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(8); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner, expression values, editing
     expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);

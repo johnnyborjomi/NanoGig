@@ -23,7 +23,7 @@ const debug = flag('debug');
 const midiStrategy = params.get('midi'); // pin a MIDI delivery strategy, e.g. ?midi=c303-ble-midi
 
 const SETTINGS_KEY = 'nanogig.settings';
-type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean; showFootswitches: boolean; showPresetStrip: boolean; autoRefreshNames: boolean; liveTuner: boolean; expressionShow: boolean };
+type Settings = { presetsPerBank: number; labelStyle: PresetLabelStyle; showPresetNumber: boolean; showFootswitches: boolean; showPresetStrip: boolean; autoRefreshNames: boolean; liveTuner: boolean; expressionShow: boolean; editing: boolean };
 function loadSettings(): Partial<Settings> {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -38,15 +38,16 @@ function loadSettings(): Partial<Settings> {
     if (typeof parsed.autoRefreshNames === 'boolean') out.autoRefreshNames = parsed.autoRefreshNames;
     if (typeof parsed.liveTuner === 'boolean') out.liveTuner = parsed.liveTuner;
     if (typeof parsed.expressionShow === 'boolean') out.expressionShow = parsed.expressionShow;
+    if (typeof parsed.editing === 'boolean') out.editing = parsed.editing;
     return out;
   } catch {
     return {};
   }
 }
 function saveSettings() {
-  const { presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner, expressionShow } = store.get();
+  const { presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner, expressionShow, editing } = store.get();
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner, expressionShow }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presetsPerBank, labelStyle, showPresetNumber, showFootswitches, showPresetStrip, autoRefreshNames, liveTuner, expressionShow, editing }));
   } catch {
     /* storage unavailable */
   }
@@ -185,6 +186,7 @@ const view = new GigView(
     openTempo: () => requireEngine().openTempo(),
     closeTempo: () => requireEngine().closeTempo(),
     stepTempo: (delta) => requireEngine().stepTempo(delta),
+    edit: () => engine?.edit ?? null,
     simulateDrop: () => {
       if (transport instanceof MockTransport) transport.simulateDrop();
     },

@@ -22,6 +22,7 @@ import {
   Coffee,
   Copy,
   Download,
+  ListOrdered,
   Lock,
   Metronome,
   LogOut,
@@ -37,6 +38,8 @@ import {
   createElement as lucideElement,
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
+import { EditorView } from "./editor-view";
+import type { EditController } from "../sync/editor";
 
 /** Where a coffee goes. Also in the README's Sponsor section. */
 export const SUPPORT_URL = "https://buymeacoffee.com/johnnyborjomi";
@@ -79,7 +82,10 @@ export interface GigViewActions {
     autoRefreshNames?: boolean;
     liveTuner?: boolean;
     expressionShow?: boolean;
+    editing?: boolean;
   }): void;
+  /** The edit controller of the live link (Settings → Editing); null while there is none. */
+  edit?(): EditController | null;
   /** A "Support project" button was tapped (for anonymous stats). */
   onSupportClick?(source: "card" | "menu"): void;
   /** A "Support project" button came on screen, reported once per session per source (for anonymous stats). */
@@ -106,6 +112,51 @@ export function footswitchFor(index: number, fs: FootswitchAssignments | null): 
   if (fs.iia === index) return "IIA";
   if (fs.iib === index) return "IIB";
   return null;
+}
+
+/** How long a press must last to count as a hold (opens an editor instead of toggling). */
+export const HOLD_MS = 500;
+
+/**
+ * Hold gesture on `node`: `onHold` after HOLD_MS without moving away; the click that ends the press is swallowed
+ * so the tap action (a toggle) does not also run. Taps are left alone.
+ */
+function onHold(node: HTMLElement, onHoldFn: () => void, enabled: () => boolean): void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let held = false;
+  let start: { x: number; y: number } | null = null;
+  const cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  node.addEventListener("pointerdown", (e) => {
+    held = false;
+    if (!enabled()) return;
+    start = { x: e.clientX, y: e.clientY };
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      held = true;
+      onHoldFn();
+    }, HOLD_MS);
+  });
+  node.addEventListener("pointermove", (e) => {
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) cancel();
+  });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"] as const) node.addEventListener(ev, cancel);
+  node.addEventListener("contextmenu", (e) => {
+    if (enabled()) e.preventDefault(); // long-press menu on touch screens
+  });
+  node.addEventListener(
+    "click",
+    (e) => {
+      if (!held) return;
+      held = false;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    },
+    true,
+  );
 }
 
 /** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
@@ -282,6 +333,9 @@ export class GigView {
   private readonly settingsBtn = el("button", "menu-item", "Settings");
   private readonly tunerBtn = el("button", "menu-item", "Tuner");
   private readonly tempoBtn = el("button", "menu-item", "Tempo");
+  private readonly presetsBtn = el("button", "menu-item", "Presets");
+  private readonly editingCheck = el("input", "menu-check");
+  private editor!: EditorView;
   // Tempo view: the big BPM, −/+ (auto-repeat while held), Done. Follows the pedal's tap tempo mode.
   private readonly tempoOverlay = el("div", "overlay tempo");
   private readonly tempoBig = el("div", "tempo-big", "—");
@@ -327,6 +381,13 @@ export class GigView {
   private build() {
     const root = this.root;
     root.replaceChildren();
+    this.editor = new EditorView(this.store, {
+      edit: () => this.actions.edit?.() ?? null,
+      toggleFx: (slot) => this.actions.toggleFx(slot),
+      toggleGate: () => this.actions.toggleGate(),
+      selectPreset: (i) => this.actions.selectPreset(i),
+      toast: (e) => this.toast(e),
+    });
 
     // Top bar -----------------------------------------------------------
     const top = el("div", "topbar");
@@ -404,6 +465,7 @@ export class GigView {
     // Items: icon on the left, label, separators between; device info at the bottom.
     const items: [HTMLButtonElement, typeof Settings, string][] = [
       [this.settingsBtn, Settings, "Settings"],
+      [this.presetsBtn, ListOrdered, "Presets"],
       [this.refreshBtn, RefreshCw, "Refresh"],
       [this.tempoBtn, Metronome, "Tempo"],
       [this.tunerBtn, Music, "Tuner"],
@@ -442,6 +504,7 @@ export class GigView {
       this.settingsOverlay.classList.add("open"),
     );
     this.tunerBtn.addEventListener("click", () => this.openTuner());
+    this.presetsBtn.addEventListener("click", () => this.editor.openPresetList());
     this.tempoBtn.addEventListener("click", () => this.openTempo());
     this.menuInfo.hidden = true;
     this.menu.append(el("div", "menu-sep strong"), this.menuInfo);
@@ -452,6 +515,7 @@ export class GigView {
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         this.menu.classList.remove("open");
+        if (this.editor.closeTop()) return;
         if (this.tunerOverlay.classList.contains("open")) this.closeTuner();
         if (this.tempoOverlay.classList.contains("open")) this.closeTempo();
       }
@@ -505,6 +569,14 @@ export class GigView {
     irLbl.append(this.irState);
     capLbl.addEventListener("click", () => this.onLabelTap("capture"));
     irLbl.addEventListener("click", () => this.onLabelTap("cab"));
+    // Editing: the names open the amp & cab sheet (the labels keep their on / off toggle).
+    this.captureEl.addEventListener("click", () => this.editor.openSource("capture"));
+    this.irEl.addEventListener("click", () => this.editor.openSource("ir"));
+    // Editing: hold the preset name to rename / manage the preset.
+    onHold(this.nameEl, () => {
+      const i = this.store.get().activePreset.value;
+      if (i !== null) this.editor.openPreset(i);
+    }, () => this.editor.canEdit);
     this.subLabels = [capLbl, irLbl];
     const capWrap = el("span", "sub-item");
     capWrap.append(capLbl, this.captureEl);
@@ -533,6 +605,8 @@ export class GigView {
       const category = el("div", "t-cat", "");
       tile.dataset.cat = key === "gate" || key === "cab" ? key : "none";
       tile.addEventListener("click", () => this.onTileTap(key));
+      // Editing: hold an FX tile for its model and parameters, the gate for its threshold.
+      onHold(tile, () => (key === "gate" ? this.editor.openGate() : key !== "cab" ? this.editor.openFx(key) : undefined), () => this.editor.canEdit);
       // Expression badge: label with the range, and a live fill of the mapped value.
       // No text: a translucent band marks the assigned range, a solid fill the value inside it.
       const exp = el("div", "t-exp");
@@ -586,6 +660,7 @@ export class GigView {
         if (!st.writesEnabled || st.connection !== "connected") return;
         void this.actions.selectPreset(entry.index).catch((e) => this.toast(e));
       });
+      onHold(root, () => this.editor.openPreset(entry.index), () => this.editor.canEdit);
       this.presetBtns.push(entry);
       grid.append(root);
     }
@@ -771,11 +846,24 @@ export class GigView {
         "hint",
         "The position bar at the right edge and, on every FX block the pedal controls in the current preset, a track with the assigned range and the value it produces. On: always on screen. Off: never.",
       );
+      const editRow = el("label", "setting-row");
+      const editLabel = el("span", "", "Editing ");
+      editLabel.append(el("em", "experimental", "(experimental)"));
+      editRow.append(editLabel);
+      this.editingCheck.type = "checkbox";
+      this.editingCheck.classList.add("experimental");
+      this.editingCheck.addEventListener("change", () => this.actions.setSettings({ editing: this.editingCheck.checked }));
+      editRow.append(this.editingCheck);
+      const editHint = el(
+        "p",
+        "hint",
+        "With Control on: hold an FX tile for its model and parameters, hold Gate for its threshold, tap the capture or IR name for volume, IR settings and the pedal's library, hold the preset name (or a preset in Menu → Presets) to rename it, name an empty slot, put it on a footswitch or delete it. Changes are live like turning a knob: save on the pedal to keep them (renames and deletes are stored at once). Ported from NanoGig Screen; not yet tried from this app on a real pedal.",
+      );
       const close = el("button", "primary", "Done");
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, liveRow, liveHint, expRow, expHint, close);
+      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, liveRow, liveHint, expRow, expHint, editRow, editHint, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -1087,6 +1175,7 @@ export class GigView {
       this.settingsOverlay,
       this.tunerOverlay,
       this.tempoOverlay,
+      ...this.editor.overlays,
       this.overlay,
       this.searchOverlay,
       this.expBar,
@@ -1500,6 +1589,8 @@ export class GigView {
       this.muteBadge.hidden = !(s.connection === "connected" && s.outputsMuted.value === true);
     }
     if (this.liveTunerCheck.checked !== s.liveTuner) this.liveTunerCheck.checked = s.liveTuner;
+    if (this.editingCheck.checked !== s.editing) this.editingCheck.checked = s.editing;
+    this.root.dataset.editing = String(s.editing && s.writesEnabled && s.connection === "connected");
     if (this.expShowCheck.checked !== s.expressionShow) this.expShowCheck.checked = s.expressionShow;
     this.renderLiveTuner(s);
     this.renderExpression(s);
