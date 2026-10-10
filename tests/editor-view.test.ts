@@ -240,3 +240,22 @@ describe('library sheet', () => {
     expect(Array.from(sheet.querySelectorAll('.ed-item-label')).map((n) => n.textContent)).toContain(name);
   });
 });
+
+describe('sheet stacking', () => {
+  it('a preset opened from the presets list shows over the list; Escape closes it first', async () => {
+    const { root, open } = await setup(true);
+    // Menu → Presets, then ⋯ on a row.
+    const editor = (root.querySelector('.list-sheet') as HTMLElement).closest('.overlay')!;
+    root.querySelector<HTMLButtonElement>('button[aria-label="Menu"]')!.click();
+    Array.from(root.querySelectorAll<HTMLButtonElement>('.menu button')).find((b) => b.textContent === 'Presets')!.click();
+    expect(open('list-sheet')).toBe(true);
+    root.querySelectorAll<HTMLButtonElement>('.list-sheet .ed-more')[2]!.click();
+    expect(open('preset-sheet')).toBe(true);
+    const preset = root.querySelector('.preset-sheet')!.closest('.overlay')!;
+    // Same z-index: the later in the page is on top.
+    expect(preset.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(open('preset-sheet')).toBe(false);
+    expect(open('list-sheet')).toBe(true);
+  });
+});

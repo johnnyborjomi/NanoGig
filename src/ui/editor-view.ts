@@ -193,7 +193,15 @@ class Sheet {
     return this.overlay.classList.contains("open");
   }
 
+  /** Open order: the sheet opened last is on top (the presets list opens the preset sheet over itself). */
+  private static opened = 0;
+  order = 0;
+
   open() {
+    this.order = ++Sheet.opened;
+    // Same z-index for every sheet (under the update bar): the last in the page is on top, so it goes last.
+    const parent = this.overlay.parentElement;
+    if (parent && parent.lastElementChild !== this.overlay) parent.append(this.overlay);
     this.overlay.classList.add("open");
   }
 
@@ -247,13 +255,12 @@ export class EditorView {
 
   /** The sheets close with Escape; true when one was open. */
   closeTop(): boolean {
-    for (const sh of [this.libSheet, this.presetSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.listSheet]) {
-      if (sh.isOpen) {
-        sh.close();
-        return true;
-      }
-    }
-    return false;
+    // The one on top: opened last.
+    const top = [this.libSheet, this.presetSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.listSheet]
+      .filter((sh) => sh.isOpen)
+      .sort((a, b) => b.order - a.order)[0];
+    top?.close();
+    return !!top;
   }
 
   private run(p: Promise<unknown> | (() => unknown)) {
