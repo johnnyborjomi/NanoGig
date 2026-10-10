@@ -117,7 +117,7 @@ every mute ack to confirm the switch against the pedal's report.
 | `0x40` | Expression pedal position: `0B C0 08 01 18 02 20 <0–254> 40 00 00 00`, field 4 absent at heel; ~20/s while moving | side bar                    |
 | `0xAA` | Values the expression produced for its assigned slots (see "Expression pedal")                        | EXP badge fill on the tile             |
 | `0x3D` | Reply to our expression-assignments request (see "Expression pedal")                                 | EXP badges                             |
-| `0x73` | Generic "something changed" notice; also the ack to capture / cab slot writes                         | debounced re-read                      |
+| `0x73` | The shown preset's unsaved changes (the save light): field 3 = 1 on, absent off. Off after a footswitch press, on as the ack to capture / cab slot writes (DrD85: `DIRTY_CHANGED`) | Save / Discard in Edit mode; debounced re-read |
 | `0x42` | Device-settings reply (see above)                                                                    | log the fields                         |
 | `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
 | `0x1E` | Ack to the c304 preset select: `08 C0 08 01 20 01 1E 00 00 00`, after a `0x1F` notice               | send the newest pending select, else re-read state (field 13 confirms) |
@@ -328,6 +328,11 @@ preset is only saved by the pedal's save button) except rename / create / delete
 | Delete | `08 C0 08 02 18 <preset> 32 00 00 00` | `0x33`, same shape |
 | Footswitch | the preset select with field 4 = −1, field 5..8 (IA, IB, IIA, IIB) = the preset on the chosen one, the others −1, field 9 = 2 | as a select (`0x1F`, `0x1E`) |
 | Saved on the pedal | — | `0x1B` with field 3 = 2 (the pedal's save button) |
+| Save (the top bar's Save) | the create frame for the shown preset under its own name: DrD85's SavePreset (type 3, field 5 = name) | `0x04`; the save light goes out (`0x73` off, state field 41 absent) |
+| Discard (the top bar's Discard) | the preset select for the shown preset: a load drops unsaved edits, as the pedal's EXIT (rixrix/deskop-nano-cortex does the same) | as a select |
+
+State field 41 (`currentPresetDirty`, DrD85) is the save light in the dump: 1 while the shown preset has unsaved
+changes.
 
 Scales (fitted to Cortex Cloud's readouts): capture volume raw = 255 · ((dB + 24) / 36)^1.708 (0 dB = raw 128);
 IR level = −96 + 108 · n^(1/3.5) dB, high pass = 20 + 780 · n^(5/3) Hz, low pass = 1000 + 19000 · n^(5/3) Hz.

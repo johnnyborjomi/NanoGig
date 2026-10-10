@@ -104,6 +104,8 @@ export interface MockDeviceState {
   /** Names loaded from the library over the preset's own (until the next preset change). */
   captureNameOverride?: string | null;
   irNameOverride?: string | null;
+  /** Unsaved changes in the shown preset (field 41, the save light). */
+  dirty?: boolean;
 }
 
 export function defaultMockDeviceState(): MockDeviceState {
@@ -166,6 +168,7 @@ export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset
     ]),
   );
   body.push(...varintField(38, 10), ...varintField(39, 16));
+  if (state.dirty) body.push(...varintField(41, 1));
   body.push(...varintFieldOpt(44, state.captureVolumeRaw)); // raw 0 left out, like the pedal
   for (const slot of FX_SLOTS) body.push(...bytesField(48 + FX_SLOTS.indexOf(slot), (state.fxModelIds ?? MODEL_IDS)[slot]));
   const threshold = state.gateThresholdRaw ?? 158;

@@ -391,9 +391,32 @@ button.warn {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
-/* A phone: Edit is its pencil alone, so the top bar stays one row. */
+/* Save / Discard: where Edit was while the pedal's save light is on. Save lights up like the pedal's button. */
+.topbar .save-btn,
+.topbar .discard-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+.topbar .save-btn svg,
+.topbar .discard-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.topbar .actions > button.save-btn {
+  background: var(--on);
+  color: var(--on-text);
+  border-color: transparent;
+}
+.topbar .save-btn[data-busy='true'] {
+  animation: pulse 0.8s infinite alternate;
+}
+/* A phone: Edit is its pencil alone, Save and Discard their icons, so the top bar stays one row. */
 @media (max-width: 480px) {
-  .topbar .edit-btn .btn-label {
+  .topbar .edit-btn .btn-label,
+  .topbar .save-btn .btn-label,
+  .topbar .discard-btn .btn-label {
     display: none;
   }
 }

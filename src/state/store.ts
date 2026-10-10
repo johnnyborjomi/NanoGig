@@ -167,6 +167,8 @@ export interface GigState {
   fxOn: Field<Record<FxSlot, boolean | null>>;
   /** Model loaded in each FX slot (name/category from the catalogue), null = empty slot. */
   fxModels: Field<FxModelsBySlot>;
+  /** The shown preset has unsaved changes (the pedal's save light): state field 41 and 0x73 notices. */
+  presetDirty: Field<boolean | null>;
   gateOn: Field<boolean | null>;
   cabOn: Field<boolean | null>;
   captureName: Field<string | null>;
@@ -248,6 +250,7 @@ export function initialState(transportName = 'none'): GigState {
     activePreset: field<number | null>(null),
     fxOn: field<Record<FxSlot, boolean | null>>({ pre1: null, pre2: null, post1: null, post2: null, post3: null }),
     fxModels: field<FxModelsBySlot>({ pre1: null, pre2: null, post1: null, post2: null, post3: null }),
+    presetDirty: field<boolean | null>(null),
     gateOn: field<boolean | null>(null),
     cabOn: field<boolean | null>(null),
     captureName: field<string | null>(null),
@@ -324,6 +327,7 @@ export class Store {
       activePreset: s.activePreset,
       fxOn: s.fxOn,
       fxModels: s.fxModels,
+      presetDirty: s.presetDirty,
       gateOn: s.gateOn,
       cabOn: s.cabOn,
       captureName: s.captureName,

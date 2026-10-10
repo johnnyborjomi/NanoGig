@@ -590,9 +590,15 @@ export class SyncEngine {
         if (ev.msgType === MSG.ENCODER) this.showEncoderFromCache(ev.selector, ev.value, pkt.at);
         if (ev.msgType === MSG.ENCODER || ev.msgType === MSG.KNOB) this.scheduleDebouncedRefresh();
         return;
+      case 'dirty':
+        // The pedal's save light (0x73, field 3). Also the ack to slot writes and sent after footswitch presses,
+        // so the state is read again as before.
+        this.store.setField('presetDirty', ev.dirty, 'dump', pkt.at);
+        this.log('info', ev.dirty ? 'The preset has unsaved changes' : 'No unsaved changes', toHex(pkt.data));
+        if (this.opts.refreshOnUnknownEvent) this.scheduleDebouncedRefresh();
+        return;
       case 'unknown':
-        // 0x73 is the pedal's generic "something changed" notice: seen after footswitch presses and
-        // as the ack to our capture/cab slot writes (2026-09-13). Undocumented, so we just re-read state.
+        // Undocumented: re-read the state, it may have changed.
         this.log('info', `Undocumented event${ev.msgType !== null ? ` type 0x${ev.msgType.toString(16)}` : ''}; re-reading state shortly`, toHex(pkt.data));
         if (this.opts.refreshOnUnknownEvent) this.scheduleDebouncedRefresh();
         return;
@@ -741,6 +747,7 @@ export class SyncEngine {
     for (const slot of FX_SLOTS) models[slot] = lookupFxModel(state.fxModelIds[slot]);
     this.store.setField('fxModels', models, 'dump', at);
     this.edit.noteModels(state.activePreset, models);
+    this.store.setField('presetDirty', state.dirty, 'dump', at);
     const gateStale = writtenSince(this.writtenAt.gate, requestedAt);
     this.store.setField('gateOn', gateStale ? prev.gateOn.value : state.gateOn, gateStale ? 'optimistic' : 'dump', at);
     const cabStale = writtenSince(this.writtenAt.cab, requestedAt);

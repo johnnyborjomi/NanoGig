@@ -220,9 +220,11 @@ describe('hardware 2026-09-12: preset-changed event', () => {
       provisional: true,
     });
   });
-  it('decodes the bypass-changed and unknown events by trailer type', () => {
+  it('decodes the bypass-changed and save-light events by trailer type', () => {
     expect(decodeEvent(HW_BYPASS_CHANGED)).toEqual({ kind: 'bypass-changed', provisional: true });
-    expect(decodeEvent(HW_UNKNOWN_73)).toMatchObject({ kind: 'unknown', msgType: 0x73 });
+    // After a footswitch press: no field 3, no unsaved changes. The slot writes' ack carries field 3 = 1.
+    expect(decodeEvent(HW_UNKNOWN_73)).toMatchObject({ kind: 'dirty', dirty: false });
+    expect(decodeEvent(fromHex('08 C0 08 01 18 01 73 00 00 00'))).toMatchObject({ kind: 'dirty', dirty: true });
   });
   it('classifies knob / expression / encoder telemetry as control, not unknown', () => {
     expect(decodeEvent(REAL_EVENTS.gainKnob)).toMatchObject({ kind: 'control', msgType: 0x1a });

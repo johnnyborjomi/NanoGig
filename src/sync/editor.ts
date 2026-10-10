@@ -802,6 +802,31 @@ export class EditController {
     } else {
       this.store.setField('presetNames', names, 'metadata');
     }
+    // Stored over the shown preset (Save): what it shows is what it has saved now. A read confirms the light.
+    const shown = this.store.get();
+    if (busy.kind === 'create' && shown.activePreset.value === busy.index) {
+      this.rememberSavedModels(busy.index, shown.fxModels.value);
+      this.host.confirm(400);
+    }
+  }
+
+  /**
+   * Save, as the pedal's save button: SavePreset (DrD85's name for the create frame) over the shown preset, under
+   * its own name. A preset with no name is asked for one first (the pedal refuses renames of an unnamed preset).
+   */
+  async savePreset(): Promise<void> {
+    this.assertEdit();
+    const s = this.store.get();
+    const index = s.activePreset.value;
+    if (index === null) throw new Error('No preset shown');
+    const name = (s.presetNames.value[index] ?? '').trim();
+    if (!name) {
+      this.patchEdit({ preset: { ...s.edit.preset, nameNew: index } });
+      return;
+    }
+    const frame = presetCreateFrame(index, name);
+    this.presetBusy('create', index, name);
+    await this.sendPreset(frame, `Save preset ${index + 1} "${name}"`);
   }
 
   /** Rename: stored on the pedal at once, answered by type 0x70. */

@@ -145,6 +145,23 @@ describe('edit gestures', () => {
     expect(list.querySelectorAll('.ed-chip[data-saved="true"]')).toHaveLength(0);
   });
 
+  it('Save and Discard stand in for Edit while the save light is on', async () => {
+    const { root, store, engine } = await setup(true);
+    const btn = (cls: string) => root.querySelector<HTMLButtonElement>(`.topbar .${cls}`)!;
+    expect(btn('edit-btn').hidden).toBe(false);
+    expect(btn('save-btn').hidden).toBe(true);
+    await engine.edit.setFxModel('post2', 6004);
+    await until(() => store.get().presetDirty.value === true);
+    expect(btn('edit-btn').hidden).toBe(true);
+    expect(btn('save-btn').hidden).toBe(false);
+    expect(btn('discard-btn').hidden).toBe(false);
+    tap(btn('save-btn'));
+    await until(() => store.get().presetDirty.value === false);
+    expect(btn('edit-btn').hidden).toBe(false);
+    expect(btn('save-btn').hidden).toBe(true);
+    expect(btn('discard-btn').hidden).toBe(true);
+  });
+
   it('the capture name opens amp & cab; hold the gate for its threshold; hold the name to rename', async () => {
     const { root, store, toggles, open } = await setup(true);
     (root.querySelector('.capture.sub-name') as HTMLElement).click();

@@ -95,6 +95,12 @@ export const MSG = {
   PRESET_ACK_REQUEST: 0x1e,
   /** FX / gate bypass changed. */
   BYPASS_CHANGED: 0x1f,
+  /**
+   * The shown preset's unsaved changes, on or off (field 3 = 1 / absent): the pedal's save light. Sent after a
+   * footswitch press (`06 C0 08 01 73`, off) and with our slot writes (`08 C0 08 01 18 01 73`, on); DrD85's
+   * nano-cortex-controller and the screen firmware read it the same way.
+   */
+  DIRTY_CHANGED: 0x73,
   /** Expression pedal position, ~20/s while moving: field 3 = 2, field 4 = 0–254 (2026-09-19). */
   EXPRESSION: 0x40,
   /** Read a preset's expression assignments (we send this; Cortex Cloud does too). */

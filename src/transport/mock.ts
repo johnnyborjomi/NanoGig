@@ -205,6 +205,7 @@ export class MockTransport implements Transport {
       if (this.opts.acceptedMidi !== 'c304-select') return; // other firmware: ignored
       this.device.activePreset = bytes[5]!;
       this.device.captureNameOverride = this.device.irNameOverride = null; // a preset load drops unsaved edits
+      this.loadDropsEdits();
       // The real pedal answers with a bypass-changed notice, then the 0x1E ack; no 0x1D event.
       this.schedule(() => {
         this.emit(HW_BYPASS_CHANGED);
@@ -334,9 +335,10 @@ export class MockTransport implements Transport {
         const slot = FX_SLOTS[v(3)];
         const type = v(4);
         if (!slot || !FX_SLOT_MODELS[v(3)]!.includes(type)) return true; // the pedal ignores a model the slot does not take
+        if (!this.device.dirty) this.savedModelIds = structuredClone(this.device.fxModelIds!); // the saved ones, before the first edit
         this.device.fxModelIds![slot] = Array.from(fromHex(fxModelId(type)));
         this.fxParams[slot] = [];
-        this.reply([...varintField(1, 1)], 0x73); // "something changed"
+        this.markDirty();
         break;
       }
       case EDIT_MSG.FX_PARAMS_REQUEST: {
@@ -352,12 +354,14 @@ export class MockTransport implements Transport {
         const slot = FX_SLOTS[v(3)];
         const raw = f.find((x) => x.field === 5 && x.wire === 5)?.raw;
         if (slot && raw) this.paramsFor(slot)[v(4)] = new DataView(raw.buffer, raw.byteOffset, 4).getFloat32(0, true);
+        this.markDirty(false);
         break;
       }
       case EDIT_MSG.KNOB: {
         if (v(3) === 10) this.device.captureVolumeRaw = v(4);
         else if (v(3) === 11) this.device.gateThresholdRaw = v(4);
         else return false;
+        this.markDirty(false);
         break;
       }
       case EDIT_MSG.ENCODER: {
@@ -374,7 +378,7 @@ export class MockTransport implements Transport {
             this.device.irNameOverride = this.metadataIrs()[v(4) - 1] ?? null;
           }
         } else return false;
-        this.reply([...varintField(1, 1)], 0x73);
+        this.markDirty(); // the slot write's ack is this notice (`08 C0 08 01 18 01 73`)
         break;
       }
       case EDIT_MSG.CAB_SETTINGS_REQUEST: {
@@ -419,6 +423,7 @@ export class MockTransport implements Transport {
             }
           }
         }
+        this.markDirty(false);
         break;
       }
       case EDIT_MSG.LIBRARY_REQUEST: {
@@ -444,6 +449,7 @@ export class MockTransport implements Transport {
         if (item) {
           this.device.captureNameOverride = text(item, 2);
           this.device.captureOn = true;
+          this.markDirty(false);
         }
         this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEWED);
         break;
@@ -460,6 +466,8 @@ export class MockTransport implements Transport {
         }
         p.name = name;
         this.reply(ok(index), msgType === EDIT_MSG.RENAME ? EDIT_MSG.RENAME_REPLY : EDIT_MSG.PRESET_CREATED);
+        // SavePreset (DrD85's name for it): on the shown preset, its edits are saved and the light goes out.
+        if (msgType === EDIT_MSG.PRESET_CREATE && index === this.device.activePreset) this.saveEdits();
         break;
       }
       case EDIT_MSG.PRESET_DELETE: {
@@ -487,6 +495,37 @@ export class MockTransport implements Transport {
     return true;
   }
 
+  /**
+   * An edit: the shown preset has unsaved changes. The pedal says so with 0x73 field 3 = 1 (always, as the ack to
+   * a slot write; `always` false: only when the light comes on).
+   */
+  private markDirty(always = true) {
+    const was = this.device.dirty;
+    this.device.dirty = true;
+    if (always || !was) this.reply([...varintField(1, 1), ...varintField(3, 1)], 0x73);
+  }
+
+  /** FX models as saved (the mock's presets share one set): a load puts them back, a save takes the shown ones. */
+  private savedModelIds: Record<FxSlot, number[]> | null = null;
+
+  private saveEdits() {
+    this.savedModelIds = structuredClone(this.device.fxModelIds ?? defaultMockModelIds());
+    this.clearDirty();
+  }
+
+  /** A preset load drops unsaved edits (the desktop editor's Discard is a load of the shown preset). */
+  private loadDropsEdits() {
+    if (this.device.dirty && this.savedModelIds) this.device.fxModelIds = structuredClone(this.savedModelIds);
+    this.clearDirty();
+  }
+
+  /** A preset load or a save: no unsaved changes (`06 C0 08 01 73`, as after a footswitch press). */
+  private clearDirty() {
+    if (!this.device.dirty) return;
+    this.device.dirty = false;
+    this.schedule(() => this.emit(Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x73, 0x00, 0x00, 0x00])), this.opts.latencyMs);
+  }
+
   /** The capture slots' names after library loads (slot 0..24). */
   readonly slotCaptures: Record<number, string> = {};
   /** Preset index on IA, IB, IIA, IIB. */
@@ -503,6 +542,7 @@ export class MockTransport implements Transport {
 
   /** Test hook: the pedal's own save button (0x1B, field 3 = 2). */
   pressSave() {
+    this.saveEdits();
     this.emit(Uint8Array.from([0x08, 0xc0, 0x08, 0x01, 0x18, 0x02, 0x1b, 0x00, 0x00, 0x00]));
   }
 
@@ -514,6 +554,7 @@ export class MockTransport implements Transport {
     if (strategy.id !== this.opts.acceptedMidi) return; // pedal ignores this form
     if (bytes.length === 2 && (bytes[0]! & 0xf0) === 0xc0 && bytes[1]! < 64) {
       this.device.activePreset = bytes[1]!;
+      this.loadDropsEdits();
       // The real pedal announces the switch with a preset-changed message.
       this.schedule(() => this.emit(buildPresetChangedEvent(this.device.activePreset)), this.opts.latencyMs);
       return;
@@ -589,6 +630,7 @@ export class MockTransport implements Transport {
     const next = populated[(populated.indexOf(this.device.activePreset) + 1) % populated.length] ?? 0;
     this.device.activePreset = next;
     this.device.captureNameOverride = this.device.irNameOverride = null;
+    this.loadDropsEdits();
     // Alternate between the hardware-observed message and the 2-byte MIDI shape.
     if (i % 2 === 0) this.emit(buildPresetChangedEvent(next));
     else this.emit(Uint8Array.from([0xc0, next]));
@@ -603,6 +645,7 @@ export class MockTransport implements Transport {
   pressFootswitch(preset: number) {
     this.device.activePreset = preset;
     this.device.captureNameOverride = this.device.irNameOverride = null;
+    this.loadDropsEdits();
     this.emit(buildPresetChangedEvent(preset));
     this.emit(Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x1f, 0x00, 0x00, 0x00])); // bypass-changed follows on hardware
   }

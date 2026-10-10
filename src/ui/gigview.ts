@@ -33,8 +33,10 @@ import {
   Pencil,
   Power,
   RefreshCw,
+  Save,
   ScrollText,
   Settings,
+  Undo2,
   VolumeX,
   createElement as lucideElement,
 } from "lucide";
@@ -296,6 +298,11 @@ export class GigView {
   /** Edit mode: Control plus the edit gestures and sheets. */
   private readonly editBtn = el("button", "ghost edit-btn", "");
   private readonly editState = el("span", "btn-state");
+  /** In Edit mode while the pedal's save light is on: Save and Discard stand where Edit was. */
+  private readonly saveBtn = el("button", "ghost save-btn", "");
+  private readonly discardBtn = el("button", "ghost discard-btn", "");
+  /** When Save was tapped (0 = not waiting): a refusal is told in a toast. */
+  private saveAt = 0;
   private editor!: EditorView;
   // Tempo view: the big BPM, −/+ (auto-repeat while held), Done. Follows the pedal's tap tempo mode.
   private readonly tempoOverlay = el("div", "overlay tempo");
@@ -401,7 +408,7 @@ export class GigView {
     });
     // Edit: control and editing together; off again leaves control as it is.
     this.editBtn.title =
-      "Edit mode (turns Control on too): hold an FX tile for its model and parameters, hold Gate for its threshold, tap the capture or IR name for volume, IR settings and the library, hold the preset name to rename or manage it. Changes are live: save on the pedal to keep them.";
+      "Edit mode (turns Control on too): hold an FX tile for its model and parameters, hold Gate for its threshold, tap the capture or IR name for volume, IR settings and the library, hold the preset name to rename or manage it. Changes are live: Save (here, once the pedal's save light is on) or the pedal's save button keeps them.";
     this.editState.append(lucideElement(Pencil, { "stroke-width": 2.5, "aria-hidden": "true" }));
     this.editState.dataset.on = "false";
     this.editBtn.setAttribute("aria-label", "Edit");
@@ -411,6 +418,25 @@ export class GigView {
       if (on && !this.store.get().writesEnabled) this.actions.setWritesEnabled(true);
       this.actions.setSettings({ editing: on });
     });
+    // Save / Discard, as the pedal's save and EXIT buttons: the preset stored with its edits, or loaded again.
+    this.saveBtn.title = "Save the preset on the pedal with its changes (as the pedal's save button)";
+    this.saveBtn.append(lucideElement(Save, { "stroke-width": 2.5, "aria-hidden": "true" }), el("span", "btn-label", "Save"));
+    this.saveBtn.addEventListener("click", () => {
+      const edit = this.actions.edit?.();
+      if (!edit) return;
+      this.saveAt = Date.now();
+      void edit.savePreset().catch((e) => {
+        this.saveAt = 0;
+        this.toast(e);
+      });
+    });
+    this.discardBtn.title = "Discard the changes: the preset is loaded again as saved (as the pedal's EXIT)";
+    this.discardBtn.append(lucideElement(Undo2, { "stroke-width": 2.5, "aria-hidden": "true" }), el("span", "btn-label", "Discard"));
+    this.discardBtn.addEventListener("click", () => {
+      const i = this.store.get().activePreset.value;
+      if (i !== null) void this.actions.selectPreset(i).catch((e) => this.toast(e));
+    });
+    this.saveBtn.hidden = this.discardBtn.hidden = true;
     this.reconnectBtn.hidden = true;
     this.reconnectBtn.title = "Stop retrying and pick the pedal from the Bluetooth chooser (put it in pairing mode first)";
     this.reconnectBtn.addEventListener("click", () => this.doConnect("chooser"));
@@ -516,6 +542,8 @@ export class GigView {
     );
     actions.append(
       this.exitDemoBtn,
+      this.discardBtn,
+      this.saveBtn,
       this.editBtn,
       this.writesBtn,
       this.fullscreenBtn,
@@ -1629,7 +1657,18 @@ export class GigView {
       this.editState.dataset.on = String(editing);
       this.editBtn.classList.toggle("on", editing);
       this.editBtn.setAttribute("aria-pressed", String(editing));
-      this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit;
+      // Unsaved changes while editing: Save and Discard instead of Edit, until the light goes out.
+      const unsaved = editing && s.presetDirty.value === true && !!this.actions.edit;
+      this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit || unsaved;
+      this.saveBtn.hidden = this.discardBtn.hidden = !unsaved;
+      const op = s.edit.preset;
+      const saving = op.busy?.kind === "create" && op.busy.index === s.activePreset.value;
+      this.saveBtn.disabled = this.discardBtn.disabled = saving;
+      this.saveBtn.dataset.busy = String(saving);
+      if (this.saveAt && op.result && op.result.at >= this.saveAt) {
+        if (!op.result.ok) this.toast(new Error(`Not saved: ${op.result.message}`));
+        this.saveAt = 0;
+      }
     }
     this.root.dataset.editing = String(s.editing && s.writesEnabled && s.connection === "connected");
     if (this.expShowCheck.checked !== s.expressionShow) this.expShowCheck.checked = s.expressionShow;

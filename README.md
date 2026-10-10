@@ -186,8 +186,10 @@ Cortex Cloud's own; the app shows every change at once and confirms it against t
 | Capture / IR name | tap | Capture: slots 1–5, on / off, volume in dB. IR: slots, on / off, level, high and low pass, phase, microphone and position (factory IRs). Both open the pedal's library: a capture goes into the slot the preset plays (every preset on that slot hears it), an IR loads into the preset. Library folders of your own, for captures and IRs alike: New folder at the top of a list, hold an item (or drag it, with a mouse) to move it into one; rename or delete a folder from inside it. Folders are kept in this browser. |
 | Preset name, a preset button, Menu → Presets → ⋯ | hold / tap | Rename, name an empty slot (stores the sound playing now there), put the preset on IA / IB / IIA / IIB, delete (tap twice). |
 
-Changes are live, like turning a knob on the pedal: **save on the pedal to keep them**.
-Renames, creates and deletes are stored at once.
+Changes are live, like turning a knob on the pedal. When the pedal's save light comes on, **Save** and
+**Discard** take the Edit button's place in the top bar: Save stores the preset under its name (as the pedal's save
+button; a preset with no name is asked for one), Discard loads it again as saved (as the pedal's EXIT). Saving on
+the pedal works as before. Renames, creates and deletes are stored at once.
 
 > **Back up your presets in Cortex Cloud before turning control mode on**, and try it on a
 > preset you don't mind losing first. The protocol is reverse-engineered; a firmware update can

@@ -173,6 +173,34 @@ describe('edit controller', () => {
     expect(edit.savedModelChanged('post2')).toBeNull();
   });
 
+  it("the save light: an edit turns it on, Save stores the shown preset under its name, a reload discards", async () => {
+    const { store, mock, engine, edit } = await setup();
+    await until(() => store.get().presetDirty.value === false);
+    const index = store.get().activePreset.value!;
+    const name = store.get().presetNames.value[index]!;
+    await edit.setFxModel('post2', 6004); // Tape Delay over Analog Delay
+    await until(() => store.get().presetDirty.value === true);
+    await edit.savePreset();
+    await until(() => store.get().presetDirty.value === false && store.get().edit.preset.busy === null);
+    expect(store.get().edit.preset.result).toMatchObject({ ok: true, index });
+    expect(sent(mock, EDIT_MSG.PRESET_CREATE).at(-1)!.hex).toContain(Array.from(new TextEncoder().encode(name), (b) => b.toString(16).toUpperCase().padStart(2, '0')).join(' '));
+    expect(mock.presets[index]!.name).toBe(name);
+    expect(edit.savedModelChanged('post2')).toBeNull();
+    // Discard: the shown preset loaded again drops the new edit.
+    await edit.setFxModel('post2', 6010);
+    await until(() => store.get().presetDirty.value === true);
+    await engine.selectPreset(index);
+    await until(() => store.get().presetDirty.value === false && store.get().fxModels.source === 'dump' && store.get().fxModels.value.post2?.name === 'Tape Delay');
+  });
+
+  it('Save on a preset with no name asks for one', async () => {
+    const { store, engine, edit } = await setup();
+    await engine.selectPreset(9); // empty in the demo
+    await until(() => store.get().activePreset.value === 9 && store.get().activePreset.source === 'dump');
+    await edit.savePreset();
+    expect(store.get().edit.preset.nameNew).toBe(9);
+  });
+
   it('assigns a footswitch', async () => {
     const { store, mock, edit } = await setup();
     await edit.assignFootswitch(5, 'iia');
