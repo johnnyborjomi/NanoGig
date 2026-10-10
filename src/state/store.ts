@@ -86,11 +86,21 @@ export interface PresetOpState {
   nameNew: number | null;
 }
 
+/**
+ * The FX models a preset has saved, as far as the app can tell (the pedal does not report it): the models it showed
+ * when it loaded, and what it showed when the pedal's save button was pressed. Model ids by slot, null = empty.
+ */
+export interface SavedModels {
+  preset: number;
+  ids: Record<FxSlot, string | null>;
+}
+
 export interface EditState {
   fx: FxEditState | null;
   ir: IrEditState | null;
   library: LibraryState;
   preset: PresetOpState;
+  savedModels: SavedModels | null;
 }
 
 export function emptyEdit(): EditState {
@@ -99,6 +109,7 @@ export function emptyEdit(): EditState {
     ir: null,
     library: { captures: null, irs: null, loading: null, error: null },
     preset: { busy: null, result: null, nameNew: null },
+    savedModels: null,
   };
 }
 

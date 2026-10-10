@@ -740,6 +740,7 @@ export class SyncEngine {
     const models = {} as FxModelsBySlot;
     for (const slot of FX_SLOTS) models[slot] = lookupFxModel(state.fxModelIds[slot]);
     this.store.setField('fxModels', models, 'dump', at);
+    this.edit.noteModels(state.activePreset, models);
     const gateStale = writtenSince(this.writtenAt.gate, requestedAt);
     this.store.setField('gateOn', gateStale ? prev.gateOn.value : state.gateOn, gateStale ? 'optimistic' : 'dump', at);
     const cabStale = writtenSince(this.writtenAt.cab, requestedAt);

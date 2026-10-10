@@ -32,6 +32,7 @@ import {
   type LibraryList,
 } from "../protocol/edit";
 import { PRESET_COUNT, presetLabel, type FxSlot } from "../protocol/frames";
+import { lookupFxModel } from "../protocol/models";
 import type { GigState, Store } from "../state/store";
 import type { EditController } from "../sync/editor";
 import { FOLDER_NAME_MAX, LibraryFolders, type LibraryFolder } from "./library-folders";
@@ -50,6 +51,7 @@ import {
   Power,
   Search,
   Trash2,
+  Undo2,
   X,
   createElement as lucideElement,
 } from "lucide";
@@ -181,6 +183,8 @@ class Sheet {
   readonly title = el("h1", "sheet-title");
   readonly sub = el("div", "sheet-sub");
   readonly body = el("div", "sheet-body");
+  /** Buttons left of the close button (the FX sheet's Discard). */
+  readonly actions = el("div", "sheet-actions");
   onClose: () => void = () => {};
 
   constructor(className: string) {
@@ -189,7 +193,7 @@ class Sheet {
     close.addEventListener("click", () => this.close());
     const titles = el("div", "sheet-titles");
     titles.append(this.sub, this.title);
-    this.head.append(titles, close);
+    this.head.append(titles, this.actions, close);
     this.card.append(this.head, this.body);
     this.overlay.append(this.card);
     this.overlay.addEventListener("click", (e) => {
@@ -295,6 +299,8 @@ export class EditorView {
   private readonly fxStatus = el("p", "ed-msg");
   private readonly fxRetry = el("button", "ed-retry", "Read again");
   private readonly fxModelBtn = el("button", "ed-model-btn");
+  /** Shown when the slot holds another model than the preset has saved: puts the saved one back. */
+  private readonly fxDiscard = el("button", "ghost ed-discard");
   private readonly fxModels = el("div", "ed-models");
   private readonly fxParams = el("div", "ed-params");
   private fxParamsKey = "";
@@ -326,6 +332,12 @@ export class EditorView {
       this.renderFxModels();
     });
     this.fxRetry.addEventListener("click", () => this.run(() => this.edit().retryFx()));
+    this.fxDiscard.type = "button";
+    this.fxDiscard.append(icon(Undo2), el("span", "", "Discard"));
+    this.fxDiscard.addEventListener("click", () => {
+      if (this.fxSlot) this.run(this.edit().discardFxModel(this.fxSlot));
+    });
+    sh.actions.append(this.fxDiscard);
     const top = el("div", "ed-row");
     top.append(this.fxModelBtn, this.fxPower);
     const status = el("div", "ed-msg-row");
@@ -339,11 +351,16 @@ export class EditorView {
     const slot = this.fxSlot;
     if (!slot || this.fxModels.hidden) return;
     const current = this.s.fxModels.value[slot]?.id;
-    const chips = () => Array.from(this.fxModels.querySelectorAll<HTMLElement>(".ed-chip"));
-    // Rebuilt only for another slot (a chip replaced mid-tap loses the tap); a new model only moves the mark.
+    const saved = this.savedModel(slot);
+    const mark = (b: HTMLElement) => {
+      b.dataset.active = String(b.dataset.id === String(current));
+      // The model the preset has saved, outlined while another is tried.
+      b.dataset.saved = String(b.dataset.id === saved);
+    };
+    // Rebuilt only for another slot (a chip replaced mid-tap loses the tap); a new model only moves the marks.
     const key = slot;
     if (key === this.fxModelsKey && this.fxModels.childElementCount) {
-      for (const b of chips()) b.dataset.active = String(b.dataset.id === String(current));
+      for (const b of Array.from(this.fxModels.querySelectorAll<HTMLElement>(".ed-chip"))) mark(b);
       return;
     }
     this.fxModelsKey = key;
@@ -358,7 +375,7 @@ export class EditorView {
         const b = el("button", "ed-chip", m.name);
         b.dataset.cat = slug(m.category);
         b.dataset.id = String(m.id);
-        b.dataset.active = String(m.id === current);
+        mark(b);
         // The list stays open: models can be tried one after another.
         b.addEventListener("click", () => {
           this.run(this.edit().setFxModel(slot, m.type));
@@ -368,6 +385,11 @@ export class EditorView {
       g.append(row);
       this.fxModels.append(g);
     }
+  }
+
+  /** The model the preset has saved in a slot when the slot now holds another, else null. */
+  private savedModel(slot: FxSlot): string | null {
+    return this.actions.edit()?.savedModelChanged(slot) ?? null;
   }
 
   private renderFx() {
@@ -384,6 +406,10 @@ export class EditorView {
     this.fxPower.dataset.on = String(on === true);
     (this.fxPower.lastChild as HTMLElement).textContent = on ? "On" : on === false ? "Off" : "—";
     this.fxPower.disabled = on === null || !model;
+    // Room kept while hidden (no shift of the title); the saved model's name in the tooltip.
+    const saved = this.savedModel(slot);
+    this.fxDiscard.dataset.shown = String(!!saved);
+    this.fxDiscard.title = saved ? `Back to ${lookupFxModel(saved)?.name ?? "the saved model"}, the model this preset has saved` : "";
     const status = fx?.status ?? "loading";
     // One line that is always there: its text changes, the layout does not.
     const msg: Record<string, string> = {

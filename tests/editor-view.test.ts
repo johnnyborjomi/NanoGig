@@ -135,6 +135,14 @@ describe('edit gestures', () => {
     expect(list.hidden).toBe(false);
     expect(tape.isConnected).toBe(true);
     expect(Array.from(list.querySelectorAll<HTMLElement>('.ed-chip[data-active="true"]')).map((b) => b.textContent)).toEqual(['Tape Delay']);
+    // The preset's saved model is outlined, and Discard puts it back.
+    expect(Array.from(list.querySelectorAll<HTMLElement>('.ed-chip[data-saved="true"]')).map((b) => b.textContent)).toEqual(['Analog Delay']);
+    const discard = root.querySelector<HTMLElement>('.fx-sheet .ed-discard')!;
+    expect(discard.dataset.shown).toBe('true');
+    tap(discard);
+    await until(() => store.get().fxModels.value.post2?.name === 'Analog Delay' && store.get().fxModels.source === 'dump');
+    expect(discard.dataset.shown).toBe('false');
+    expect(list.querySelectorAll('.ed-chip[data-saved="true"]')).toHaveLength(0);
   });
 
   it('the capture name opens amp & cab; hold the gate for its threshold; hold the name to rename', async () => {

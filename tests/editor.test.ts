@@ -159,6 +159,20 @@ describe('edit controller', () => {
     await until(() => store.get().edit.preset.nameNew === 9);
   });
 
+  it("knows the preset's saved models: a new pick differs until the pedal saves it, a preset load starts over", async () => {
+    const { store, mock, engine, edit } = await setup();
+    expect(edit.savedModelChanged('post2')).toBeNull();
+    await edit.setFxModel('post2', 6004); // Tape Delay over the saved Analog Delay
+    expect(edit.savedModelChanged('post2')).toBe(store.get().edit.savedModels!.ids.post2);
+    expect(store.get().edit.savedModels!.ids.post2).not.toBe(store.get().fxModels.value.post2!.id);
+    mock.pressSave();
+    await until(() => edit.savedModelChanged('post2') === null);
+    expect(store.get().edit.savedModels!.ids.post2).toBe(store.get().fxModels.value.post2!.id);
+    await engine.selectPreset(1);
+    await until(() => store.get().edit.savedModels?.preset === 1);
+    expect(edit.savedModelChanged('post2')).toBeNull();
+  });
+
   it('assigns a footswitch', async () => {
     const { store, mock, edit } = await setup();
     await edit.assignFootswitch(5, 'iia');

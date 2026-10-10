@@ -2070,6 +2070,35 @@ button.warn {
 .sheet-titles {
   min-width: 0;
 }
+/* Buttons left of the close button: pushed right, as tall as it. */
+.sheet-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  align-self: stretch;
+}
+.sheet-actions:empty {
+  display: none;
+}
+.ed-discard {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.ed-discard svg {
+  width: 20px;
+  height: 20px;
+}
+/* Comes and goes with a model change: its room stays, so the title never moves. */
+.ed-discard[data-shown='false'] {
+  visibility: hidden;
+}
+@media (max-width: 480px) {
+  .ed-discard span {
+    display: none;
+  }
+}
 .sheet-sub {
   font-size: 13px;
   font-weight: 600;
@@ -2216,6 +2245,11 @@ button.warn {
 }
 .ed-chip[data-cat] {
   border-left: 4px solid var(--fx, #3a4450);
+}
+/* The model the preset has saved, while another is tried: outlined all round in its colour (a shadow, not a
+   border, so the chip keeps its size). */
+.ed-chip[data-saved='true'] {
+  box-shadow: inset 0 0 0 2px var(--fx, var(--accent));
 }
 /* Chosen: the block's colour (a model chip: its own category's), like a lit tile. */
 .ed-chip[data-active='true'] {

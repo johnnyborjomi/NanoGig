@@ -59,8 +59,8 @@ import {
 } from '../protocol/edit';
 import { CAB_SLOT_COUNT, FX_SLOTS, type FxSlot } from '../protocol/frames';
 import { toHex } from '../protocol/hex';
-import { lookupFxModel } from '../protocol/models';
-import type { EditState, FxEditState, IrEditState, Store } from '../state/store';
+import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
+import type { EditState, FxEditState, IrEditState, SavedModels, Store } from '../state/store';
 import type { LogDirection, Transport } from '../transport/types';
 
 /** What the editor needs from the sync engine. */
@@ -365,6 +365,37 @@ export class EditController {
     this.host.confirm();
     const fx = this.store.get().edit.fx;
     if (fx?.slot === slot) this.fxTick(true);
+  }
+
+  /** The model the preset has saved in a slot, if the shown one is another (null: no change, or not known). */
+  savedModelChanged(slot: FxSlot): string | null {
+    const saved = this.store.get().edit.savedModels;
+    const s = this.store.get();
+    if (!saved || saved.preset !== s.activePreset.value) return null;
+    const id = saved.ids[slot];
+    if (!id || !lookupFxModel(id)?.known) return null;
+    return id === (s.fxModels.value[slot]?.id ?? null) ? null : id;
+  }
+
+  /** Discard: the preset's saved model back in the slot (a model write, like any other pick). */
+  async discardFxModel(slot: FxSlot): Promise<void> {
+    const id = this.savedModelChanged(slot);
+    if (id) await this.setFxModel(slot, fxModelType(id));
+  }
+
+  /**
+   * A state read: a preset seen for the first time since it loaded has its saved models in place (the pedal drops
+   * unsaved edits on a preset load).
+   */
+  noteModels(preset: number | null, models: FxModelsBySlot): void {
+    if (preset === null || this.store.get().edit.savedModels?.preset === preset) return;
+    this.rememberSavedModels(preset, models);
+  }
+
+  private rememberSavedModels(preset: number, models: FxModelsBySlot): void {
+    const ids = {} as SavedModels['ids'];
+    for (const slot of FX_SLOTS) ids[slot] = models[slot]?.id ?? null;
+    this.patchEdit({ savedModels: { preset, ids } });
   }
 
   /** One parameter, live while a slider moves; the editor shows the value at once. */
@@ -834,6 +865,7 @@ export class EditController {
     const preset = s.activePreset.value;
     this.host.log('info', `Preset ${preset === null ? '?' : preset + 1} saved on the pedal`, hex);
     this.host.confirm(150);
+    if (preset !== null) this.rememberSavedModels(preset, s.fxModels.value);
     const md = this.host.metadata();
     if (preset === null || !md) return;
     const presets = md.presets.slice();
