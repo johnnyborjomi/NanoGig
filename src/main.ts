@@ -18,7 +18,25 @@ const params = new URLSearchParams(location.search);
 const flag = (name: string) => params.get(name) === '1' || params.get(name) === 'true';
 
 const forceMock = flag('mock');
-let writesEnabled = flag('writes');
+/** Control and Edit survive a reload: remembered here, not in the settings (they are modes, set from the top bar). */
+const MODES_KEY = 'nanogig.modes';
+function loadModes(): { control: boolean; edit: boolean } {
+  try {
+    const m = JSON.parse(localStorage.getItem(MODES_KEY) ?? '{}') as { control?: unknown; edit?: unknown };
+    return { control: m.control === true, edit: m.edit === true };
+  } catch {
+    return { control: false, edit: false };
+  }
+}
+function saveModes(control: boolean, edit: boolean) {
+  try {
+    localStorage.setItem(MODES_KEY, JSON.stringify({ control, edit }));
+  } catch {
+    /* storage unavailable */
+  }
+}
+const savedModes = loadModes();
+let writesEnabled = flag('writes') || savedModes.control;
 const debug = flag('debug');
 const midiStrategy = params.get('midi'); // pin a MIDI delivery strategy, e.g. ?midi=c303-ble-midi
 
@@ -58,7 +76,7 @@ type BleLike = BleTransport | CapacitorBleTransport;
 const createBle = (): BleLike => (isNative ? new CapacitorBleTransport() : new BleTransport());
 const isBle = (t: Transport | null): t is BleLike => t instanceof BleTransport || t instanceof CapacitorBleTransport;
 
-const store = new Store(loadSettings());
+const store = new Store({ ...loadSettings(), writesEnabled, editing: writesEnabled && savedModes.edit });
 // Anonymous usage stats (see PRIVACY.md): production channel only, never dev or staging.
 const analytics = new Analytics({
   websiteId: 'f6a39126-15e3-4cb0-97e5-f00bf0b68089',
@@ -193,11 +211,14 @@ const view = new GigView(
       writesEnabled = enabled;
       if (enabled && store.get().transportName !== 'mock') feature('control');
       engine?.setWritesEnabled(enabled);
+      if (!engine) store.patch({ writesEnabled: enabled });
+      saveModes(enabled, enabled && store.get().editing);
       store.appendLog({ at: Date.now(), dir: 'warn', text: enabled ? 'Control mode ON: tile taps and preset buttons now change the pedal' : 'Control mode off' });
     },
     setSettings: (patch) => {
       store.patch(patch);
       saveSettings();
+      if ('editing' in patch) saveModes(writesEnabled, writesEnabled && store.get().editing);
     },
     installApp: () => installPrompt.install(),
     onSupportClick: (source) => analytics.track({ name: 'support-click', data: { source } }),

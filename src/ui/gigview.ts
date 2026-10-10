@@ -442,12 +442,13 @@ export class GigView {
     const items: [HTMLButtonElement, typeof Settings, string][] = [
       [this.settingsBtn, Settings, "Settings"],
       [this.presetsBtn, ListOrdered, "Presets"],
-      [this.refreshBtn, RefreshCw, "Refresh"],
       [this.tempoBtn, Metronome, "Tempo"],
       [this.tunerBtn, Music, "Tuner"],
-      [this.consoleBtn, ScrollText, "Log"],
       [this.disconnectBtn, LogOut, "Disconnect"],
       [this.menuInstallBtn, Download, "Install app"],
+      // Rarely needed: at the bottom.
+      [this.refreshBtn, RefreshCw, "Refresh"],
+      [this.consoleBtn, ScrollText, "Log"],
     ];
     items.forEach(([b, icon, label], i) => {
       b.className = "menu-item";

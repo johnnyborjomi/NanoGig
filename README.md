@@ -175,7 +175,7 @@ never loads the presets skipped past), and a report that predates a tile tap can
 ### Edit mode
 
 The **Edit** button in the top bar, left of Control: it turns control mode on too (Control alone
-only switches presets and blocks; Control off ends Edit). Off at every launch. Ported from the
+only switches presets and blocks; Control off ends Edit). Both are remembered across reloads. Ported from the
 [NanoGig Screen](https://github.com/johnnyborjomi/NanoGigScreen) firmware, whose frames are
 Cortex Cloud's own; the app shows every change at once and confirms it against the pedal.
 
