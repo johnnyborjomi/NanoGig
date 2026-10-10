@@ -683,6 +683,37 @@ export class GigView {
     this.stripNext.addEventListener("click", () => this.pageStrip(1));
     grid.prepend(this.stripPrev);
     grid.append(this.stripNext);
+    // Swipe the strip sideways to page it, like the arrows (a bigger screen than the NanoGig Screen's paged
+    // lists); the tap that ends a swipe selects nothing.
+    {
+      let start: { x: number; y: number } | null = null;
+      let swiped = false;
+      grid.addEventListener("pointerdown", (e) => {
+        start = { x: e.clientX, y: e.clientY };
+        swiped = false;
+      });
+      grid.addEventListener("pointerup", (e) => {
+        if (!start) return;
+        const dx = e.clientX - start.x;
+        const dy = e.clientY - start.y;
+        start = null;
+        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        swiped = true;
+        this.pageStrip(dx < 0 ? 1 : -1);
+      });
+      grid.addEventListener("pointercancel", () => (start = null));
+      grid.addEventListener(
+        "click",
+        (e) => {
+          if (!swiped) return;
+          swiped = false;
+          e.stopPropagation();
+          e.preventDefault();
+        },
+        true,
+      );
+      grid.style.touchAction = "pan-y";
+    }
     this.presetStrip.append(el("div", "hsep"), grid);
     blocks.append(this.presetStrip);
 
