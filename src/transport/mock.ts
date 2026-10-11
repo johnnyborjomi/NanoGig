@@ -468,6 +468,13 @@ export class MockTransport implements Transport {
         this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEWED);
         break;
       }
+      case EDIT_MSG.CAPTURE_PREVIEW_STOP: {
+        // Cortex Cloud's stop (snoop 2026-10-11): the saved capture plays again; the reply echoes the time sent.
+        this.device.captureNameOverride = null;
+        const ts = f.find((x) => x.field === 2 && x.wire === 0)?.raw ?? [];
+        this.reply([...varintField(1, 1), 0x10, ...Array.from(ts), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEW_STOPPED);
+        break;
+      }
       case EDIT_MSG.RENAME:
       case EDIT_MSG.PRESET_CREATE: {
         const index = v(3);

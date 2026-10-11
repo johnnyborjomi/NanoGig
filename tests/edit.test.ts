@@ -14,6 +14,7 @@ import {
   cabValue,
   captureSlotLoadFrame,
   capturePreviewFrame,
+  capturePreviewStopFrame,
   captureSlotSelectFrame,
   captureVolumeDb,
   captureVolumeFrame,
@@ -189,6 +190,8 @@ describe('library', () => {
     const item = { list: 'factory' as const, index: 5, name: 'Comet 60 6' };
     expect(capturePreviewFrame(item)).toEqual(bytes(0x16, 0xc0, 0x1a, 0x0e, 0x08, 0x05, 0x12, 0x0a, 'Comet 60 6', 0x40, 0x01, 0x96, 0x00, 0x00, 0x00));
     expect(capturePreviewFrame({ ...item, list: 'user' })[2]).toBe(0x22);
+    // Cortex Cloud's stop, byte-exact (HCI snoop 2026-10-11 22:14:00.562 UTC).
+    expect(capturePreviewStopFrame(1791756840562)).toEqual(bytes(0x0d, 0xc0, 0x10, 0xf2, 0xdc, 0x9e, 0xe8, 0x92, 0x34, 0x18, 0x00, 0x94, 0x00, 0x00, 0x00));
     expect(captureSlotLoadFrame(4, item)).toEqual(bytes(0x16, 0xc0, 0x18, 0x04, 0x22, 0x0e, 0x08, 0x05, 0x12, 0x0a, 'Comet 60 6', 0x50, 0x00, 0x00, 0x00));
     expect(() => captureSlotLoadFrame(25, item)).toThrow();
     expect(cabSlotLoadFrame(3, { list: 'user', index: 23, name: 'YA' })).toEqual(bytes(0x0e, 0xc0, 0x18, 0x03, 0x2a, 0x06, 0x08, 0x17, 0x12, 0x02, 'YA', 0x4e, 0x00, 0x00, 0x00));

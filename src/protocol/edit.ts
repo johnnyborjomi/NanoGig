@@ -44,6 +44,8 @@ export const EDIT_MSG = {
   FX_MODEL: 0x88,
   FX_PARAMS_REQUEST: 0x89,
   FX_PARAMS: 0x8a,
+  CAPTURE_PREVIEW_STOP: 0x94,
+  CAPTURE_PREVIEW_STOPPED: 0x95,
   CAPTURE_PREVIEW: 0x96,
   CAPTURE_PREVIEWED: 0x97,
 } as const;
@@ -449,6 +451,15 @@ export function capturePreviewFrame(item: LibraryItem): Uint8Array {
     .sub(item.list === 'factory' ? 3 : 4, (pb) => pb.varint(1, item.index).text(2, item.name))
     .varint(8, 1)
     .frame(EDIT_MSG.CAPTURE_PREVIEW);
+}
+
+/**
+ * Stop a capture preview (Cortex Cloud's stop button, HCI snoop 2026-10-11): `0D C0 10 <ms since 1970, varint> 18 00
+ * 94 00 00 00` → type 0x95 `08 01 10 <the same ms> 18 01`. The saved capture plays again. A "Use" (slot load, then
+ * its select) ends a preview without this frame.
+ */
+export function capturePreviewStopFrame(nowMs = Date.now()): Uint8Array {
+  return new Pb().varint(2, nowMs).varint(3, 0).frame(EDIT_MSG.CAPTURE_PREVIEW_STOP);
 }
 
 /**

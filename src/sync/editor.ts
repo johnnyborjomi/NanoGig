@@ -30,6 +30,7 @@ import {
   cabSelectFrame,
   cabSlotLoadFrame,
   capturePreviewFrame,
+  capturePreviewStopFrame,
   cabSettingFrame,
   cabSettingsRequest,
   captureSlotLoadFrame,
@@ -81,8 +82,6 @@ export interface EditHost {
   /** Re-read the names from the pedal (after a delete: the cache cannot follow it). */
   refreshNames(): void;
   lastState(): CurrentState | null;
-  /** Load a preset (the shown one again: its saved state back, as the pedal's EXIT). */
-  selectPreset(index: number): Promise<void>;
 }
 
 const PRESET_REPLY_TIMEOUT_MS = 3000;
@@ -278,7 +277,8 @@ export class EditController {
         return true;
       case EDIT_MSG.CAB_SLOT_LOADED:
       case EDIT_MSG.CAPTURE_PREVIEWED:
-        this.host.log(decodeOk(payload) ? 'info' : 'warn', `Library ${msgType === EDIT_MSG.CAB_SLOT_LOADED ? 'IR slot load' : 'capture preview'} ${decodeOk(payload) ? 'acknowledged' : 'refused'}`, hex);
+      case EDIT_MSG.CAPTURE_PREVIEW_STOPPED:
+        this.host.log(decodeOk(payload) ? 'info' : 'warn', `Library ${msgType === EDIT_MSG.CAB_SLOT_LOADED ? 'IR slot load' : msgType === EDIT_MSG.CAPTURE_PREVIEWED ? 'capture preview' : 'capture preview stop'} ${decodeOk(payload) ? 'acknowledged' : 'refused'}`, hex);
         return true;
       case EDIT_MSG.RENAME_REPLY:
       case EDIT_MSG.PRESET_CREATED:
@@ -504,17 +504,20 @@ export class EditController {
   }
 
   /**
-   * Stop a preview: the preset loaded again, which puts its saved capture (and on / off) back. Selecting the preset's
-   * own capture (slot 6) does not: the preview sits in that very position, and the pedal kept playing it (board,
-   * 2026-10-11, a capture that was off to begin with). The load drops the preset's other unsaved edits too, as the
-   * pedal's EXIT does.
+   * Stop a preview, as Cortex Cloud's stop button does (HCI snoop 2026-10-11): the pedal plays the saved capture
+   * again and answers 0x95. Neither a reselect of the preset's own capture (the preview sits in that position) nor a
+   * load of the shown preset ended one (board, 2026-10-11).
    */
   async stopCapturePreview(): Promise<void> {
     this.assertEdit();
     const p = this.capturePreview();
     if (!p) return;
     this.clearCapturePreview();
-    await this.host.selectPreset(p.preset);
+    const own = this.ownCaptureName();
+    if (own) this.store.setField('captureName', own, 'optimistic');
+    this.writtenAt.capture = Date.now();
+    await this.send(capturePreviewStopFrame(), `Stop the capture preview "${p.name}"`);
+    this.host.confirm();
   }
 
   private savedSourceNow(): SavedSource | null {
@@ -543,7 +546,7 @@ export class EditController {
   /** Discard the capture's edits: a preview stopped, its saved slot (6: the preset's own) and volume. On / off stays as it is. */
   async discardCapture(): Promise<void> {
     this.assertEdit();
-    if (this.capturePreview()) return this.stopCapturePreview(); // the load puts the slot and volume back too
+    await this.stopCapturePreview();
     const b = this.savedSourceNow();
     const s = this.store.get();
     if (!b) return;
@@ -1008,21 +1011,17 @@ export class EditController {
   }
 
   /**
-   * A library capture over the preset's own, no slot of the pedal's touched: Cortex Cloud's preview (its tap on a
-   * library capture). The pedal plays it at once but does NOT mark the preset edited (no save light: the board,
-   * 2026-10-11, like the firmware's notes); selecting the preset's own capture (slot 6) brings the saved one back
-   * (`stopCapturePreview`). So the app keeps the books (`capturePreview`):
-   * - `own` ("Load into preset's own"): an edit of the app's. Its Save / Discard show; Save stores the shown preset
-   *   (SavePreset), which is expected to keep the capture (not yet seen on the pedal); Discard loads it again.
-   * - `preview`: heard only, until Stop preview or the capture tab's Discard.
-   * The load the pedal itself counts as an edit is `pickFromLibrary` (the firmware's only way: a slot write, then
-   * its select).
+   * Hear a library capture over the preset's own, no slot of the pedal's touched: Cortex Cloud's preview (its play
+   * button on a library capture). The pedal plays it until `stopCapturePreview` (Cortex Cloud's stop) or a slot
+   * select, and does NOT mark the preset edited (no save light: board 2026-10-11). The pedal has no command that
+   * writes a capture into the preset itself; the load it counts as an edit is `pickFromLibrary` (Cortex Cloud's and
+   * the firmware's way: a slot write, then its select). The app keeps the books of the preview (`capturePreview`).
    *
    * Only onto a capture that is on: a preview sent while the capture was off hung the pedal (board, 2026-10-11).
    * An off capture is first turned on as the preset's own (slot 6), and the preview goes only once a state read
    * shows it on; otherwise nothing is sent.
    */
-  async previewCapture(item: LibraryItem, kind: CapturePreview['kind'] = 'preview'): Promise<void> {
+  async previewCapture(item: LibraryItem): Promise<void> {
     this.assertEdit();
     if (this.store.get().captureOn.value !== true || this.store.get().captureOn.source !== 'dump') {
       if (this.store.get().captureOn.value !== true) await this.selectCaptureSlot(CAPTURE_OWN_SLOT);
@@ -1035,8 +1034,8 @@ export class EditController {
     this.writtenAt.capture = Date.now();
     this.store.setField('captureName', item.name, 'optimistic');
     const preset = this.activePreset();
-    await this.send(capturePreviewFrame(item), `${kind === 'own' ? 'Load' : 'Preview'} ${item.list} capture ${item.index + 1} "${item.name}" over the preset's own (the pedal shows no save light)`);
-    if (preset !== null) this.patchEdit({ capturePreview: { preset, name: item.name, kind } });
+    await this.send(capturePreviewFrame(item), `Preview ${item.list} capture ${item.index + 1} "${item.name}" (over the preset's own; not an edit)`);
+    if (preset !== null) this.patchEdit({ capturePreview: { preset, name: item.name } });
     this.host.confirm(600);
   }
 

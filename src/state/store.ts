@@ -124,14 +124,12 @@ export interface SavedSource {
 }
 
 /**
- * A library capture heard over the preset's own (Cortex Cloud's preview, which the pedal plays but does not count as
- * an edit: no save light). `own`: "Load into preset's own", an edit of the app's (its Save / Discard show; a Save
- * stores the shown preset, which is expected to keep it). `preview`: heard only, until Stop preview or a Discard.
+ * A library capture heard over the preset's own: Cortex Cloud's preview, which the pedal plays until it is stopped
+ * (`capturePreviewStopFrame`) or a slot is selected. Not an edit: no save light.
  */
 export interface CapturePreview {
   preset: number;
   name: string;
-  kind: 'own' | 'preview';
 }
 
 export interface EditState {
