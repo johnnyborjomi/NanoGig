@@ -924,8 +924,9 @@ export class EditController {
   }
 
   /**
-   * A library capture goes the way of Cortex Cloud's "Use": into the slot the preset plays (`captureSlotForEdit`),
-   * then that slot is selected (on the pedal's 0x51), which marks the preset edited. Every preset on that slot hears
+   * A library capture goes the way of Cortex Cloud's "Use" (and the firmware's capture list): into the slot the
+   * preset plays (`captureSlotForEdit`), then that slot is selected (on the pedal's 0x51), which marks the preset
+   * edited: the save light comes on, Save keeps it, Discard puts the saved one back. Every preset on that slot hears
    * the new capture. An IR loads into the preset itself (an edit, kept when the preset is saved).
    */
   async pickFromLibrary(item: LibraryItem, kind: LibraryKind): Promise<void> {
@@ -960,15 +961,17 @@ export class EditController {
   }
 
   /**
-   * A library capture into the preset itself, not a slot: Cortex Cloud's preview (a tap on a library capture), which
-   * the pedal plays at once and does not mark edited. Save stores the shown preset with it (not yet seen on the
-   * pedal). Every other preset keeps its capture.
+   * Hear a library capture without changing the preset: Cortex Cloud's preview (its tap on a library capture). The
+   * pedal plays it at once and does NOT mark the preset edited (no save light, so no Save / Discard: the board,
+   * 2026-10-11, like the firmware's notes), and whether a Save would keep it is not seen. Selecting the preset's own
+   * capture (slot 6) brings the saved one back. The load that is an edit is `pickFromLibrary` (the firmware's only
+   * way: a slot write, then its select, which the pedal marks edited).
    *
    * Only onto a capture that is on: a preview sent while the capture was off hung the pedal (board, 2026-10-11).
    * An off capture is first turned on as the preset's own (slot 6), and the preview goes only once a state read
    * shows it on; otherwise nothing is sent.
    */
-  async loadCaptureIntoPreset(item: LibraryItem): Promise<void> {
+  async previewCapture(item: LibraryItem): Promise<void> {
     this.assertEdit();
     if (this.store.get().captureOn.value !== true || this.store.get().captureOn.source !== 'dump') {
       if (this.store.get().captureOn.value !== true) await this.selectCaptureSlot(CAPTURE_OWN_SLOT);
@@ -980,7 +983,7 @@ export class EditController {
     }
     this.writtenAt.capture = Date.now();
     this.store.setField('captureName', item.name, 'optimistic');
-    await this.send(capturePreviewFrame(item), `Load ${item.list} capture ${item.index + 1} "${item.name}" into the preset`);
+    await this.send(capturePreviewFrame(item), `Preview ${item.list} capture ${item.index + 1} "${item.name}" (not an edit)`);
     this.host.confirm(600);
   }
 

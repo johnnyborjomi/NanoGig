@@ -458,11 +458,11 @@ export class MockTransport implements Transport {
       case EDIT_MSG.CAPTURE_PREVIEW: {
         // The real pedal hung on a preview while its capture was off (board, 2026-10-11): remembered for tests.
         if (!this.device.captureOn) this.previewedWhileOff = true;
+        // Heard at once; the preset is NOT marked edited (Cortex Cloud's tap; the board shows no save light).
         const item = sub(3) ?? sub(4);
         if (item) {
           this.device.captureNameOverride = text(item, 2);
           this.device.captureOn = true;
-          this.markDirty(false);
         }
         this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEWED);
         break;

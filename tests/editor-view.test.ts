@@ -240,7 +240,7 @@ describe('edit gestures', () => {
     tap(toggle); // closed again for the next test
   });
 
-  it('library rows: into the preset first, then into a slot; the IR tab has its slot list too', async () => {
+  it('library rows: the edit first (a capture into its slot, an IR into the preset), then preview / IR slot; the IR tab has its slot list too', async () => {
     const { root, store } = await setup(true);
     (root.querySelector('.capture.sub-name') as HTMLElement).click();
     tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!);
@@ -249,8 +249,8 @@ describe('edit gestures', () => {
     const firstItem = () => sheet.querySelector<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name')!;
     tap(firstItem());
     const buttons = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')).map((b) => b.textContent);
-    expect(buttons()[0]).toBe("Load into preset's own");
-    expect(buttons()[1]).toBe(`Load into bank ${store.get().captureBank.value} · slot ${store.get().captureSlot.value}`);
+    expect(buttons()[0]).toBe(`Load into bank ${store.get().captureBank.value} · slot ${store.get().captureSlot.value}`);
+    expect(buttons()[1]).toBe('Preview');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-tab')[1]!);
     expect(root.querySelector('.src-sheet .ed-pane:not([hidden]) .ed-slots .ed-slots-label')!.textContent).toBe('IR slots');
