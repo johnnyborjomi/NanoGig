@@ -219,6 +219,19 @@ describe('edit controller', () => {
     expect(mock.slotCaptures[0]).toBeUndefined();
   });
 
+  it("library: a capture that is off is turned on (the preset's own) before the preview; never a preview onto it off", async () => {
+    const { store, mock, edit } = await setup({ device: { initialState: { captureOn: false } } });
+    await until(() => store.get().captureOn.value === false && store.get().captureOn.source === 'dump');
+    await edit.loadLibrary('captures');
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    await edit.loadCaptureIntoPreset(store.get().edit.library.captures!.find((c) => c.name === 'My Plexi')!);
+    const types = mock.edits.map((e) => e.type);
+    expect(mock.edits.find((e) => e.type === EDIT_MSG.ENCODER)!.hex).toMatch(/^08 C0 18 01 20 06 1C/); // the preset's own
+    expect(types.indexOf(EDIT_MSG.ENCODER)).toBeLessThan(types.indexOf(EDIT_MSG.CAPTURE_PREVIEW));
+    expect(mock.previewedWhileOff).toBe(false);
+    await until(() => store.get().captureName.source === 'dump' && store.get().captureName.value === 'My Plexi' && store.get().captureOn.value === true);
+  });
+
   it("library: a capture into the preset's own (Cortex Cloud's preview), an IR into the IR slot playing", async () => {
     const { store, mock, edit } = await setup({ device: { initialState: { cabOn: true, cabSlot: 2 } } });
     await edit.loadLibrary('captures');

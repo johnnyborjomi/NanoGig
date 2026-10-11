@@ -1378,7 +1378,7 @@ export class EditorView {
           row.append(actions);
           const hint = irs
             ? `This preset alone, or IR slot ${irSlot}: every preset on that slot hears it.${this.s.cabOn.value !== true ? " The IR is off: loading one turns it on." : ""}`
-            : `This preset alone, or bank ${bank} slot ${slot}: every preset on that slot hears it. Save keeps it in this preset.`;
+            : `This preset alone, or bank ${bank} slot ${slot}: every preset on that slot hears it. Save keeps it in this preset.${this.s.captureOn.value !== true ? " The capture is off: loading one turns it on." : ""}`;
           row.append(el("p", "hint", hint));
         }
         rows.push(row);

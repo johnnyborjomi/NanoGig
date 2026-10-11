@@ -456,6 +456,8 @@ export class MockTransport implements Transport {
         break;
       }
       case EDIT_MSG.CAPTURE_PREVIEW: {
+        // The real pedal hung on a preview while its capture was off (board, 2026-10-11): remembered for tests.
+        if (!this.device.captureOn) this.previewedWhileOff = true;
         const item = sub(3) ?? sub(4);
         if (item) {
           this.device.captureNameOverride = text(item, 2);
@@ -539,6 +541,8 @@ export class MockTransport implements Transport {
 
   /** The capture slots' names after library loads (slot 0..24). */
   readonly slotCaptures: Record<number, string> = {};
+  /** A capture preview arrived while the capture was off (the real pedal hangs). */
+  previewedWhileOff = false;
   /** The IR slots' names after library loads (slot 0..4). */
   readonly slotIrs: Record<number, string> = {};
   /** Preset index on IA, IB, IIA, IIB. */

@@ -83,6 +83,8 @@ export interface EditHost {
 }
 
 const PRESET_REPLY_TIMEOUT_MS = 3000;
+/** How long a capture turned on for a library load may take to show on in a state read. */
+const CAPTURE_ON_WAIT_MS = 2500;
 const READ_TIMEOUT_MS = 2500;
 const LIBRARY_TIMEOUT_MS = 15000;
 
@@ -961,14 +963,44 @@ export class EditController {
    * A library capture into the preset itself, not a slot: Cortex Cloud's preview (a tap on a library capture), which
    * the pedal plays at once and does not mark edited. Save stores the shown preset with it (not yet seen on the
    * pedal). Every other preset keeps its capture.
+   *
+   * Only onto a capture that is on: a preview sent while the capture was off hung the pedal (board, 2026-10-11).
+   * An off capture is first turned on as the preset's own (slot 6), and the preview goes only once a state read
+   * shows it on; otherwise nothing is sent.
    */
   async loadCaptureIntoPreset(item: LibraryItem): Promise<void> {
     this.assertEdit();
+    if (this.store.get().captureOn.value !== true || this.store.get().captureOn.source !== 'dump') {
+      if (this.store.get().captureOn.value !== true) await this.selectCaptureSlot(CAPTURE_OWN_SLOT);
+      const on = await this.waitForState(() => {
+        const c = this.store.get().captureOn;
+        return c.value === true && c.source === 'dump';
+      }, CAPTURE_ON_WAIT_MS);
+      if (!on) throw new Error('The capture did not turn on: nothing loaded');
+    }
     this.writtenAt.capture = Date.now();
-    this.store.setField('captureOn', true, 'optimistic');
     this.store.setField('captureName', item.name, 'optimistic');
     await this.send(capturePreviewFrame(item), `Load ${item.list} capture ${item.index + 1} "${item.name}" into the preset`);
     this.host.confirm(600);
+  }
+
+  /** Resolves true once `ok` holds after a store change (state reads are asked meanwhile), false after `ms`. */
+  private waitForState(ok: () => boolean, ms: number): Promise<boolean> {
+    if (ok()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let off = () => {};
+      const timer = setTimeout(() => {
+        off();
+        resolve(false);
+      }, ms);
+      off = this.store.subscribe(() => {
+        if (!ok()) return;
+        clearTimeout(timer);
+        off();
+        resolve(true);
+      });
+      this.host.confirm();
+    });
   }
 
   /** The IR slot a library IR goes into: the one playing (1..5), else the one "on" goes to, else 1. */
