@@ -310,7 +310,7 @@ preset is only saved by the pedal's save button) except rename / create / delete
 | Action | Frame | Reply |
 | --- | --- | --- |
 | FX model | `<len> C0 18 <slot 0..4> 20 <type varint> 88 00 00 00` (type = the varint the dump's model ID spells: `FA2E` = 6010) | state dump confirms |
-| FX parameters read | `08 C0 08 03 18 <slot> 89 00 00 00`, **only for a block that is on** (DrD85 saw the pedal crash on a bypassed one) | `0x8A`: field 4 = every parameter's 0..1 as packed f32, in the model's order (`src/protocol/fx-params.ts`) |
+| FX parameters read | `08 C0 08 03 18 <slot> 89 00 00 00`, on or off alike: Cortex Cloud reads and edits a bypassed block, and rixrix/deskop-nano-cortex reads every slot on each preset load (DrD85 once reported a crash on a bypassed one) | `0x8A`: field 4 = every parameter's 0..1 as packed f32, in the model's order (`src/protocol/fx-params.ts`) |
 | FX parameter | `0F C0 08 01 18 <slot> 20 <param> 2D <f32 0..1> 63 00 00 00` | — |
 | Capture volume | `0A C0 18 0A 20 <raw 0..255> 28 00 1A 00 00 00` (`0B C0` from raw 128) | state field 44 |
 | Gate threshold | `<len> C0 18 0B 20 <raw 0..255> 28 00 1A 00 00 00` | state field 53 = f32 raw / 255 |

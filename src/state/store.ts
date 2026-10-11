@@ -58,8 +58,8 @@ export interface FxEditState {
   type: number;
   preset: number | null;
   values: number[] | null;
-  /** loading: a read is out; off: the block is bypassed (never read: DrD85 saw the pedal crash); unknown: no parameter table. */
-  status: 'loading' | 'ready' | 'off' | 'empty' | 'unknown' | 'error';
+  /** loading: a read is out (on or off alike: Cortex Cloud reads a bypassed block); unknown: no parameter table. */
+  status: 'loading' | 'ready' | 'empty' | 'unknown' | 'error';
 }
 
 /** The IR panel: the settings of the IR the preset plays (type 0x60 reply). */

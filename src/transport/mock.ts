@@ -343,7 +343,7 @@ export class MockTransport implements Transport {
       }
       case EDIT_MSG.FX_PARAMS_REQUEST: {
         const slot = FX_SLOTS[v(3)];
-        if (!slot || !this.device.fxOn[slot]) return true; // the real pedal may crash; the mock stays silent
+        if (!slot) return true; // on or off alike, as Cortex Cloud reads a bypassed block
         const values = this.paramsFor(slot);
         const packed = new Uint8Array(values.length * 4);
         values.forEach((x, i) => new DataView(packed.buffer).setFloat32(i * 4, x, true));

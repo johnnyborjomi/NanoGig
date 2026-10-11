@@ -420,15 +420,12 @@ export class EditorView {
     // One line that is always there: its text changes, the layout does not.
     const msg: Record<string, string> = {
       loading: "Reading the parameters…",
-      ready: "Live: save on the pedal to keep it",
-      off: "The block is off: turn it on to edit",
+      ready: on === false ? "Off: heard once it is on · Save keeps it" : "Live: Save keeps it",
       empty: "No model in this slot",
       unknown: "No parameter table for this model",
       error: "No answer from the pedal",
     };
     setMsg(this.fxStatus, msg[status] ?? "", status === "error" ? "warn" : "muted");
-    // A bypassed block is never read (the screen firmware's notes: reading one crashed the pedal).
-    if (status === "off") this.fxStatus.title = "The pedal is never asked about a bypassed block";
     this.fxRetry.dataset.shown = String(status === "error");
     // Parameter rows are rebuilt only when the model changes; values follow on every render.
     const def = fxDef(fx?.type ?? 0);
@@ -470,7 +467,8 @@ export class EditorView {
         }
       }
     }
-    const ready = status === "ready" && on === true;
+    // Off or on alike, as in Cortex Cloud: a bypassed block keeps its edits for when it is turned on.
+    const ready = status === "ready";
     for (const r of this.fxSliders) r.set(fx?.values?.[r.index] ?? null, ready);
     this.fxParams.dataset.dim = String(!ready);
     if (!this.fxModels.hidden) this.renderFxModels();

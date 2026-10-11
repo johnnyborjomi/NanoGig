@@ -170,8 +170,8 @@ export function fxModelFrame(slot: FxSlot, type: number): Uint8Array {
 }
 
 /**
- * Read a block's parameters: `08 C0 08 03 18 <slot> 89 00 00 00` → type 0x8A. Only for a block that is ON:
- * DrD85 saw the pedal crash on a bypassed one.
+ * Read a block's parameters: `08 C0 08 03 18 <slot> 89 00 00 00` → type 0x8A. On or off alike: Cortex Cloud reads
+ * a bypassed block (DrD85 once reported a crash on one; Cortex Cloud and rixrix/deskop-nano-cortex read them).
  */
 export function fxParamsRequest(slot: FxSlot): Uint8Array {
   return new Pb().varint(1, OP_READ).varint(3, slotIndex(slot)).frame(EDIT_MSG.FX_PARAMS_REQUEST);

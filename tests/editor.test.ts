@@ -64,14 +64,19 @@ describe('edit controller', () => {
     expect(fxModelType(store.get().fxModels.value.post2?.id)).toBe(6004);
   });
 
-  it('never reads a bypassed block', async () => {
-    const { store, mock, edit } = await setup();
+  it('reads and edits a bypassed block, as Cortex Cloud does; turning it on reads nothing new', async () => {
+    const { store, mock, engine, edit } = await setup();
     // pre1 is off in the demo.
+    expect(store.get().fxOn.value.pre1).toBe(false);
     edit.openFx('pre1');
-    expect(store.get().edit.fx?.status).toBe('off');
-    await wait(50);
-    expect(sent(mock, EDIT_MSG.FX_PARAMS_REQUEST)).toHaveLength(0);
-    expect(() => edit.setFxParam('pre1', 0, 0.5)).toThrow(/on/);
+    await until(() => store.get().edit.fx?.status === 'ready');
+    edit.setFxParam('pre1', 0, 0.5);
+    await until(() => Math.abs(mock.fxParams.pre1[0]! - 0.5) < 1e-6);
+    const reads = sent(mock, EDIT_MSG.FX_PARAMS_REQUEST).length;
+    await engine.toggleFx('pre1');
+    await until(() => store.get().fxOn.value.pre1 === true && store.get().fxOn.source === 'dump');
+    expect(sent(mock, EDIT_MSG.FX_PARAMS_REQUEST)).toHaveLength(reads);
+    expect(store.get().edit.fx!.values![0]).toBeCloseTo(0.5, 6);
   });
 
   it('coalesces slider writes: the newest value wins', async () => {

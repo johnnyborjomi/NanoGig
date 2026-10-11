@@ -280,14 +280,18 @@ export class EditController {
     return fxModelType(this.store.get().fxModels.value[slot]?.id);
   }
 
-  private slotOn(slot: FxSlot): boolean {
-    const s = this.store.get();
-    return s.fxOn.value[slot] === true && !!s.fxModels.value[slot];
+  /**
+   * A block with a model: readable and editable on or off. Cortex Cloud reads and edits a bypassed block (the
+   * values are kept for when it is turned on, and saved), and the desktop editor rixrix/deskop-nano-cortex reads
+   * every slot on each preset load. DrD85 once saw a crash reading a bypassed one; not seen since by those two.
+   */
+  private slotEditable(slot: FxSlot): boolean {
+    return !!this.store.get().fxModels.value[slot];
   }
 
-  /** What a read describes: the preset, the slot, its model and whether it is on. A change of any of them reads again. */
+  /** What a read describes: the preset, the slot and its model. A change of any of them reads again (on / off does not change the values). */
   private fxKey(slot: FxSlot): string {
-    return `${this.activePreset()}|${slot}|${this.slotType(slot)}|${this.slotOn(slot) ? 'on' : 'off'}`;
+    return `${this.activePreset()}|${slot}|${this.slotType(slot)}`;
   }
 
   openFx(slot: FxSlot): void {
@@ -315,8 +319,6 @@ export class EditController {
     const next: FxEditState = { slot, type, preset, values: same ? fx.values : null, status: 'loading' };
     if (!type) next.status = 'empty';
     else if (!fxDef(type)) next.status = 'unknown';
-    // Never for a bypassed block: DrD85 saw that crash the pedal.
-    else if (!this.slotOn(slot)) next.status = 'off';
     this.patchEdit({ fx: next });
     if (next.status !== 'loading' || this.host.transport.status !== 'connected') return;
     this.fxReads.push({ preset, key, at: Date.now() });
@@ -413,7 +415,7 @@ export class EditController {
     const id = this.savedModelChanged(slot);
     if (id) await this.setFxModel(slot, fxModelType(id));
     const base = this.savedParamsOf(slot);
-    if (!base || this.slotType(slot) !== base.type || !this.slotOn(slot)) return;
+    if (!base || this.slotType(slot) !== base.type || !this.slotEditable(slot)) return;
     // A slider write still queued for this block would land after these.
     for (const key of Array.from(this.queued.keys())) if (key.startsWith(`fx:${slot}:`)) this.queued.delete(key);
     const fx = this.store.get().edit.fx;
@@ -450,7 +452,7 @@ export class EditController {
   /** One parameter, live while a slider moves; the editor shows the value at once. */
   setFxParam(slot: FxSlot, param: number, normalized: number): void {
     this.assertEdit();
-    if (!this.slotOn(slot)) throw new Error('Turn the block on to edit it');
+    if (!this.slotEditable(slot)) throw new Error('No model in this slot');
     const def = fxDef(this.slotType(slot));
     if (!def || param >= def.params.length) throw new Error('Unknown parameter');
     const fx = this.store.get().edit.fx;
