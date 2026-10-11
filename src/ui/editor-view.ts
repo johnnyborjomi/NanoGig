@@ -792,7 +792,7 @@ export class EditorView {
       this.capVolume.root.dataset.off = String(on === false);
       this.showSrcDiscard(
         this.actions.edit()?.captureChanged() ?? false,
-        this.actions.edit()?.capturePreview() ? "Stop the preview: back to the capture this preset has saved" : "Back to the capture and volume this preset has saved (on / off stays)",
+        this.actions.edit()?.capturePreview() ? "Stop the preview: the preset loads again as saved (as the pedal's EXIT)" : "Back to the capture and volume this preset has saved (on / off stays)",
       );
       return;
     }
@@ -1388,7 +1388,7 @@ export class EditorView {
           row.append(actions);
           const hint = irs
             ? `This preset alone, or IR slot ${irSlot}: every preset on that slot hears it.${this.s.cabOn.value !== true ? " The IR is off: loading one turns it on." : ""}`
-            : `Bank ${bank} slot ${slot}: every preset on that slot hears it. Preset's own: this preset alone (the pedal shows no save light; the app's Save keeps it). Preview: heard only; Stop preview or Discard brings the saved capture back.${this.s.captureOn.value !== true ? " The capture is off: any of these turns it on." : ""}`;
+            : `Bank ${bank} slot ${slot}: every preset on that slot hears it. Preset's own: this preset alone (the pedal shows no save light; the app's Save keeps it). Preview: heard only; Stop preview (or Discard) loads the preset again as saved, as the pedal's EXIT.${this.s.captureOn.value !== true ? " The capture is off: any of these turns it on." : ""}`;
           row.append(el("p", "hint", hint));
         }
         rows.push(row);

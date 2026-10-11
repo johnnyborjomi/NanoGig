@@ -80,6 +80,8 @@ export interface EditHost {
   /** Re-read the names from the pedal (after a delete: the cache cannot follow it). */
   refreshNames(): void;
   lastState(): CurrentState | null;
+  /** Load a preset (the shown one again: its saved state back, as the pedal's EXIT). */
+  selectPreset(index: number): Promise<void>;
 }
 
 const PRESET_REPLY_TIMEOUT_MS = 3000;
@@ -486,11 +488,18 @@ export class EditController {
     if (this.store.get().edit.capturePreview) this.patchEdit({ capturePreview: null });
   }
 
-  /** Stop a preview: the preset's own capture selected again (slot 6), which brings the saved one back. */
+  /**
+   * Stop a preview: the preset loaded again, which puts its saved capture (and on / off) back. Selecting the preset's
+   * own capture (slot 6) does not: the preview sits in that very position, and the pedal kept playing it (board,
+   * 2026-10-11, a capture that was off to begin with). The load drops the preset's other unsaved edits too, as the
+   * pedal's EXIT does.
+   */
   async stopCapturePreview(): Promise<void> {
     this.assertEdit();
-    if (!this.capturePreview()) return;
-    await this.selectCaptureSlot(CAPTURE_OWN_SLOT);
+    const p = this.capturePreview();
+    if (!p) return;
+    this.clearCapturePreview();
+    await this.host.selectPreset(p.preset);
   }
 
   private savedSourceNow(): SavedSource | null {
@@ -519,7 +528,7 @@ export class EditController {
   /** Discard the capture's edits: a preview stopped, its saved slot (6: the preset's own) and volume. On / off stays as it is. */
   async discardCapture(): Promise<void> {
     this.assertEdit();
-    await this.stopCapturePreview();
+    if (this.capturePreview()) return this.stopCapturePreview(); // the load puts the slot and volume back too
     const b = this.savedSourceNow();
     const s = this.store.get();
     if (!b) return;

@@ -205,7 +205,8 @@ export class MockTransport implements Transport {
       // (field 9 = 2 is a footswitch assignment, not a select: handled with the edits)
       if (this.opts.acceptedMidi !== 'c304-select') return; // other firmware: ignored
       this.device.activePreset = bytes[5]!;
-      this.device.captureNameOverride = this.device.irNameOverride = null; // a preset load drops unsaved edits
+      this.presetLoads++;
+      this.device.captureNameOverride = this.device.irNameOverride = null; // a preset load drops unsaved edits (a preview too)
       this.loadDropsEdits();
       // The real pedal answers with a bypass-changed notice, then the 0x1E ack; no 0x1D event.
       this.schedule(() => {
@@ -543,6 +544,8 @@ export class MockTransport implements Transport {
   readonly slotCaptures: Record<number, string> = {};
   /** A capture preview arrived while the capture was off (the real pedal hangs). */
   previewedWhileOff = false;
+  /** Preset selects received (a load of the shown preset is the way out of a preview). */
+  presetLoads = 0;
   /** The IR slots' names after library loads (slot 0..4). */
   readonly slotIrs: Record<number, string> = {};
   /** Preset index on IA, IB, IIA, IIB. */

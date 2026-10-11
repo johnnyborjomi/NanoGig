@@ -262,8 +262,9 @@ describe('edit controller', () => {
     expect(edit.capturePreview()).toMatchObject({ name: 'My Plexi', kind: 'preview' });
     expect(edit.captureChanged()).toBe(true);
     const own = edit.ownCaptureName();
-    await edit.stopCapturePreview();
-    expect(mock.edits.at(-1)!.hex).toMatch(/^08 C0 18 01 20 06 1C/);
+    const loads = mock.presetLoads;
+    await edit.stopCapturePreview(); // the preset loaded again (selecting its own capture does not stop it: board, 2026-10-11)
+    expect(mock.presetLoads).toBe(loads + 1);
     expect(edit.capturePreview()).toBeNull();
     await until(() => store.get().captureName.source === 'dump' && store.get().captureName.value === own);
     // "Load into preset's own": the same frame, but the app's edit: Save stores the preset with it.
