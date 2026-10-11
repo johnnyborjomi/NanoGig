@@ -477,6 +477,8 @@ export function cabSlotLoadFrame(slot: number, item: LibraryItem): Uint8Array {
 
 /** Slots selector 1 reaches (1..5, like the IR's); 6 = the preset's own capture. */
 export const CAPTURE_SELECT_SLOTS = 5;
+/** Capture banks (field 9, 1..5): 5 × 5 = the pedal's 25 capture slots. */
+export const CAPTURE_BANKS = 5;
 export const CAPTURE_OWN_SLOT = 6;
 
 /**

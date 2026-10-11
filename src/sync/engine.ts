@@ -194,7 +194,7 @@ export class SyncEngine {
       metadata: () => this.metadata,
       metadataChanged: (md) => {
         this.metadata = md;
-        this.store.setField('presetNames', md.presets.map((p) => p.name), 'metadata');
+        this.publishNames(md, 'metadata');
         this.updateSlotKnowledge(Date.now());
         this.persistMetadata(md);
       },
@@ -278,7 +278,7 @@ export class SyncEngine {
         // Names carried over from an earlier link (or the persistent cache) may have been renamed
         // in Cortex Cloud meanwhile: treat them as provisional so the staleness check and the
         // idle refresh apply to this link too, not only to the first one after a page load.
-        this.store.setField('presetNames', this.metadata.presets.map((p) => p.name), 'cache');
+        this.publishNames(this.metadata, 'cache');
         this.log('info', 'Preset names already known; reading state only (Menu → Refresh re-reads them)');
         this.validateNamesOnNextState = true;
         await this.requestState();
@@ -297,7 +297,7 @@ export class SyncEngine {
     if (!md || md.presetRecordCount < MIN_PRESET_RECORDS) return;
     this.metadata = md;
     this.cachedFingerprint = metadataFingerprint(md);
-    this.store.setField('presetNames', md.presets.map((p) => p.name), 'cache');
+    this.publishNames(md, 'cache');
     this.log('info', `Preset names restored from the cache (${md.presetRecordCount} presets, ${md.captures.length} captures, ${md.irs.length} IRs)`);
   }
 
@@ -614,7 +614,7 @@ export class SyncEngine {
       else this.log('warn', 'Metadata carried no IR slot list (field 19); cab re-enable will not be possible until it does');
       if (md.presetRecordCount >= MIN_PRESET_RECORDS) {
         this.metadata = md;
-        this.store.setField('presetNames', md.presets.map((p) => p.name), 'metadata');
+        this.publishNames(md, 'metadata');
         this.updateSlotKnowledge(Date.now());
         this.store.patch({ lastMetadataAt: Date.now() });
         this.persistMetadata(md);
@@ -718,6 +718,12 @@ export class SyncEngine {
     void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Metadata refresh failed: ${(err as Error).message}`));
   }
 
+  /** Preset names and the capture slots' names, from a metadata read (or its cache). */
+  private publishNames(md: Metadata, source: 'metadata' | 'cache'): void {
+    this.store.setField('presetNames', md.presets.map((p) => p.name), source);
+    this.store.patch({ captureSlots: md.captures.map((c) => c.name) });
+  }
+
   private applyState(state: CurrentState, requestedAt = 0) {
     const at = Date.now();
     const prev = this.store.get();
@@ -760,6 +766,7 @@ export class SyncEngine {
     this.store.setField('captureOn', captureOn, captureStale ? 'optimistic' : 'dump', at);
     if (stale || gateStale || cabStale || captureStale || editHeld) this.scheduleConfirm();
     this.store.setField('captureSlot', state.captureSlot ?? 0, editHeld ? 'optimistic' : 'dump', at);
+    if (state.captureBank !== null) this.store.setField('captureBank', state.captureBank, editHeld ? 'optimistic' : 'dump', at);
     // Field 44 absent = raw 0 (-24 dB): the pedal leaves zero varints out.
     this.store.setField('captureVolume', state.captureVolumeRaw ?? 0, 'dump', at);
     this.store.setField('gateThreshold', state.gateThresholdRaw, 'dump', at);

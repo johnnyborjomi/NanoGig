@@ -113,6 +113,8 @@ export interface SavedSource {
   preset: number;
   /** Field 11 as read: 1..5, 6 = the preset's own, 0 = off. */
   captureSlot: number | null;
+  /** Field 9: the bank that slot counts in. */
+  captureBank: number | null;
   captureVolume: number | null;
   /** Field 12 while on (6 = the preset's own IR), null = off. */
   cabSlot: number | null;
@@ -207,6 +209,10 @@ export interface GigState {
   captureSlotKnown: Field<boolean | null>;
   /** Field 11 as sent: the capture slot 1..5, 6 = the preset's own capture, 0 = bypassed. */
   captureSlot: Field<number | null>;
+  /** Field 9: the capture bank 1..5 the slot counts in. */
+  captureBank: Field<number | null>;
+  /** The pedal's 25 capture slots (5 banks of 5) by name, from the metadata; [] until read. */
+  captureSlots: string[];
   /** Capture volume, raw 0..255 (state field 44; captureVolumeDb for the readout). */
   captureVolume: Field<number | null>;
   /** Gate threshold, raw 0..255 (state field 53 × 255). */
@@ -287,6 +293,8 @@ export function initialState(transportName = 'none'): GigState {
     captureOn: field<boolean | null>(null),
     captureSlotKnown: field<boolean | null>(null),
     captureSlot: field<number | null>(null),
+    captureBank: field<number | null>(null),
+    captureSlots: [],
     captureVolume: field<number | null>(null),
     gateThreshold: field<number | null>(null),
     cabSlot: field<number | null>(null),
@@ -364,6 +372,7 @@ export class Store {
       captureOn: s.captureOn,
       captureSlotKnown: s.captureSlotKnown,
       captureSlot: s.captureSlot,
+      captureBank: s.captureBank,
       captureVolume: s.captureVolume,
       gateThreshold: s.gateThreshold,
       cabSlot: s.cabSlot,

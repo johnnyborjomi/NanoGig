@@ -206,6 +206,28 @@ describe('edit gestures', () => {
     expect(input.value).toBe(store.get().presetNames.value[store.get().activePreset.value!]);
   });
 
+  it('capture tab: ‹ › browse the banks without playing; a tap plays a slot, highlighted', async () => {
+    const { root, store, mock } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    await until(() => store.get().captureSlots.length === 25);
+    const label = root.querySelector<HTMLElement>('.src-sheet .ed-capbanks .ed-slot')!;
+    const slots = () => Array.from(root.querySelectorAll<HTMLElement>('.src-sheet .ed-cap-slots .ed-cap-slot'));
+    const names = () => slots().map((b) => b.querySelector('.ed-cap-name')!.textContent);
+    expect(label.textContent).toBe('Bank 1 of 5');
+    expect(names()).toEqual(store.get().captureSlots.slice(0, 5));
+    expect(slots().filter((b) => b.dataset.active === 'true')).toHaveLength(1);
+    const sent = mock.edits.length;
+    tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-capbanks .ed-step-btn')[1]!);
+    expect(label.textContent).toBe('Bank 2 of 5');
+    expect(names()).toEqual(store.get().captureSlots.slice(5, 10));
+    expect(slots().filter((b) => b.dataset.active === 'true')).toHaveLength(0); // the playing slot is in bank 1
+    expect(mock.edits.length).toBe(sent); // browsing sends nothing
+    tap(slots()[2]!);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 2 && store.get().captureSlot.value === 3);
+    expect(label.textContent).toBe('Bank 2 of 5');
+    expect(slots().map((b) => b.dataset.active)).toEqual(['false', 'false', 'true', 'false', 'false']);
+  });
+
   it('amp & cab and gate: Discard once a value moves; an IR that is off is grey but editable', async () => {
     const { root, store } = await setup(true);
     (root.querySelector('.capture.sub-name') as HTMLElement).click();

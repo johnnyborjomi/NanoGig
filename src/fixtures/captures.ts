@@ -106,6 +106,15 @@ export interface MockDeviceState {
   irNameOverride?: string | null;
   /** Unsaved changes in the shown preset (field 41, the save light). */
   dirty?: boolean;
+  /** Capture bank 1..5 (field 9); the capture slot counts in it. */
+  captureBank?: number;
+}
+
+/** The 25 capture slots (5 banks of 5) of the mock pedal: the presets' captures, then numbered ones. */
+export function mockCaptureSlots(presets: MockPreset[]): string[] {
+  const names = [...new Set(presets.map((p) => p.captureName).filter(Boolean))].slice(0, 25);
+  while (names.length < 25) names.push(`Capture ${names.length + 1}`);
+  return names;
 }
 
 export function defaultMockDeviceState(): MockDeviceState {
@@ -147,6 +156,7 @@ export function buildCurrentStateBody(state: MockDeviceState, preset: MockPreset
   body.push(...varintField(5, state.amp.bass));
   body.push(...varintField(6, state.amp.mid));
   body.push(...varintField(7, state.amp.treble));
+  body.push(...varintField(9, state.captureBank ?? 1));
   body.push(...varintField(11, state.captureOn ? state.captureSlot : 0));
   if (state.cabOn) body.push(...varintField(12, state.cabSlot ?? 1));
   body.push(...varintFieldOpt(13, state.activePreset)); // absent on preset 1, like the pedal
@@ -200,14 +210,13 @@ export function segmentStream(body: Uint8Array, chunk = 510): Uint8Array[] {
 }
 
 /** Build a synthetic metadata message body: field 17 captures, 18 presets, 19 IRs. */
-export function buildMetadataBody(presets: MockPreset[], state?: MockDeviceState): Uint8Array {
+export function buildMetadataBody(presets: MockPreset[], state?: MockDeviceState, captureSlots = mockCaptureSlots(presets)): Uint8Array {
   const body: number[] = [];
   if (state) {
     const st = buildCurrentStateBody(state, presets[state.activePreset] ?? { name: '', captureName: '', irShortName: '' });
     body.push(...st.subarray(0, st.length - 4)); // state fields without the trailer
   }
-  const captures = [...new Set(presets.map((p) => p.captureName).filter(Boolean))];
-  captures.forEach((name, i) => {
+  captureSlots.forEach((name, i) => {
     body.push(...bytesField(17, [...stringField(1, `cap-${i.toString(16).padStart(12, '0')}`), ...stringField(2, name)]));
   });
   for (let i = 0; i < 64; i++) {

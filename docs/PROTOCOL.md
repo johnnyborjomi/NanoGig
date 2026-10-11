@@ -314,7 +314,8 @@ preset is only saved by the pedal's save button) except rename / create / delete
 | FX parameter | `0F C0 08 01 18 <slot> 20 <param> 2D <f32 0..1> 63 00 00 00` | — |
 | Capture volume | `0A C0 18 0A 20 <raw 0..255> 28 00 1A 00 00 00` (`0B C0` from raw 128) | state field 44 |
 | Gate threshold | `<len> C0 18 0B 20 <raw 0..255> 28 00 1A 00 00 00` | state field 53 = f32 raw / 255 |
-| Capture slot | `08 C0 18 01 20 <slot 1..5, 6 = the preset's own, 0 = off> 1C 00 00 00` | field 11 |
+| Capture slot | `08 C0 18 01 20 <slot 1..5, 6 = the preset's own, 0 = off> 1C 00 00 00`: a position in the bank playing (field 9) | field 11 |
+| Capture in another bank | `08 C0 18 04 20 <slot 0..24 over the 5 banks> 1C 00 00 00` (DrD85: "bank and capture", as Cortex Cloud selects) | field 9 = bank 1..5, field 11 = position |
 | IR slot | `08 C0 18 03 20 <slot 1..5, 0 = off> 1C 00 00 00` | field 12 |
 | IR settings read | `08 C0 18 00 20 <field 12 − 1> 5F 00 00 00`; **not for an IR that is off**: the pedal leaves it unanswered (2026-10-11), so the panel shows what was last read of it | `0x60`: `5 {1 kind, 2 name, 3 position, 4 mic}` factory / `6 {1 kind, 2 name}` user, `7` mics (repeated), `8 {1 level, 2 high pass, 3 low pass (f32), 4 phase}` |
 | IR level / high pass / low pass | `09 C0 <2D / 35 / 3D> <f32 0..1> 5E 00 00 00` | — |

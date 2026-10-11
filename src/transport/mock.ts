@@ -28,6 +28,7 @@ import {
   buildExpressionPositionEvent,
   buildExpressionValuesEvent,
   buildMetadataBody,
+  mockCaptureSlots,
   defaultMockDeviceState,
   segmentStream,
   wrapSinglePacket,
@@ -188,7 +189,7 @@ export class MockTransport implements Transport {
     if (this._status !== 'connected') throw new Error('mock: not connected');
     this.log('tx', 'TX c304 (mock)', toHex(bytes));
     if (bytesEqual(bytes, METADATA_DUMP_REQUEST)) {
-      const body = buildMetadataBody(this.presets, this.device);
+      const body = buildMetadataBody(this.presets, this.device, this.metadataCaptures());
       this.emitStream(segmentStream(body, 510));
       return;
     }
@@ -259,12 +260,7 @@ export class MockTransport implements Transport {
     }
     // Slot-select family: 08 C0 18 <sel> 20 <v> 1C 00 00 00
     if (bytes.length === 10 && bytes[0] === 0x08 && bytes[1] === 0xc0 && bytes[2] === 0x18 && bytes[4] === 0x20 && bytes[6] === 0x1c) {
-      const sel = bytes[3]!;
-      if (sel === 0x04) {
-        this.device.captureOn = true; // capture select (enable)
-        return;
-      }
-      // Selector 1 (capture slot / bypass) and 3 (IR slot / off): the editing handler below.
+      // Selector 1 (capture slot / bypass), 3 (IR slot / off) and 4 (bank and capture): the editing handler below.
     }
     if (this.handleEdit(bytes)) return;
     this.log('warn', 'mock: unrecognised command frame ignored', toHex(bytes));
@@ -369,8 +365,16 @@ export class MockTransport implements Transport {
         if (v(3) === 1) {
           this.device.captureOn = v(4) > 0;
           if (v(4) > 0) this.device.captureSlot = v(4);
-          if (v(4) > 0 && v(4) <= 5) this.device.captureNameOverride = this.metadataCaptures()[v(4) - 1] ?? null;
+          const bank = (this.device.captureBank ?? 1) - 1;
+          if (v(4) > 0 && v(4) <= 5) this.device.captureNameOverride = this.metadataCaptures()[bank * 5 + v(4) - 1] ?? null;
           if (v(4) === 6) this.device.captureNameOverride = null;
+        } else if (v(3) === 4) {
+          // Bank and capture: slot 0..24 over the five banks (Cortex Cloud, DrD85).
+          const abs = v(4);
+          this.device.captureBank = Math.floor(abs / 5) + 1;
+          this.device.captureSlot = (abs % 5) + 1;
+          this.device.captureOn = true;
+          this.device.captureNameOverride = this.metadataCaptures()[abs] ?? null;
         } else if (v(3) === 3) {
           this.device.cabOn = v(4) > 0;
           if (v(4) > 0) {
@@ -532,8 +536,7 @@ export class MockTransport implements Transport {
   readonly footswitches = [3, 7, 10, 16];
 
   private metadataCaptures(): string[] {
-    const base = [...new Set(this.presets.map((p) => p.captureName).filter(Boolean))];
-    return base.map((n, i) => this.slotCaptures[i] ?? n);
+    return mockCaptureSlots(this.presets).map((n, i) => this.slotCaptures[i] ?? n);
   }
 
   private metadataIrs(): string[] {

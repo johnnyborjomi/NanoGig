@@ -174,6 +174,8 @@ export interface CurrentState {
   ir: IrState | null;
   amp: AmpKnobs;
   captureSlot: number | null;
+  /** Field 9 (DrD85: bankSelector): the capture bank 1..5 that field 11's position counts in. Absent = null. */
+  captureBank: number | null;
   captureVolumeRaw: number | null;
   /**
    * Gate threshold as the write's raw 0..255: field 53 is f32 raw / 255 (screen firmware, verified 2026-10-10:
@@ -271,6 +273,10 @@ export function decodeCurrentState(bytes: Uint8Array): CurrentState | null {
       treble: firstVarint(f, 7),
     },
     captureSlot: firstVarint(f, 11),
+    captureBank: (() => {
+      const b = firstVarint(f, 9);
+      return b !== null && b >= 1 && b <= 5 ? b : null;
+    })(),
     captureVolumeRaw: firstVarint(f, 44),
     gateThresholdRaw: (() => {
       const v = firstFixed32Float(f, 53);

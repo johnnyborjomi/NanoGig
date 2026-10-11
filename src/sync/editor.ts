@@ -58,7 +58,7 @@ import {
   type LibraryItem,
   type LibraryKind,
 } from '../protocol/edit';
-import { CAB_SLOT_COUNT, FX_SLOTS, type FxSlot } from '../protocol/frames';
+import { CAB_SLOT_COUNT, FX_SLOTS, captureSelectFrame, type FxSlot } from '../protocol/frames';
 import { toHex } from '../protocol/hex';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
 import type { EditState, FxEditState, IrEditState, SavedModels, SavedParams, SavedSource, Store } from '../state/store';
@@ -220,6 +220,7 @@ export class EditController {
     }
     if (writtenSince(this.writtenAt.capture, requestedAt) && samePreset) {
       state.captureSlot = s.captureOn.value ? (s.captureSlot.value ?? state.captureSlot) : 0;
+      state.captureBank = s.captureBank.value ?? state.captureBank;
       if (state.capture && s.captureName.value) state.capture = { ...state.capture, name: s.captureName.value };
       held = true;
     }
@@ -459,6 +460,7 @@ export class EditController {
       savedSource: {
         preset,
         captureSlot: s.captureOn.value === false ? 0 : s.captureSlot.value,
+        captureBank: s.captureBank.value,
         captureVolume: s.captureVolume.value,
         cabSlot: s.cabOn.value ? s.cabSlot.value : null,
         irName: s.irName.value,
@@ -479,7 +481,15 @@ export class EditController {
     const s = this.store.get();
     if (!b) return false;
     if (b.captureVolume !== null && s.captureVolume.value !== null && s.captureVolume.value !== b.captureVolume) return true;
-    return !!b.captureSlot && s.captureOn.value === true && s.captureSlot.value !== b.captureSlot;
+    return this.captureMoved(b);
+  }
+
+  /** Another capture than saved while on: another slot, or (for slots 1..5) another bank. */
+  private captureMoved(b: SavedSource): boolean {
+    const s = this.store.get();
+    if (!b.captureSlot || s.captureOn.value !== true) return false;
+    if (s.captureSlot.value !== b.captureSlot) return true;
+    return b.captureSlot !== CAPTURE_OWN_SLOT && b.captureBank !== null && s.captureBank.value !== null && s.captureBank.value !== b.captureBank;
   }
 
   /** Discard the capture's edits: its saved slot (6: the preset's own) and volume. On / off stays as it is. */
@@ -488,7 +498,10 @@ export class EditController {
     const b = this.savedSourceNow();
     const s = this.store.get();
     if (!b) return;
-    if (b.captureSlot && s.captureOn.value === true && s.captureSlot.value !== b.captureSlot) await this.selectCaptureSlot(b.captureSlot);
+    if (b.captureSlot && this.captureMoved(b)) {
+      if (b.captureSlot === CAPTURE_OWN_SLOT || b.captureBank === null) await this.selectCaptureSlot(b.captureSlot);
+      else await this.selectCapture(b.captureBank, b.captureSlot);
+    }
     if (b.captureVolume !== null && s.captureVolume.value !== b.captureVolume) this.setCaptureVolume(b.captureVolume);
   }
 
@@ -606,6 +619,16 @@ export class EditController {
    * A slot to load into or turn on: the capture's own while it sits in one, else the slot this preset last played,
    * else the preset's saved capture among the slots, else 1 (also for the preset's own capture, slot 6).
    */
+  /** The name of the capture the shown preset has saved in itself (slot 6), from the metadata. */
+  ownCaptureName(): string {
+    return this.host.metadata()?.presets[this.activePreset() ?? -1]?.captureName ?? '';
+  }
+
+  /** Where the active capture bank starts among the pedal's 25 slots (bank 1 → 0). */
+  private captureBankOffset(): number {
+    return ((this.store.get().captureBank.value ?? 1) - 1) * CAPTURE_SELECT_SLOTS;
+  }
+
   captureSlotForEdit(): number {
     const s = this.store.get();
     const cur = s.captureSlot.value ?? 0;
@@ -615,7 +638,8 @@ export class EditController {
     const preset = s.activePreset.value;
     const saved = preset !== null ? md?.presets[preset]?.captureName.trim().toLowerCase() : '';
     if (md && saved) {
-      const i = md.captures.slice(0, CAPTURE_SELECT_SLOTS).findIndex((c) => c.name.trim().toLowerCase() === saved);
+      const from = this.captureBankOffset();
+      const i = md.captures.slice(from, from + CAPTURE_SELECT_SLOTS).findIndex((c) => c.name.trim().toLowerCase() === saved);
       if (i >= 0) return i + 1;
     }
     return 1;
@@ -630,12 +654,31 @@ export class EditController {
     if (slot) {
       this.store.setField('captureOn', true, 'optimistic');
       this.store.setField('captureSlot', slot, 'optimistic');
-      const name = slot <= CAPTURE_SELECT_SLOTS ? md?.captures[slot - 1]?.name : md?.presets[this.activePreset() ?? -1]?.captureName;
+      const name = slot <= CAPTURE_SELECT_SLOTS ? md?.captures[this.captureBankOffset() + slot - 1]?.name : md?.presets[this.activePreset() ?? -1]?.captureName;
       if (name) this.store.setField('captureName', name, 'optimistic');
     } else {
       this.store.setField('captureOn', false, 'optimistic');
     }
     await this.send(frame, slot ? `Capture slot ${slot}${slot === CAPTURE_OWN_SLOT ? " (the preset's own)" : ''}` : 'Capture off');
+    this.host.confirm();
+  }
+
+  /**
+   * A capture slot in any bank (1..5 each): in the active bank by its position (selector 1, as the pedal's own
+   * encoder), in another by bank and capture (selector 4, slot 0..24, as Cortex Cloud and DrD85 select them).
+   */
+  async selectCapture(bank: number, position: number): Promise<void> {
+    this.assertEdit();
+    if (!Number.isInteger(bank) || bank < 1 || bank > 5 || !Number.isInteger(position) || position < 1 || position > CAPTURE_SELECT_SLOTS) throw new RangeError(`bad capture ${bank}/${position}`);
+    if (bank === (this.store.get().captureBank.value ?? 1)) return this.selectCaptureSlot(position);
+    const abs = (bank - 1) * CAPTURE_SELECT_SLOTS + position;
+    this.writtenAt.capture = Date.now();
+    this.store.setField('captureOn', true, 'optimistic');
+    this.store.setField('captureBank', bank, 'optimistic');
+    this.store.setField('captureSlot', position, 'optimistic');
+    const name = this.host.metadata()?.captures[abs - 1]?.name;
+    if (name) this.store.setField('captureName', name, 'optimistic');
+    await this.send(captureSelectFrame(abs), `Capture bank ${bank} slot ${position}`);
     this.host.confirm();
   }
 
@@ -895,11 +938,13 @@ export class EditController {
     this.writtenAt.capture = Date.now();
     this.store.setField('captureOn', true, 'optimistic');
     this.store.setField('captureName', item.name, 'optimistic');
-    await this.send(captureSlotLoadFrame(slot - 1, item), `Load ${item.list} capture ${item.index + 1} "${item.name}" into slot ${slot}`);
+    // The pedal's slots are 0..24 over the five banks: the active bank's.
+    const abs = this.captureBankOffset() + slot - 1;
+    await this.send(captureSlotLoadFrame(abs, item), `Load ${item.list} capture ${item.index + 1} "${item.name}" into bank ${Math.floor(abs / CAPTURE_SELECT_SLOTS) + 1} slot ${slot}`);
     const md = this.host.metadata();
-    if (md && md.captures[slot - 1]) {
+    if (md && md.captures[abs]) {
       const captures = md.captures.slice();
-      captures[slot - 1] = { ...captures[slot - 1]!, name: item.name };
+      captures[abs] = { ...captures[abs]!, name: item.name };
       this.host.metadataChanged({ ...md, captures });
     }
     this.host.confirm(1500); // in case the 0x51 never comes

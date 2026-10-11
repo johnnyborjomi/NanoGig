@@ -189,6 +189,35 @@ describe('edit controller', () => {
     expect(mock.slotCaptures[store.get().captureSlot.value! - 1]).toBe('Comet 60 6');
   });
 
+  it('capture banks: a slot in another bank by bank and capture, in the playing bank by position; loads go to the playing bank', async () => {
+    const { store, mock, edit } = await setup();
+    await until(() => store.get().captureBank.value === 1 && store.get().captureSlots.length === 25);
+    const before = mock.edits.length;
+    await edit.selectCapture(3, 2); // bank 3, slot 2 = slot 12 of 25
+    expect(mock.edits.slice(before).at(-1)!.hex).toMatch(/^08 C0 18 04 20 0B 1C/);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 3 && store.get().captureSlot.value === 2);
+    expect(store.get().captureName.value).toBe(store.get().captureSlots[11]);
+    // In the playing bank: by position (selector 1), as the pedal's own encoder.
+    await edit.selectCapture(3, 4);
+    expect(mock.edits.at(-1)!.hex).toMatch(/^08 C0 18 01 20 04 1C/);
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureSlot.value === 4 && store.get().captureBank.value === 3);
+    // Discard goes back to the saved bank and slot.
+    expect(edit.captureChanged()).toBe(true);
+    await edit.discardCapture();
+    const saved = store.get().edit.savedSource!;
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureBank.value === saved.captureBank && store.get().captureSlot.value === saved.captureSlot);
+    expect(edit.captureChanged()).toBe(false);
+    // A library capture goes into the playing bank's slot (bank 2 slot 1 = pedal slot 5).
+    await edit.selectCapture(2, 1);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 2);
+    await edit.loadLibrary('captures');
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    const comet = store.get().edit.library.captures!.find((c) => c.name === 'Comet 60 6')!;
+    await edit.pickFromLibrary(comet, 'captures');
+    await until(() => mock.slotCaptures[5] === 'Comet 60 6');
+    expect(mock.slotCaptures[0]).toBeUndefined();
+  });
+
   it('renames, creates and deletes presets; checks the name first', async () => {
     const { store, mock, edit } = await setup();
     await expect(edit.renamePreset(0, 'abc')).rejects.toThrow(/4/);

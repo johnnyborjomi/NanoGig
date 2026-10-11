@@ -14,7 +14,9 @@
  */
 import {
   CAB_POSITIONS,
+  CAPTURE_BANKS,
   CAPTURE_OWN_SLOT,
+  CAPTURE_SELECT_SLOTS,
   CAPTURE_VOLUME_DEFAULT_RAW,
   FOOTSWITCHES,
   PRESET_NAME_WRITE_MAX,
@@ -495,6 +497,14 @@ export class EditorView {
   private readonly irPane = el("div", "ed-pane");
   private readonly capName = el("div", "ed-big");
   private readonly capSlot = el("span", "ed-slot");
+  /** The capture banks as the pedal has them: 5 banks of 5 slots, ‹ › to browse, a tap to play one. */
+  private readonly capBanks = el("div", "ed-capbanks");
+  private readonly capBankLabel = el("span", "ed-slot");
+  private readonly capSlotBtns: HTMLButtonElement[] = [];
+  private readonly capOwnBtn = el("button", "ed-chip ed-cap-slot");
+  /** The bank shown; null = the one playing (also after it changes on the pedal). */
+  private capBankView: number | null = null;
+  private capBankSeen: string | null = null;
   private readonly capPower = el("button", "ed-power");
   private readonly capVolume = new Slider(
     "Volume",
@@ -524,6 +534,7 @@ export class EditorView {
   openSource(tab: "capture" | "ir") {
     if (!this.canEdit) return;
     this.srcTab = tab;
+    this.capBankView = null;
     this.srcSheet.open();
     if (tab === "ir") this.run(() => this.edit().openIr());
     this.renderSource();
@@ -565,15 +576,37 @@ export class EditorView {
     const capHint = el(
       "p",
       "hint",
-      "◀ ▶ step through the pedal's capture slots 1–5; a library capture goes into the slot this preset plays, and every preset on that slot hears it. Save on the pedal to keep it. Double-tap the volume to reset it to 0 dB.",
+      "‹ › browse the pedal's capture banks, tap a slot to play it. A library capture goes into the slot this preset plays, and every preset on that slot hears it. Save keeps it in this preset. Double-tap the volume to reset it to 0 dB.",
     );
-    this.capPane.append(
-      this.capName,
-      this.stepRow(this.capSlot, (d) => this.run(this.edit().stepCapture(d)), this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value))),
-      this.capVolume.root,
-      capLib,
-      capHint,
-    );
+    // On / off on its own row; the banks under it get the full width.
+    const powerRow = el("div", "ed-row");
+    this.capPower.append(icon(Power), el("span", "", ""));
+    this.capPower.addEventListener("click", () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value)));
+    powerRow.append(this.capPower, this.capSlot);
+    const nav = el("div", "ed-row ed-step");
+    const prev = iconButton(ChevronLeft, "Previous bank", "ed-step-btn");
+    const next = iconButton(ChevronRight, "Next bank", "ed-step-btn");
+    const page = (d: number) => {
+      const cur = this.capBankView ?? this.s.captureBank.value ?? 1;
+      this.capBankView = ((cur - 1 + d + CAPTURE_BANKS) % CAPTURE_BANKS) + 1;
+      this.renderSource();
+    };
+    prev.addEventListener("click", () => page(-1));
+    next.addEventListener("click", () => page(1));
+    nav.append(prev, this.capBankLabel, next);
+    const slots = el("div", "ed-cap-slots");
+    for (let i = 0; i < CAPTURE_SELECT_SLOTS; i++) {
+      const b = el("button", "ed-chip ed-cap-slot");
+      b.append(el("span", "ed-cap-pos", String(i + 1)), el("span", "ed-cap-name", ""));
+      b.addEventListener("click", () => this.run(this.edit().selectCapture(this.capBankView ?? this.s.captureBank.value ?? 1, i + 1)));
+      this.capSlotBtns.push(b);
+      slots.append(b);
+    }
+    this.capOwnBtn.append(el("span", "ed-cap-pos", "★"), el("span", "ed-cap-name", ""));
+    this.capOwnBtn.title = "The capture saved in this preset itself";
+    this.capOwnBtn.addEventListener("click", () => this.run(this.edit().selectCaptureSlot(CAPTURE_OWN_SLOT)));
+    this.capBanks.append(nav, slots, this.capOwnBtn);
+    this.capPane.append(this.capName, powerRow, this.capBanks, this.capVolume.root, capLib, capHint);
 
     const irLib = el("button", "ed-lib-btn");
     irLib.append(icon(Library), el("span", "", "IR library"));
@@ -634,9 +667,30 @@ export class EditorView {
       const slot = s.captureSlot.value ?? 0;
       this.capName.textContent = s.captureName.value || "—";
       this.capName.dataset.off = String(on === false);
-      this.capSlot.textContent = !on ? "Off" : slot === CAPTURE_OWN_SLOT ? "Preset's own" : slot ? `Slot ${slot}` : "—";
+      const bank = s.captureBank.value ?? 1;
+      this.capSlot.textContent = !on ? "Off" : slot === CAPTURE_OWN_SLOT ? "Preset's own" : slot ? `Bank ${bank} · slot ${slot}` : "—";
       this.capPower.dataset.on = String(on === true);
       (this.capPower.lastChild as HTMLElement).textContent = on ? "On" : "Off";
+      // The bank shown follows the one playing when that changes (a tap, the pedal's encoder, another preset).
+      const playing = `${s.activePreset.value}|${bank}|${slot}`;
+      if (playing !== this.capBankSeen) {
+        this.capBankSeen = playing;
+        this.capBankView = null;
+      }
+      const view = this.capBankView ?? bank;
+      this.capBankLabel.textContent = `Bank ${view} of ${CAPTURE_BANKS}`;
+      this.capSlotBtns.forEach((b, i) => {
+        const name = s.captureSlots[(view - 1) * CAPTURE_SELECT_SLOTS + i] ?? "";
+        (b.lastChild as HTMLElement).textContent = name || `Slot ${i + 1}`;
+        b.title = name;
+        b.dataset.active = String(on === true && view === bank && slot === i + 1);
+        b.disabled = on === null;
+      });
+      const own = this.actions.edit()?.ownCaptureName() ?? "";
+      (this.capOwnBtn.lastChild as HTMLElement).textContent = own ? `Preset's own · ${own}` : "Preset's own";
+      this.capOwnBtn.dataset.active = String(on === true && slot === CAPTURE_OWN_SLOT);
+      this.capOwnBtn.disabled = on === null;
+      this.capBanks.dataset.off = String(on === false);
       this.capVolume.set(s.captureVolume.value, on !== null);
       // Off: the volume still works (heard once it is on), drawn grey like an off block.
       this.capVolume.root.dataset.off = String(on === false);
