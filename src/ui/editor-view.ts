@@ -790,7 +790,10 @@ export class EditorView {
       this.capVolume.set(s.captureVolume.value, on !== null);
       // Off: the volume still works (heard once it is on), drawn grey like an off block.
       this.capVolume.root.dataset.off = String(on === false);
-      this.showSrcDiscard(this.actions.edit()?.captureChanged() ?? false, "Back to the capture and volume this preset has saved (on / off stays)");
+      this.showSrcDiscard(
+        this.actions.edit()?.captureChanged() ?? false,
+        this.actions.edit()?.capturePreview() ? "Stop the preview: back to the capture this preset has saved" : "Back to the capture and volume this preset has saved (on / off stays)",
+      );
       return;
     }
     const on = s.cabOn.value;
@@ -1362,26 +1365,30 @@ export class EditorView {
             });
             return b;
           };
-          // The load that is an edit first (the pedal lights Save; Save keeps it, Discard puts the saved one back).
-          // An IR goes into the preset itself; a capture into the slot it plays, the firmware's way (every preset on
-          // that slot hears it). Then: an IR into a slot of the pedal's; a capture previewed (Cortex Cloud's tap,
-          // heard without changing the preset, so nothing to save).
+          // The load the pedal counts as an edit first (its save light comes on). An IR goes into the preset itself;
+          // a capture into the slot it plays, the firmware's way (every preset on that slot hears it). Then: an IR
+          // into a slot of the pedal's; a capture into the preset's own (Cortex Cloud's preview, an edit the app
+          // keeps the books of: its Save / Discard), or a preview, heard until Stop preview puts the saved one back.
           const irSlot = irs ? this.actions.edit()?.irLoadSlot() ?? 1 : 0;
           const bank = this.s.captureBank.value ?? 1;
+          const previewing = !irs && this.actions.edit()?.capturePreview()?.name === it.name;
           const load = irs
             ? action("Load into this preset", "primary", () => this.edit().pickFromLibrary(it, "irs"))
             : action(`Load into bank ${bank} · slot ${slot}`, "primary", () => this.edit().pickFromLibrary(it, "captures"));
+          const own = irs ? null : action("Load into preset's own", "", () => this.edit().previewCapture(it, "own"));
           const other = irs
             ? action(`Load into IR slot ${irSlot}`, "", () => this.edit().loadIrIntoSlot(it))
-            : action("Preview", "", () => this.edit().previewCapture(it));
+            : previewing
+              ? action("Stop preview", "", () => this.edit().stopCapturePreview())
+              : action("Preview", "", () => this.edit().previewCapture(it));
           const move = el("button", "");
           move.append(icon(FolderInput), el("span", "", "Move to folder"));
           move.addEventListener("click", () => this.startMove(it));
-          actions.append(load, other, move);
+          actions.append(load, ...(own ? [own] : []), other, move);
           row.append(actions);
           const hint = irs
             ? `This preset alone, or IR slot ${irSlot}: every preset on that slot hears it.${this.s.cabOn.value !== true ? " The IR is off: loading one turns it on." : ""}`
-            : `Load: into bank ${bank} slot ${slot}, an edit this preset keeps with Save (every preset on that slot hears it). Preview: heard without changing the preset, nothing to save.${this.s.captureOn.value !== true ? " The capture is off: either turns it on." : ""}`;
+            : `Bank ${bank} slot ${slot}: every preset on that slot hears it. Preset's own: this preset alone (the pedal shows no save light; the app's Save keeps it). Preview: heard only; Stop preview or Discard brings the saved capture back.${this.s.captureOn.value !== true ? " The capture is off: any of these turns it on." : ""}`;
           row.append(el("p", "hint", hint));
         }
         rows.push(row);

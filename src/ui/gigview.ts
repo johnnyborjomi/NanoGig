@@ -1651,8 +1651,10 @@ export class GigView {
       this.editState.dataset.on = String(editing);
       this.editBtn.classList.toggle("on", editing);
       this.editBtn.setAttribute("aria-pressed", String(editing));
-      // Unsaved changes while editing: Save and Discard instead of Edit, until the light goes out.
-      const unsaved = editing && s.presetDirty.value === true && !!this.actions.edit;
+      // Unsaved changes while editing: Save and Discard instead of Edit, until the light goes out. A library capture
+      // loaded into the preset's own is the app's edit (the pedal shows no light for it).
+      const own = s.edit.capturePreview?.kind === "own" && s.edit.capturePreview.preset === s.activePreset.value;
+      const unsaved = editing && (s.presetDirty.value === true || own) && !!this.actions.edit;
       this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit || unsaved;
       this.saveBtn.hidden = this.discardBtn.hidden = !unsaved;
       const op = s.edit.preset;

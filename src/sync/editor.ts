@@ -63,7 +63,7 @@ import {
 import { CAB_SLOT_COUNT, FX_SLOTS, captureSelectFrame, type FxSlot } from '../protocol/frames';
 import { toHex } from '../protocol/hex';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
-import type { EditState, FxEditState, IrEditState, SavedModels, SavedParams, SavedSource, Store } from '../state/store';
+import type { CapturePreview, EditState, FxEditState, IrEditState, SavedModels, SavedParams, SavedSource, Store } from '../state/store';
 import type { LogDirection, Transport } from '../transport/types';
 
 /** What the editor needs from the sync engine. */
@@ -471,7 +471,26 @@ export class EditController {
         gateThreshold: s.gateThreshold.value,
         ir: ir?.status === 'ready' && ir.preset === preset && ir.settings ? { ...ir.settings } : null,
       },
+      capturePreview: null, // a load or a save: what plays is the preset's
     });
+  }
+
+  /** The library capture heard over the shown preset's own (`previewCapture`), none once it is saved or put back. */
+  capturePreview(): CapturePreview | null {
+    const p = this.store.get().edit.capturePreview;
+    return p && p.preset === this.store.get().activePreset.value ? p : null;
+  }
+
+  /** Forget a preview without sending anything (the preset is being loaded again, which puts its own capture back). */
+  clearCapturePreview(): void {
+    if (this.store.get().edit.capturePreview) this.patchEdit({ capturePreview: null });
+  }
+
+  /** Stop a preview: the preset's own capture selected again (slot 6), which brings the saved one back. */
+  async stopCapturePreview(): Promise<void> {
+    this.assertEdit();
+    if (!this.capturePreview()) return;
+    await this.selectCaptureSlot(CAPTURE_OWN_SLOT);
   }
 
   private savedSourceNow(): SavedSource | null {
@@ -479,8 +498,9 @@ export class EditController {
     return saved && saved.preset === this.store.get().activePreset.value ? saved : null;
   }
 
-  /** The capture differs from the preset as saved: its slot (while on) or its volume. */
+  /** The capture differs from the preset as saved: a library capture previewed over it, its slot (while on) or its volume. */
   captureChanged(): boolean {
+    if (this.capturePreview()) return true;
     const b = this.savedSourceNow();
     const s = this.store.get();
     if (!b) return false;
@@ -496,9 +516,10 @@ export class EditController {
     return b.captureSlot !== CAPTURE_OWN_SLOT && b.captureBank !== null && s.captureBank.value !== null && s.captureBank.value !== b.captureBank;
   }
 
-  /** Discard the capture's edits: its saved slot (6: the preset's own) and volume. On / off stays as it is. */
+  /** Discard the capture's edits: a preview stopped, its saved slot (6: the preset's own) and volume. On / off stays as it is. */
   async discardCapture(): Promise<void> {
     this.assertEdit();
+    await this.stopCapturePreview();
     const b = this.savedSourceNow();
     const s = this.store.get();
     if (!b) return;
@@ -668,6 +689,7 @@ export class EditController {
     } else {
       this.store.setField('captureOn', false, 'optimistic');
     }
+    this.clearCapturePreview(); // a slot plays now (6: the preset's own, as saved)
     await this.send(frame, slot ? `Capture slot ${slot}${slot === CAPTURE_OWN_SLOT ? " (the preset's own)" : ''}` : 'Capture off');
     this.host.confirm();
   }
@@ -687,6 +709,7 @@ export class EditController {
     this.store.setField('captureSlot', position, 'optimistic');
     const name = this.host.metadata()?.captures[abs - 1]?.name;
     if (name) this.store.setField('captureName', name, 'optimistic');
+    this.clearCapturePreview();
     await this.send(captureSelectFrame(abs), `Capture bank ${bank} slot ${position}`);
     this.host.confirm();
   }
@@ -961,17 +984,21 @@ export class EditController {
   }
 
   /**
-   * Hear a library capture without changing the preset: Cortex Cloud's preview (its tap on a library capture). The
-   * pedal plays it at once and does NOT mark the preset edited (no save light, so no Save / Discard: the board,
-   * 2026-10-11, like the firmware's notes), and whether a Save would keep it is not seen. Selecting the preset's own
-   * capture (slot 6) brings the saved one back. The load that is an edit is `pickFromLibrary` (the firmware's only
-   * way: a slot write, then its select, which the pedal marks edited).
+   * A library capture over the preset's own, no slot of the pedal's touched: Cortex Cloud's preview (its tap on a
+   * library capture). The pedal plays it at once but does NOT mark the preset edited (no save light: the board,
+   * 2026-10-11, like the firmware's notes); selecting the preset's own capture (slot 6) brings the saved one back
+   * (`stopCapturePreview`). So the app keeps the books (`capturePreview`):
+   * - `own` ("Load into preset's own"): an edit of the app's. Its Save / Discard show; Save stores the shown preset
+   *   (SavePreset), which is expected to keep the capture (not yet seen on the pedal); Discard loads it again.
+   * - `preview`: heard only, until Stop preview or the capture tab's Discard.
+   * The load the pedal itself counts as an edit is `pickFromLibrary` (the firmware's only way: a slot write, then
+   * its select).
    *
    * Only onto a capture that is on: a preview sent while the capture was off hung the pedal (board, 2026-10-11).
    * An off capture is first turned on as the preset's own (slot 6), and the preview goes only once a state read
    * shows it on; otherwise nothing is sent.
    */
-  async previewCapture(item: LibraryItem): Promise<void> {
+  async previewCapture(item: LibraryItem, kind: CapturePreview['kind'] = 'preview'): Promise<void> {
     this.assertEdit();
     if (this.store.get().captureOn.value !== true || this.store.get().captureOn.source !== 'dump') {
       if (this.store.get().captureOn.value !== true) await this.selectCaptureSlot(CAPTURE_OWN_SLOT);
@@ -983,7 +1010,9 @@ export class EditController {
     }
     this.writtenAt.capture = Date.now();
     this.store.setField('captureName', item.name, 'optimistic');
-    await this.send(capturePreviewFrame(item), `Preview ${item.list} capture ${item.index + 1} "${item.name}" (not an edit)`);
+    const preset = this.activePreset();
+    await this.send(capturePreviewFrame(item), `${kind === 'own' ? 'Load' : 'Preview'} ${item.list} capture ${item.index + 1} "${item.name}" over the preset's own (the pedal shows no save light)`);
+    if (preset !== null) this.patchEdit({ capturePreview: { preset, name: item.name, kind } });
     this.host.confirm(600);
   }
 

@@ -1118,6 +1118,8 @@ export class SyncEngine {
     this.pendingPresetSince = Date.now();
     this.expAssignTries = 0;
     this.store.setField('activePreset', index, 'optimistic');
+    this.edit.clearCapturePreview(); // a load puts the preset's own capture back
+
     if (this.selectInflight) {
       this.log('info', `Preset ${index + 1} held until the pedal acks the select in flight`);
       return;

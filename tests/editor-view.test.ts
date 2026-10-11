@@ -250,7 +250,16 @@ describe('edit gestures', () => {
     tap(firstItem());
     const buttons = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')).map((b) => b.textContent);
     expect(buttons()[0]).toBe(`Load into bank ${store.get().captureBank.value} · slot ${store.get().captureSlot.value}`);
-    expect(buttons()[1]).toBe('Preview');
+    expect(buttons()[1]).toBe("Load into preset's own");
+    expect(buttons()[2]).toBe('Preview');
+    // A preview: the row offers the way back, and so does the capture tab's Discard.
+    tap(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')[2]!);
+    await until(() => store.get().edit.capturePreview !== null);
+    tap(firstItem());
+    expect(buttons()[2]).toBe('Stop preview');
+    expect(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!.dataset.shown).toBe('true');
+    tap(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')[2]!);
+    await until(() => store.get().edit.capturePreview === null);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-tab')[1]!);
     expect(root.querySelector('.src-sheet .ed-pane:not([hidden]) .ed-slots .ed-slots-label')!.textContent).toBe('IR slots');

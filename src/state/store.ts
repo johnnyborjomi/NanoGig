@@ -123,6 +123,17 @@ export interface SavedSource {
   ir: CabSettings | null;
 }
 
+/**
+ * A library capture heard over the preset's own (Cortex Cloud's preview, which the pedal plays but does not count as
+ * an edit: no save light). `own`: "Load into preset's own", an edit of the app's (its Save / Discard show; a Save
+ * stores the shown preset, which is expected to keep it). `preview`: heard only, until Stop preview or a Discard.
+ */
+export interface CapturePreview {
+  preset: number;
+  name: string;
+  kind: 'own' | 'preview';
+}
+
 export interface EditState {
   fx: FxEditState | null;
   ir: IrEditState | null;
@@ -131,6 +142,7 @@ export interface EditState {
   savedModels: SavedModels | null;
   savedParams: SavedParams | null;
   savedSource: SavedSource | null;
+  capturePreview: CapturePreview | null;
 }
 
 export function emptyEdit(): EditState {
@@ -142,6 +154,7 @@ export function emptyEdit(): EditState {
     savedModels: null,
     savedParams: null,
     savedSource: null,
+    capturePreview: null,
   };
 }
 

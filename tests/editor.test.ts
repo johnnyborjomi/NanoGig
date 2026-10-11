@@ -258,6 +258,23 @@ describe('edit controller', () => {
     await until(() => store.get().captureName.source === 'dump' && store.get().captureName.value === 'My Plexi');
     expect(mock.slotCaptures).toEqual(slots); // no slot of the pedal's changed
     expect(store.get().presetDirty.value).not.toBe(true); // not an edit: no save light (the board, 2026-10-11)
+    // The app keeps the books: a preview is heard until it is stopped (the preset's own selected again: the saved one back).
+    expect(edit.capturePreview()).toMatchObject({ name: 'My Plexi', kind: 'preview' });
+    expect(edit.captureChanged()).toBe(true);
+    const own = edit.ownCaptureName();
+    await edit.stopCapturePreview();
+    expect(mock.edits.at(-1)!.hex).toMatch(/^08 C0 18 01 20 06 1C/);
+    expect(edit.capturePreview()).toBeNull();
+    await until(() => store.get().captureName.source === 'dump' && store.get().captureName.value === own);
+    // "Load into preset's own": the same frame, but the app's edit: Save stores the preset with it.
+    await edit.previewCapture(plexi, 'own');
+    expect(edit.capturePreview()).toMatchObject({ name: 'My Plexi', kind: 'own' });
+    await until(() => store.get().captureName.source === 'dump' && store.get().captureName.value === 'My Plexi');
+    await edit.savePreset();
+    await until(() => store.get().edit.preset.busy === null && store.get().edit.preset.result?.ok === true);
+    expect(edit.capturePreview()).toBeNull();
+    expect(edit.ownCaptureName()).toBe('My Plexi');
+    expect(edit.captureChanged()).toBe(false);
     await edit.loadLibrary('irs');
     await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
     expect(edit.irLoadSlot()).toBe(2);
