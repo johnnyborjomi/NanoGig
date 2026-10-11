@@ -1205,6 +1205,7 @@ export class EditorView {
           actions.append(load, move);
           row.append(actions);
           if (!irs) row.append(el("p", "hint", `Every preset that plays capture slot ${slot} hears it. Save on the pedal to keep it in this preset.`));
+          else if (this.s.cabOn.value !== true) row.append(el("p", "hint", "The IR is off: loading one turns it on."));
         }
         rows.push(row);
       }

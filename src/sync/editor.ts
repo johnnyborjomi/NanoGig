@@ -879,6 +879,9 @@ export class EditController {
   async pickFromLibrary(item: LibraryItem, kind: LibraryKind): Promise<void> {
     this.assertEdit();
     if (kind === 'irs') {
+      // An IR that is off is turned on first (the slot "on" goes to, as its power button), then the chosen IR loads
+      // into it: loading one means hearing it.
+      if (this.store.get().cabOn.value !== true) await this.selectIrSlot(this.irSlotForOn());
       this.writtenAt.ir = Date.now();
       this.store.setField('cabOn', true, 'optimistic');
       this.store.setField('irName', item.name, 'optimistic');

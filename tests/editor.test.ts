@@ -169,10 +169,16 @@ describe('edit controller', () => {
     await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
     const irs = store.get().edit.library.irs!;
     expect(irs.filter((i) => i.list === 'user').map((i) => i.index)).toEqual([0, 1]);
+    // The IR is off in the demo: it is turned on first (its slot select), then the IR loads into it.
+    expect(store.get().cabOn.value).toBe(false);
     await edit.pickFromLibrary(irs.find((i) => i.name === 'YA')!, 'irs');
     expect(store.get().irName.value).toBe('YA');
     await until(() => store.get().irName.source === 'dump');
     expect(store.get().irName.value).toBe('YA');
+    expect(store.get().cabOn.value).toBe(true);
+    const types = mock.edits.map((e) => e.type);
+    expect(types.indexOf(EDIT_MSG.ENCODER)).toBeGreaterThanOrEqual(0);
+    expect(types.indexOf(EDIT_MSG.ENCODER)).toBeLessThan(types.indexOf(EDIT_MSG.CAB_SETTING)); // the load is a cab-setting frame
 
     await edit.loadLibrary('captures');
     await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
