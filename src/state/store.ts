@@ -67,7 +67,8 @@ export interface IrEditState {
   preset: number | null;
   slot: number | null;
   settings: CabSettings | null;
-  status: 'loading' | 'ready' | 'off' | 'error';
+  /** loading: a read is out (on or off alike, as for an FX block). */
+  status: 'loading' | 'ready' | 'error';
 }
 
 /** Every capture and IR on the pedal (type 0x4D reply), kept for the session. */
@@ -104,6 +105,22 @@ export interface SavedParams {
   slots: Partial<Record<FxSlot, { type: number; values: number[] }>>;
 }
 
+/**
+ * The capture, IR and gate as the preset has them saved, taken with the saved models: slots, capture volume, the
+ * IR's name and the gate threshold from the state, the IR's settings from its first read on the saved IR.
+ */
+export interface SavedSource {
+  preset: number;
+  /** Field 11 as read: 1..5, 6 = the preset's own, 0 = off. */
+  captureSlot: number | null;
+  captureVolume: number | null;
+  /** Field 12 while on (6 = the preset's own IR), null = off. */
+  cabSlot: number | null;
+  irName: string | null;
+  gateThreshold: number | null;
+  ir: CabSettings | null;
+}
+
 export interface EditState {
   fx: FxEditState | null;
   ir: IrEditState | null;
@@ -111,6 +128,7 @@ export interface EditState {
   preset: PresetOpState;
   savedModels: SavedModels | null;
   savedParams: SavedParams | null;
+  savedSource: SavedSource | null;
 }
 
 export function emptyEdit(): EditState {
@@ -121,6 +139,7 @@ export function emptyEdit(): EditState {
     preset: { busy: null, result: null, nameNew: null },
     savedModels: null,
     savedParams: null,
+    savedSource: null,
   };
 }
 

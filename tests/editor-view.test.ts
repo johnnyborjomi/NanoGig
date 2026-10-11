@@ -206,6 +206,36 @@ describe('edit gestures', () => {
     expect(input.value).toBe(store.get().presetNames.value[store.get().activePreset.value!]);
   });
 
+  it('amp & cab and gate: Discard once a value moves; an IR that is off is grey but editable', async () => {
+    const { root, store } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    const discard = root.querySelector<HTMLElement>('.src-sheet .ed-discard')!;
+    await until(() => store.get().edit.savedSource !== null);
+    expect(discard.dataset.shown).toBe('false');
+    const volume = root.querySelector<HTMLInputElement>('.src-sheet .ed-slider input')!;
+    volume.value = String((store.get().captureVolume.value ?? 0) + 40);
+    volume.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(discard.dataset.shown).toBe('true');
+    tap(discard);
+    await until(() => store.get().captureVolume.source === 'dump' && discard.dataset.shown === 'false');
+    // The IR is off in the demo: read anyway, its controls grey and enabled.
+    expect(store.get().cabOn.value).toBe(false);
+    tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-tab')[1]!);
+    await until(() => store.get().edit.ir?.status === 'ready');
+    const irParams = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-params')!;
+    expect(irParams.dataset.off).toBe('true');
+    expect(irParams.querySelector<HTMLInputElement>('input')!.disabled).toBe(false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    // Gate.
+    await hold(root.querySelector('.tile[data-key="gate"]')!);
+    const gateDiscard = root.querySelector<HTMLElement>('.gate-sheet .ed-discard')!;
+    expect(gateDiscard.dataset.shown).toBe('false');
+    const threshold = root.querySelector<HTMLInputElement>('.gate-sheet .ed-slider input')!;
+    threshold.value = '20';
+    threshold.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(gateDiscard.dataset.shown).toBe('true');
+  });
+
   it('swiping the preset strip pages it without selecting', async () => {
     const { root, store } = await setup(true);
     const grid = root.querySelector('.preset-grid')!;

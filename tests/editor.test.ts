@@ -111,8 +111,49 @@ describe('edit controller', () => {
     await edit.stepIr(1);
     await until(() => mock.device.cabSlot === 2 && store.get().cabSlot.source === 'dump');
     expect(store.get().cabSlot.value).toBe(2);
+    // Off: still read and editable, as an FX block that is off.
     await edit.setIrOn(false);
-    await until(() => store.get().edit.ir?.status === 'off');
+    await until(() => store.get().cabOn.value === false && store.get().cabOn.source === 'dump' && store.get().edit.ir?.status === 'ready');
+    edit.setIrParam('level', 0.25);
+    await until(() => Math.abs(mock.ir.level - 0.25) < 1e-6);
+  });
+
+  it('capture, IR and gate Discard put back what the preset has saved; on / off and other blocks stay', async () => {
+    const { store, mock, edit } = await setup({ device: { initialState: { cabOn: true, cabSlot: 6 } } });
+    await until(() => store.get().edit.savedSource !== null && store.get().cabSlot.value === 6);
+    const saved = store.get().edit.savedSource!;
+    // Gate.
+    expect(edit.gateChanged()).toBe(false);
+    edit.setGateThreshold(30);
+    expect(edit.gateChanged()).toBe(true);
+    edit.discardGate();
+    await until(() => mock.device.gateThresholdRaw === saved.gateThreshold && store.get().gateThreshold.source === 'dump');
+    expect(edit.gateChanged()).toBe(false);
+    // Capture: volume and slot.
+    edit.setCaptureVolume(10);
+    await edit.stepCapture(1);
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureVolume.source === 'dump' && store.get().captureSlot.value !== saved.captureSlot);
+    expect(edit.captureChanged()).toBe(true);
+    await edit.discardCapture();
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureSlot.value === saved.captureSlot && store.get().captureVolume.value === saved.captureVolume);
+    expect(edit.captureChanged()).toBe(false);
+    // IR: settings read on the saved IR, then another IR and a changed level; Discard brings both back.
+    edit.openIr();
+    await until(() => store.get().edit.ir?.status === 'ready' && store.get().edit.savedSource?.ir != null);
+    const ir = store.get().edit.savedSource!.ir!;
+    edit.setIrParam('level', 0.1);
+    expect(edit.irChanged()).toBe(true);
+    await edit.discardIr();
+    await until(() => store.get().edit.ir?.status === 'ready' && Math.abs(mock.ir.level - ir.level) < 1e-6);
+    expect(edit.irChanged()).toBe(false);
+    await edit.stepIr(1);
+    await until(() => store.get().cabSlot.source === 'dump' && store.get().cabSlot.value !== 6);
+    expect(edit.irChanged()).toBe(true);
+    await edit.discardIr();
+    await until(() => store.get().cabSlot.source === 'dump' && store.get().cabSlot.value === 6 && store.get().edit.ir?.status === 'ready');
+    expect(edit.irChanged()).toBe(false);
+    // On / off is not a value: turning the gate off is not discarded.
+    expect(store.get().gateOn.value).toBe(true);
   });
 
   it('library: an IR loads into the preset, a capture into its slot which is then selected', async () => {

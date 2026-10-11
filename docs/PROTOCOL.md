@@ -316,7 +316,7 @@ preset is only saved by the pedal's save button) except rename / create / delete
 | Gate threshold | `<len> C0 18 0B 20 <raw 0..255> 28 00 1A 00 00 00` | state field 53 = f32 raw / 255 |
 | Capture slot | `08 C0 18 01 20 <slot 1..5, 6 = the preset's own, 0 = off> 1C 00 00 00` | field 11 |
 | IR slot | `08 C0 18 03 20 <slot 1..5, 0 = off> 1C 00 00 00` | field 12 |
-| IR settings read | `08 C0 18 00 20 <field 12 − 1> 5F 00 00 00` | `0x60`: `5 {1 kind, 2 name, 3 position, 4 mic}` factory / `6 {1 kind, 2 name}` user, `7` mics (repeated), `8 {1 level, 2 high pass, 3 low pass (f32), 4 phase}` |
+| IR settings read | `08 C0 18 00 20 <field 12 − 1> 5F 00 00 00`; an IR that is off is asked on the slot "on" goes to (not yet seen on the pedal) | `0x60`: `5 {1 kind, 2 name, 3 position, 4 mic}` factory / `6 {1 kind, 2 name}` user, `7` mics (repeated), `8 {1 level, 2 high pass, 3 low pass (f32), 4 phase}` |
 | IR level / high pass / low pass | `09 C0 <2D / 35 / 3D> <f32 0..1> 5E 00 00 00` | — |
 | IR phase | `06 C0 40 <1 inverted / 0> 5E 00 00 00` | — |
 | IR microphone / position (factory IR) | `<len> C0 1A <n> {08 <kind> 12 <IR name> 18 <position 0..5> 22 <mic>} 5E 00 00 00` | read again |

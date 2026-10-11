@@ -746,7 +746,6 @@ export class SyncEngine {
     const models = {} as FxModelsBySlot;
     for (const slot of FX_SLOTS) models[slot] = lookupFxModel(state.fxModelIds[slot]);
     this.store.setField('fxModels', models, 'dump', at);
-    this.edit.noteModels(state.activePreset, models);
     this.store.setField('presetDirty', state.dirty, 'dump', at);
     const gateStale = writtenSince(this.writtenAt.gate, requestedAt);
     this.store.setField('gateOn', gateStale ? prev.gateOn.value : state.gateOn, gateStale ? 'optimistic' : 'dump', at);
@@ -775,6 +774,8 @@ export class SyncEngine {
       this.store.patch({ tuner: { ...this.store.get().tuner, referenceHz: state.tunerReferenceHz } });
     }
     this.updateSlotKnowledge(at);
+    // A preset seen for the first time since it loaded: what it shows is what it has saved.
+    this.edit.noteSaved(state.activePreset);
 
     if (state.activePreset !== null) {
       if (prev.activePreset.value !== state.activePreset) this.expAssignTries = 0;

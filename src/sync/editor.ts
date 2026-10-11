@@ -53,6 +53,7 @@ import {
   presetNameProblem,
   presetRenameFrame,
   type CabParam,
+  type CabSettings,
   type Footswitch,
   type LibraryItem,
   type LibraryKind,
@@ -60,7 +61,7 @@ import {
 import { CAB_SLOT_COUNT, FX_SLOTS, type FxSlot } from '../protocol/frames';
 import { toHex } from '../protocol/hex';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
-import type { EditState, FxEditState, IrEditState, SavedModels, SavedParams, Store } from '../state/store';
+import type { EditState, FxEditState, IrEditState, SavedModels, SavedParams, SavedSource, Store } from '../state/store';
 import type { LogDirection, Transport } from '../transport/types';
 
 /** What the editor needs from the sync engine. */
@@ -431,15 +432,16 @@ export class EditController {
   }
 
   /**
-   * A state read: a preset seen for the first time since it loaded has its saved models in place (the pedal drops
-   * unsaved edits on a preset load).
+   * A state read (once the store has it): a preset seen for the first time since it loaded has its saved models,
+   * capture, IR and gate in place (the pedal drops unsaved edits on a preset load).
    */
-  noteModels(preset: number | null, models: FxModelsBySlot): void {
+  noteSaved(preset: number | null): void {
     if (preset === null || this.store.get().edit.savedModels?.preset === preset) return;
-    this.rememberSavedModels(preset, models);
+    this.rememberSavedModels(preset, this.store.get().fxModels.value);
   }
 
   private rememberSavedModels(preset: number, models: FxModelsBySlot): void {
+    this.rememberSavedSource(preset);
     const ids = {} as SavedModels['ids'];
     for (const slot of FX_SLOTS) ids[slot] = models[slot]?.id ?? null;
     // Parameters are known only for blocks read since: the open one's values now, the others at their next read.
@@ -447,6 +449,120 @@ export class EditController {
     const fx = this.store.get().edit.fx;
     if (fx?.values && fx.status === 'ready' && fx.preset === preset && fx.type === fxModelType(ids[fx.slot])) slots[fx.slot] = { type: fx.type, values: fx.values.slice() };
     this.patchEdit({ savedModels: { preset, ids }, savedParams: { preset, slots } });
+  }
+
+  /** The capture, IR and gate shown now, as saved (a load or a save); the IR's settings if read on this IR. */
+  private rememberSavedSource(preset: number): void {
+    const s = this.store.get();
+    const ir = s.edit.ir;
+    this.patchEdit({
+      savedSource: {
+        preset,
+        captureSlot: s.captureOn.value === false ? 0 : s.captureSlot.value,
+        captureVolume: s.captureVolume.value,
+        cabSlot: s.cabOn.value ? s.cabSlot.value : null,
+        irName: s.irName.value,
+        gateThreshold: s.gateThreshold.value,
+        ir: ir?.status === 'ready' && ir.preset === preset && ir.settings ? { ...ir.settings } : null,
+      },
+    });
+  }
+
+  private savedSourceNow(): SavedSource | null {
+    const saved = this.store.get().edit.savedSource;
+    return saved && saved.preset === this.store.get().activePreset.value ? saved : null;
+  }
+
+  /** The capture differs from the preset as saved: its slot (while on) or its volume. */
+  captureChanged(): boolean {
+    const b = this.savedSourceNow();
+    const s = this.store.get();
+    if (!b) return false;
+    if (b.captureVolume !== null && s.captureVolume.value !== null && s.captureVolume.value !== b.captureVolume) return true;
+    return !!b.captureSlot && s.captureOn.value === true && s.captureSlot.value !== b.captureSlot;
+  }
+
+  /** Discard the capture's edits: its saved slot (6: the preset's own) and volume. On / off stays as it is. */
+  async discardCapture(): Promise<void> {
+    this.assertEdit();
+    const b = this.savedSourceNow();
+    const s = this.store.get();
+    if (!b) return;
+    if (b.captureSlot && s.captureOn.value === true && s.captureSlot.value !== b.captureSlot) await this.selectCaptureSlot(b.captureSlot);
+    if (b.captureVolume !== null && s.captureVolume.value !== b.captureVolume) this.setCaptureVolume(b.captureVolume);
+  }
+
+  /** The gate's threshold differs from the preset as saved. */
+  gateChanged(): boolean {
+    const b = this.savedSourceNow();
+    const v = this.store.get().gateThreshold.value;
+    return !!b && b.gateThreshold !== null && v !== null && v !== b.gateThreshold;
+  }
+
+  /** Discard the gate's edit: its saved threshold. On / off stays as it is. */
+  discardGate(): void {
+    this.assertEdit();
+    const b = this.savedSourceNow();
+    if (b && b.gateThreshold !== null && this.gateChanged()) this.setGateThreshold(b.gateThreshold);
+  }
+
+  /** What of the IR differs from the preset as saved: the IR itself (slot or a library IR), or its settings. */
+  private irDiff(): { ir: boolean; settings: (keyof CabSettings)[] } {
+    const b = this.savedSourceNow();
+    const s = this.store.get();
+    const settings: (keyof CabSettings)[] = [];
+    if (!b) return { ir: false, settings };
+    const ir = !!b.cabSlot && s.cabOn.value === true && (s.cabSlot.value !== b.cabSlot || (s.irName.value ?? '') !== (b.irName ?? ''));
+    const cur = s.edit.ir;
+    if (!ir && b.ir && cur?.status === 'ready' && cur.settings && cur.preset === b.preset && cur.settings.irName === b.ir.irName) {
+      for (const k of ['level', 'highPass', 'lowPass'] as const) if (Math.abs(cur.settings[k] - b.ir[k]) > 1e-4) settings.push(k);
+      if (cur.settings.phaseInverted !== b.ir.phaseInverted) settings.push('phaseInverted');
+      if (b.ir.factory && (cur.settings.mic !== b.ir.mic || cur.settings.position !== b.ir.position)) settings.push('mic');
+    }
+    return { ir, settings };
+  }
+
+  irChanged(): boolean {
+    const d = this.irDiff();
+    return d.ir || d.settings.length > 0;
+  }
+
+  /**
+   * Discard the IR's edits: the saved IR back (its slot; 6 brings the preset's own back, a library IR included),
+   * then its saved settings, then a read so the panel shows what the pedal has. On / off stays as it is.
+   */
+  async discardIr(): Promise<void> {
+    this.assertEdit();
+    const b = this.savedSourceNow();
+    if (!b) return;
+    const d = this.irDiff();
+    if (d.ir && b.cabSlot) await this.selectIrSlot(b.cabSlot);
+    const base = b.ir;
+    if (base) {
+      for (const key of Array.from(this.queued.keys())) if (key.startsWith('ir:')) this.queued.delete(key);
+      // After the IR came back every setting goes (the pedal may load its own); otherwise only the changed ones.
+      const all = d.ir;
+      for (const k of ['level', 'highPass', 'lowPass'] as const) {
+        if (all || d.settings.includes(k)) await this.send(cabSettingFrame(k, base[k]), `IR ${k} → ${base[k].toFixed(4)} (discard)`);
+      }
+      if (all || d.settings.includes('phaseInverted')) await this.send(cabPhaseFrame(base.phaseInverted), `IR phase → ${base.phaseInverted ? 'inverted' : 'normal'} (discard)`);
+      if (base.factory && (all || d.settings.includes('mic'))) {
+        await this.send(cabMicFrame(base.kind, base.irName, base.position, base.mic), `IR "${base.irName}" mic "${base.mic}" position ${base.position + 1} (discard)`);
+      }
+      const ir = this.store.get().edit.ir;
+      if (ir?.settings) this.patchEdit({ ir: { ...ir, settings: { ...ir.settings, ...base, mics: ir.settings.mics } } });
+    }
+    if (this.store.get().edit.ir) this.irTick(true);
+  }
+
+  /** The first read of the saved IR since the preset loaded or was saved: its saved settings. */
+  private noteSavedIr(cs: CabSettings): void {
+    const b = this.savedSourceNow();
+    const s = this.store.get();
+    if (!b || b.ir || !b.cabSlot) return;
+    // The saved IR: its slot, and its name (a library IR may sit in the preset).
+    if (this.irPanelSlot() !== b.cabSlot || (s.irName.value ?? '') !== (b.irName ?? '')) return;
+    this.patchEdit({ savedSource: { ...b, ir: { ...cs } } });
   }
 
   /** One parameter, live while a slider moves; the editor shows the value at once. */
@@ -588,9 +704,16 @@ export class EditController {
     await this.selectIrSlot(next);
   }
 
+  /** The IR slot the panel describes: the one playing, or (off) the one "on" goes to. */
+  private irPanelSlot(): number {
+    const s = this.store.get();
+    return s.cabOn.value ? (s.cabSlot.value ?? 1) : this.irSlotForOn();
+  }
+
+  /** What a read describes: the preset and the IR (on / off does not change the settings, as for an FX block). */
   private irKey(): string {
     const s = this.store.get();
-    return `${s.activePreset.value}|${s.cabOn.value ? `on:${s.cabSlot.value ?? 1}` : 'off'}`;
+    return `${s.activePreset.value}|${this.irPanelSlot()}|${s.irName.value ?? ''}`;
   }
 
   openIr(): void {
@@ -614,14 +737,9 @@ export class EditController {
     const key = this.irKey();
     if (!force && key === this.irAsked) return;
     this.irAsked = key;
-    const s = this.store.get();
     const preset = this.activePreset();
-    // An IR that is off has no settings to read.
-    if (!s.cabOn.value) {
-      this.patchEdit({ ir: { preset, slot: null, settings: null, status: 'off' } });
-      return;
-    }
-    const slot = s.cabSlot.value ?? 1;
+    // On or off alike, as an FX block: an IR that is off is read on the slot "on" goes to.
+    const slot = this.irPanelSlot();
     const same = ir.preset === preset && ir.slot === slot;
     this.patchEdit({ ir: { preset, slot, settings: same ? ir.settings : null, status: 'loading' } });
     if (this.host.transport.status !== 'connected') return;
@@ -650,11 +768,11 @@ export class EditController {
     if (this.irTimer) clearTimeout(this.irTimer);
     this.irTimer = null;
     this.patchEdit({ ir: { ...ir, settings: cs, status: cs ? 'ready' : 'error' } });
+    if (cs) this.noteSavedIr(cs);
   }
 
   private irWritable(): IrEditState {
     this.assertEdit();
-    if (!this.store.get().cabOn.value) throw new Error('Turn the IR on to edit it');
     const ir = this.store.get().edit.ir;
     if (!ir) throw new Error('IR panel closed');
     return ir;

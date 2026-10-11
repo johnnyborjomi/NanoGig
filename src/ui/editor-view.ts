@@ -70,6 +70,16 @@ function icon(i: Parameters<typeof lucideElement>[0], label?: string): SVGElemen
   return svg;
 }
 
+/** A sheet's Discard (left of its close button): shown while its block differs from the preset as saved. */
+function discardButton(onClick: () => void): HTMLButtonElement {
+  const b = el("button", "ghost ed-discard");
+  b.type = "button";
+  b.dataset.shown = "false";
+  b.append(icon(Undo2), el("span", "", "Discard"));
+  b.addEventListener("click", onClick);
+  return b;
+}
+
 function iconButton(i: Parameters<typeof lucideElement>[0], label: string, className = "ghost icon-btn"): HTMLButtonElement {
   const b = el("button", className);
   b.type = "button";
@@ -301,7 +311,9 @@ export class EditorView {
   private readonly fxRetry = el("button", "ed-retry", "Read again");
   private readonly fxModelBtn = el("button", "ed-model-btn");
   /** Shown when the block differs from the preset as saved (model or parameters): puts it back as saved. */
-  private readonly fxDiscard = el("button", "ghost ed-discard");
+  private readonly fxDiscard = discardButton(() => {
+    if (this.fxSlot) this.run(this.edit().discardFx(this.fxSlot));
+  });
   private readonly fxModels = el("div", "ed-models");
   private readonly fxParams = el("div", "ed-params");
   private fxParamsKey = "";
@@ -333,11 +345,6 @@ export class EditorView {
       this.renderFxModels();
     });
     this.fxRetry.addEventListener("click", () => this.run(() => this.edit().retryFx()));
-    this.fxDiscard.type = "button";
-    this.fxDiscard.append(icon(Undo2), el("span", "", "Discard"));
-    this.fxDiscard.addEventListener("click", () => {
-      if (this.fxSlot) this.run(this.edit().discardFx(this.fxSlot));
-    });
     sh.actions.append(this.fxDiscard);
     const top = el("div", "ed-row");
     top.append(this.fxModelBtn, this.fxPower);
@@ -506,6 +513,10 @@ export class EditorView {
   private readonly irSliders = new Map<CabParam, Slider>();
   private readonly irPhase = el("button", "ed-chip", "Ø Phase inverted");
   private readonly irMicBox = el("div", "ed-mic");
+  private readonly irParamsBox = el("div", "ed-params");
+  private readonly irPhaseRow = el("div", "ed-row");
+  /** Capture tab: its slot and volume back as saved; IR tab: the IR and its settings. */
+  private readonly srcDiscard = discardButton(() => this.run(this.srcTab === "capture" ? this.edit().discardCapture() : this.edit().discardIr()));
   private readonly irMics = el("div", "ed-chips");
   private readonly irPositions = el("div", "ed-chips");
   private irMicKey = "";
@@ -534,6 +545,7 @@ export class EditorView {
     const sh = this.srcSheet;
     sh.title.textContent = "Amp & cab";
     sh.onClose = () => this.actions.edit()?.closeIr();
+    sh.actions.append(this.srcDiscard);
     this.capTab.addEventListener("click", () => {
       this.srcTab = "capture";
       this.actions.edit()?.closeIr();
@@ -573,13 +585,13 @@ export class EditorView {
     });
     const status = el("div", "ed-msg-row");
     status.append(this.irStatus, this.irRetry);
-    const sliders = el("div", "ed-params");
+    const sliders = this.irParamsBox;
     for (const p of ["level", "highPass", "lowPass"] as CabParam[]) {
       const s = new Slider(CAB_LABELS[p], 1000, (v) => this.run(() => this.edit().setIrParam(p, v / 1000)), (v) => cabValueText(p, v / 1000));
       this.irSliders.set(p, s);
       sliders.append(s.root);
     }
-    const phaseRow = el("div", "ed-row");
+    const phaseRow = this.irPhaseRow;
     phaseRow.append(this.irPhase);
     this.irMicBox.append(el("span", "ed-label", "Microphone"), this.irMics, el("span", "ed-label", "Position (centre → edge)"), this.irPositions);
     for (let i = 0; i < CAB_POSITIONS; i++) {
@@ -603,6 +615,11 @@ export class EditorView {
     sh.body.append(this.capPane, this.irPane);
   }
 
+  private showSrcDiscard(changed: boolean, title: string) {
+    this.srcDiscard.dataset.shown = String(changed);
+    this.srcDiscard.title = changed ? title : "";
+  }
+
   private renderSource() {
     if (!this.srcSheet.isOpen) return;
     const s = this.s;
@@ -621,6 +638,9 @@ export class EditorView {
       this.capPower.dataset.on = String(on === true);
       (this.capPower.lastChild as HTMLElement).textContent = on ? "On" : "Off";
       this.capVolume.set(s.captureVolume.value, on !== null);
+      // Off: the volume still works (heard once it is on), drawn grey like an off block.
+      this.capVolume.root.dataset.off = String(on === false);
+      this.showSrcDiscard(this.actions.edit()?.captureChanged() ?? false, "Back to the capture and volume this preset has saved (on / off stays)");
       return;
     }
     const on = s.cabOn.value;
@@ -635,11 +655,14 @@ export class EditorView {
     const status = ir?.status ?? "loading";
     setMsg(
       this.irStatus,
-      status === "loading" ? "Reading the IR settings…" : status === "off" ? "The IR is off: turn it on to edit" : status === "error" ? "No answer from the pedal" : "Live: save on the pedal to keep it",
+      status === "loading" ? "Reading the IR settings…" : status === "error" ? "No answer from the pedal" : on === false ? "Off: heard once it is on · Save keeps it" : "Live: Save keeps it",
       status === "error" ? "warn" : "muted",
     );
     this.irRetry.dataset.shown = String(status === "error");
-    const ready = status === "ready" && !!cs && on === true;
+    // Off or on alike, as an FX block: an IR that is off keeps its edits for when it is on, drawn grey.
+    const ready = status === "ready" && !!cs;
+    for (const box of [this.irParamsBox, this.irPhaseRow, this.irMicBox]) box.dataset.off = String(on === false);
+    this.showSrcDiscard(this.actions.edit()?.irChanged() ?? false, "Back to the IR and settings this preset has saved (on / off stays)");
     for (const [p, slider] of this.irSliders) slider.set(cs ? Math.round(cs[p] * 1000) : null, ready);
     this.irPhase.dataset.active = String(cs?.phaseInverted === true);
     this.irPhase.disabled = !ready;
@@ -675,6 +698,7 @@ export class EditorView {
   // -------------------------------------------------------------------------
 
   private readonly gatePower = el("button", "ed-power");
+  private readonly gateDiscard = discardButton(() => this.run(() => this.edit().discardGate()));
   private readonly gateThreshold = new Slider("Threshold", 255, (v) => this.run(() => this.edit().setGateThreshold(v)), (v) => `${Math.round((v / 255) * 100)} %`);
 
   openGate() {
@@ -691,7 +715,8 @@ export class EditorView {
     this.gatePower.addEventListener("click", () => this.run(this.actions.toggleGate()));
     const row = el("div", "ed-row");
     row.append(this.gatePower);
-    sh.body.append(row, this.gateThreshold.root, el("p", "hint", "A live edit, like Cortex Cloud's slider: save on the pedal to keep it."));
+    sh.actions.append(this.gateDiscard);
+    sh.body.append(row, this.gateThreshold.root, el("p", "hint", "A live edit, like Cortex Cloud's slider: Save keeps it."));
   }
 
   private renderGate() {
@@ -700,6 +725,11 @@ export class EditorView {
     this.gatePower.dataset.on = String(on === true);
     (this.gatePower.lastChild as HTMLElement).textContent = on ? "On" : "Off";
     this.gateThreshold.set(this.s.gateThreshold.value, true);
+    // Off: the threshold still works, drawn grey like an off block.
+    this.gateThreshold.root.dataset.off = String(on === false);
+    const changed = this.actions.edit()?.gateChanged() ?? false;
+    this.gateDiscard.dataset.shown = String(changed);
+    this.gateDiscard.title = changed ? "Back to the threshold this preset has saved (on / off stays)" : "";
   }
 
   // -------------------------------------------------------------------------
