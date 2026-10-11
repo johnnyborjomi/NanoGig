@@ -499,7 +499,7 @@ describe('GigView console log', () => {
     document.body.append(root);
     const store = new Store();
     new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
-    const body = root.querySelector('.console-body') ?? root.querySelector('.console')!.lastElementChild!;
+    const body = root.querySelector('.console .c-body')!;
     for (let i = 0; i < 10; i++) store.appendLog({ at: Date.now(), dir: 'info', text: `line ${i}` });
     expect(body.childNodes.length).toBe(0); // closed: nothing built
     Array.from(root.querySelectorAll<HTMLButtonElement>('.menu .menu-item')).find((b) => b.textContent === 'Log')!.click();

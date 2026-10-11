@@ -262,6 +262,8 @@ export class GigView {
   private readonly menuSync = el("div", "menu-info-line");
   private readonly consoleEl = el("div", "console");
   private readonly consoleBody = el("div", "c-body");
+  private readonly frameInput = el("input", "c-frame");
+  private readonly frameSend = el("button", "", "send");
   private readonly overlay = el("div", "overlay connect open");
   private readonly overlayErr = el("div", "err page-err");
   private readonly resumeTip = el("div", "hint resume-tip");
@@ -755,7 +757,22 @@ export class GigView {
       drop.addEventListener("click", () => this.actions.simulateDrop?.());
       head.insertBefore(drop, names);
     }
-    this.consoleEl.append(head, this.consoleBody);
+    // Protocol work on the pedal: a frame typed as hex (a body, or a whole line copied from the log), sent in Edit
+    // mode; the answer shows above. Always in the layout, disabled when not editing.
+    const sendRow = el("form", "c-send");
+    this.frameInput.placeholder = "frame hex, e.g. 96 00 00 00 (Edit mode)";
+    this.frameInput.autocomplete = "off";
+    this.frameInput.spellcheck = false;
+    this.frameInput.setAttribute("aria-label", "Frame to send, as hex");
+    this.frameSend.type = "submit";
+    sendRow.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const edit = this.actions.edit?.();
+      if (!edit) return;
+      void edit.sendFrameHex(this.frameInput.value).catch((err) => this.toast(err));
+    });
+    sendRow.append(this.frameInput, this.frameSend);
+    this.consoleEl.append(head, this.consoleBody, sendRow);
 
     // Settings overlay --------------------------------------------------
     {
@@ -1655,6 +1672,7 @@ export class GigView {
       // loaded into the preset's own is the app's edit (the pedal shows no light for it).
       const own = s.edit.capturePreview?.kind === "own" && s.edit.capturePreview.preset === s.activePreset.value;
       const unsaved = editing && (s.presetDirty.value === true || own) && !!this.actions.edit;
+      this.frameInput.disabled = this.frameSend.disabled = !(editing && this.actions.edit);
       this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit || unsaved;
       this.saveBtn.hidden = this.discardBtn.hidden = !unsaved;
       const op = s.edit.preset;

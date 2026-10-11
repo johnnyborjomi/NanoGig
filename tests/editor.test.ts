@@ -453,4 +453,14 @@ describe('edit controller', () => {
     expect(writtenSince(0, 0)).toBe(false); // never written: an unsolicited dump (asked at 0) is not held
     expect(writtenSince(5, 6)).toBe(false);
   });
+  it('the Log sheet sends a frame by hand: a body, or a whole log line (its header made again)', async () => {
+    const { mock, edit } = await setup();
+    const before = mock.edits.length;
+    await edit.sendFrameHex('96 00 00 00'); // an empty 0x96 body
+    await edit.sendFrameHex('16 C0 1A 0E 08 05 12 0A 43 6F 6D 65 74 20 36 30 20 36 96 00 00 00'); // a log line, `40 01` dropped: the length is fixed
+    const hex = mock.edits.slice(before).map((e) => e.hex);
+    expect(hex[0]).toBe('04 C0 96 00 00 00');
+    expect(hex[1]).toMatch(/^14 C0 1A 0E 08 05/);
+    await expect(edit.sendFrameHex('96')).rejects.toThrow(/00 00 00/);
+  });
 });

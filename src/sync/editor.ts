@@ -61,7 +61,8 @@ import {
   type LibraryKind,
 } from '../protocol/edit';
 import { CAB_SLOT_COUNT, FX_SLOTS, captureSelectFrame, type FxSlot } from '../protocol/frames';
-import { toHex } from '../protocol/hex';
+import { fromHex, toHex } from '../protocol/hex';
+import { frameSingle } from '../protocol/reassembly';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
 import type { CapturePreview, EditState, FxEditState, IrEditState, SavedModels, SavedParams, SavedSource, Store } from '../state/store';
 import type { LogDirection, Transport } from '../transport/types';
@@ -155,6 +156,20 @@ export class EditController {
   private send(frame: Uint8Array, label: string): Promise<void> {
     this.host.log('tx', label, toHex(frame));
     return this.host.transport.writeCommand(frame);
+  }
+
+  /**
+   * The Log sheet's "send a frame" (protocol work on the pedal): `hex` is a frame's body (`... <type> 00 00 00`),
+   * or a whole frame as the log prints it (`<len> C0 ...`, header stripped and made again, so a copied line can be
+   * edited). The pedal's answer shows in the log. Edit mode only.
+   */
+  async sendFrameHex(hex: string): Promise<void> {
+    this.assertEdit();
+    let body = fromHex(hex);
+    if (body.length >= 2 && body[1] === 0xc0) body = body.subarray(2);
+    if (body.length < 4) throw new Error('A frame body ends with the type and 00 00 00');
+    await this.send(frameSingle(body), `Frame (by hand)`);
+    this.host.confirm(600);
   }
 
   /** Coalesced send: while one write of `key` is on the wire, only the newest of the later ones follows it. */

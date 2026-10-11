@@ -344,6 +344,11 @@ The pedal itself checks no preset name (it took "", 3 characters, duplicates and
 DrD85's rules: 4 to 31 characters, unique, no spaces at the ends. A preset saved on the pedal while it has no name
 stays unnamed and refuses renames: as Cortex Cloud does, the app then asks for a name and writes a create.
 
+**Frames by hand.** The Log sheet has a hex field (Edit mode): a frame's body (`... <type> 00 00 00`) or a whole
+line copied from the log (`<len> C0 ...`: the header is stripped and made again, so a copied line can be edited).
+The pedal's answer shows in the log. Open question (2026-10-11): what ends a capture preview. Reselecting the
+preset's own capture (slot 6) does not, nor does a load of the shown preset.
+
 ## Fixtures
 
 Real packets from the hardware sessions live in `src/fixtures/hardware-2026-09-12.ts`,
