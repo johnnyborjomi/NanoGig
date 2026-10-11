@@ -2289,6 +2289,16 @@ button.warn {
 .ed-params[data-dim='true'] {
   opacity: 0.45;
 }
+/* A block that is off: its controls still work (Cortex Cloud allows it), but grey like the off tile. */
+.ed-params[data-off='true'] {
+  --fx: var(--off-text);
+  --fx-ink: var(--bg);
+  opacity: 0.7;
+}
+.ed-params[data-off='true'] .ed-label,
+.ed-params[data-off='true'] .ed-value {
+  color: var(--off-text);
+}
 .ed-slider-head {
   display: flex;
   justify-content: space-between;

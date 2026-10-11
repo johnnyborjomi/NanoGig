@@ -471,6 +471,8 @@ export class EditorView {
     const ready = status === "ready";
     for (const r of this.fxSliders) r.set(fx?.values?.[r.index] ?? null, ready);
     this.fxParams.dataset.dim = String(!ready);
+    // Off: still editable (heard once it is on), but drawn like the off tile: grey, so it reads as off.
+    this.fxParams.dataset.off = String(on === false);
     if (!this.fxModels.hidden) this.renderFxModels();
   }
 

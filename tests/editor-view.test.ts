@@ -123,6 +123,18 @@ describe('edit gestures', () => {
     await until(() => Math.abs((mock.fxParams.post3[0] ?? 0) - 0.75) < 1e-6);
   });
 
+  it('a block that is off is editable but drawn grey', async () => {
+    const { root, store } = await setup(true);
+    await hold(root.querySelector('.tile[data-key="pre1"]')!); // off in the demo
+    await until(() => store.get().edit.fx?.status === 'ready');
+    const params = root.querySelector<HTMLElement>('.fx-sheet .ed-params')!;
+    expect(params.dataset.off).toBe('true');
+    expect(root.querySelector<HTMLInputElement>('.fx-sheet .ed-slider input')!.disabled).toBe(false);
+    await hold(root.querySelector('.tile[data-key="post2"]')!); // on
+    await until(() => store.get().edit.fx?.slot === 'post2' && store.get().edit.fx?.status === 'ready');
+    expect(params.dataset.off).toBe('false');
+  });
+
   it("a moved slider shows the sheet's Discard, which puts the block's saved value back", async () => {
     const { root, store, mock } = await setup(true);
     await hold(root.querySelector('.tile[data-key="post3"]')!);
