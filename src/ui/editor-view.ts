@@ -1358,11 +1358,8 @@ export class EditorView {
           const actions = el("div", "ed-item-actions");
           const action = (text: string, cls: string, go: () => Promise<void>) => {
             const b = el("button", cls, text);
-            b.addEventListener("click", () => {
-              this.libSelected = null;
-              this.run(go());
-              this.renderLibrary();
-            });
+            // The row stays open: Preview, Stop preview and a load follow one another.
+            b.addEventListener("click", () => this.run(go()));
             return b;
           };
           // The load the pedal counts as an edit first (its save light comes on). An IR goes into the preset itself;
@@ -1496,7 +1493,18 @@ export class EditorView {
     this.renderSource();
     this.renderGate();
     this.renderPreset();
-    if (prev.edit.library !== s.edit.library || prev.captureName.value !== s.captureName.value || prev.irName.value !== s.irName.value || prev.activePreset.value !== s.activePreset.value) this.renderLibrary();
+    if (
+      prev.edit.library !== s.edit.library ||
+      prev.edit.capturePreview !== s.edit.capturePreview ||
+      prev.captureName.value !== s.captureName.value ||
+      prev.irName.value !== s.irName.value ||
+      prev.activePreset.value !== s.activePreset.value ||
+      prev.captureBank.value !== s.captureBank.value ||
+      prev.captureSlot.value !== s.captureSlot.value ||
+      prev.captureOn.value !== s.captureOn.value
+    ) {
+      this.renderLibrary(); // the rows' buttons and hints name the preview, the slot and on / off
+    }
     this.renderList();
   }
 }

@@ -254,8 +254,7 @@ describe('edit gestures', () => {
     // A preview: the row offers the way back, and so does the capture tab's Discard.
     tap(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')[1]!);
     await until(() => store.get().edit.capturePreview !== null);
-    tap(firstItem());
-    expect(buttons()[1]).toBe('Stop preview');
+    expect(buttons()[1]).toBe('Stop preview'); // the row stays open after an action
     expect(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!.dataset.shown).toBe('true');
     tap(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')[1]!);
     await until(() => store.get().edit.capturePreview === null);
