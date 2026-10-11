@@ -631,6 +631,8 @@ export class EditorView {
   });
   private capStep!: HTMLElement;
   private irStep!: HTMLElement;
+  private readonly capLib = el("button", "ed-lib-btn");
+  private readonly capHint = el("p", "hint", "");
   private readonly capPower = el("button", "ed-power");
   private readonly capVolume = new Slider(
     "Volume",
@@ -695,14 +697,10 @@ export class EditorView {
     this.tabs.append(this.capTab, this.irTab);
     sh.head.after(this.tabs);
 
-    const capLib = el("button", "ed-lib-btn");
+    const capLib = this.capLib;
     capLib.append(icon(Library), el("span", "", "Capture library"));
     capLib.addEventListener("click", () => this.openLibrary("captures"));
-    const capHint = el(
-      "p",
-      "hint",
-      "‹ › step through the slots of the bank playing; open the bank list to browse all five banks and tap a slot to play it. A library capture loads into the slot it plays (every preset on that slot hears it; Save keeps it) or is previewed without changing the preset. Double-tap the volume to reset it to 0 dB.",
-    );
+    const capHint = this.capHint; // one line under the library button: its text follows on / off (no layout shift)
     this.capStep = this.stepRow(this.capSlot, (d) => this.run(this.edit().stepCapture(d)), this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value)));
     this.capPane.append(this.capName, this.capStep, this.capPicker.root, this.capVolume.root, capLib, capHint);
 
@@ -790,6 +788,9 @@ export class EditorView {
       this.capVolume.set(s.captureVolume.value, on !== null);
       // Off: the volume still works (heard once it is on), drawn grey like an off block.
       this.capVolume.root.dataset.off = String(on === false);
+      // The library needs the capture on (a preview onto an off capture hung the pedal; Cortex Cloud hides it too).
+      this.capLib.disabled = on !== true;
+      this.capHint.textContent = on === false ? "Turn the capture on to open the library." : "Double-tap the volume to reset it to 0 dB.";
       this.showSrcDiscard(
         this.actions.edit()?.captureChanged() ?? false,
         this.actions.edit()?.capturePreview() ? "Stop the preview: the capture this preset has saved plays again" : "Back to the capture and volume this preset has saved (on / off stays)",
@@ -1384,7 +1385,7 @@ export class EditorView {
           row.append(actions);
           const hint = irs
             ? `This preset alone, or IR slot ${irSlot}: every preset on that slot hears it.${this.s.cabOn.value !== true ? " The IR is off: loading one turns it on." : ""}`
-            : `Load: into bank ${bank} slot ${slot}, an edit Save keeps (every preset on that slot hears it). Preview: heard until Stop preview or Discard, nothing to save.${this.s.captureOn.value !== true ? " The capture is off: either turns it on." : ""}`;
+            : `Into bank ${bank} slot ${slot}: every preset on that slot hears it. Preview: heard only.`;
           row.append(el("p", "hint", hint));
         }
         rows.push(row);
