@@ -67,8 +67,8 @@ export interface IrEditState {
   preset: number | null;
   slot: number | null;
   settings: CabSettings | null;
-  /** loading: a read is out (on or off alike, as for an FX block). */
-  status: 'loading' | 'ready' | 'error';
+  /** loading: a read is out; off: off and never read in this preset (the pedal does not answer for an IR that is off). */
+  status: 'loading' | 'ready' | 'off' | 'error';
 }
 
 /** Every capture and IR on the pedal (type 0x4D reply), kept for the session. */

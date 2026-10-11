@@ -111,11 +111,18 @@ describe('edit controller', () => {
     await edit.stepIr(1);
     await until(() => mock.device.cabSlot === 2 && store.get().cabSlot.source === 'dump');
     expect(store.get().cabSlot.value).toBe(2);
-    // Off: still read and editable, as an FX block that is off.
+    // Off: never asked (the pedal does not answer); shown from what was read, still editable.
+    const reads = sent(mock, EDIT_MSG.CAB_SETTINGS_REQUEST).length;
     await edit.setIrOn(false);
-    await until(() => store.get().cabOn.value === false && store.get().cabOn.source === 'dump' && store.get().edit.ir?.status === 'ready');
+    await until(() => store.get().cabOn.value === false && store.get().cabOn.source === 'dump');
+    expect(store.get().edit.ir?.status).toBe('ready');
     edit.setIrParam('level', 0.25);
     await until(() => Math.abs(mock.ir.level - 0.25) < 1e-6);
+    edit.closeIr();
+    edit.openIr();
+    expect(store.get().edit.ir?.status).toBe('ready');
+    expect(store.get().edit.ir!.settings!.level).toBeCloseTo(0.25, 6);
+    expect(sent(mock, EDIT_MSG.CAB_SETTINGS_REQUEST)).toHaveLength(reads);
   });
 
   it('capture, IR and gate Discard put back what the preset has saved; on / off and other blocks stay', async () => {
@@ -211,6 +218,8 @@ describe('edit controller', () => {
     await edit.setFxModel('post2', 6004); // Tape Delay over the saved Analog Delay
     expect(edit.savedModelChanged('post2')).toBe(store.get().edit.savedModels!.ids.post2);
     expect(store.get().edit.savedModels!.ids.post2).not.toBe(store.get().fxModels.value.post2!.id);
+    // The pedal has the new model before its save button is pressed.
+    await until(() => store.get().fxModels.source === 'dump' && store.get().fxModels.value.post2?.name === 'Tape Delay');
     mock.pressSave();
     await until(() => edit.savedModelChanged('post2') === null);
     expect(store.get().edit.savedModels!.ids.post2).toBe(store.get().fxModels.value.post2!.id);

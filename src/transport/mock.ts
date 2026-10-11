@@ -382,7 +382,7 @@ export class MockTransport implements Transport {
         break;
       }
       case EDIT_MSG.CAB_SETTINGS_REQUEST: {
-        // On or off alike (the slot asked for: the mock's IR settings are one set).
+        if (!this.device.cabOn) return true; // the pedal leaves it unanswered (board, 2026-10-11)
         const ir = this.ir;
         const name = this.device.irNameOverride || this.currentPreset().irShortName || ir.irName;
         const settings = [

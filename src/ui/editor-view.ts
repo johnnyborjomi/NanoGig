@@ -655,7 +655,15 @@ export class EditorView {
     const status = ir?.status ?? "loading";
     setMsg(
       this.irStatus,
-      status === "loading" ? "Reading the IR settings…" : status === "error" ? "No answer from the pedal" : on === false ? "Off: heard once it is on · Save keeps it" : "Live: Save keeps it",
+      status === "loading"
+        ? "Reading the IR settings…"
+        : status === "error"
+          ? "No answer from the pedal"
+          : status === "off"
+            ? "Off: turn it on once to read its settings"
+            : on === false
+              ? "Off: heard once it is on · Save keeps it"
+              : "Live: Save keeps it",
       status === "error" ? "warn" : "muted",
     );
     this.irRetry.dataset.shown = String(status === "error");

@@ -218,11 +218,18 @@ describe('edit gestures', () => {
     expect(discard.dataset.shown).toBe('true');
     tap(discard);
     await until(() => store.get().captureVolume.source === 'dump' && discard.dataset.shown === 'false');
-    // The IR is off in the demo: read anyway, its controls grey and enabled.
+    // The IR is off in the demo and never read yet: the pedal does not answer for it, so it is not asked.
     expect(store.get().cabOn.value).toBe(false);
     tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-tab')[1]!);
-    await until(() => store.get().edit.ir?.status === 'ready');
+    expect(store.get().edit.ir?.status).toBe('off');
     const irParams = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-params')!;
+    expect(irParams.querySelector<HTMLInputElement>('input')!.disabled).toBe(true);
+    // On: read. Off again: its settings stay, grey and editable.
+    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-power')!);
+    await until(() => store.get().cabOn.value === true && store.get().edit.ir?.status === 'ready');
+    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-power')!);
+    await until(() => store.get().cabOn.value === false && store.get().cabOn.source === 'dump');
+    expect(store.get().edit.ir?.status).toBe('ready');
     expect(irParams.dataset.off).toBe('true');
     expect(irParams.querySelector<HTMLInputElement>('input')!.disabled).toBe(false);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));

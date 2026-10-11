@@ -710,11 +710,14 @@ export class EditController {
     return s.cabOn.value ? (s.cabSlot.value ?? 1) : this.irSlotForOn();
   }
 
-  /** What a read describes: the preset and the IR (on / off does not change the settings, as for an FX block). */
+  /** What a read describes: the preset, the IR, and on / off (turning it on reads it again; off is never asked). */
   private irKey(): string {
     const s = this.store.get();
-    return `${s.activePreset.value}|${this.irPanelSlot()}|${s.irName.value ?? ''}`;
+    return `${s.activePreset.value}|${this.irPanelSlot()}|${s.irName.value ?? ''}|${s.cabOn.value ? 'on' : 'off'}`;
   }
+
+  /** The last settings read per preset and IR slot: what an IR that is off shows (the pedal does not answer for it). */
+  private readonly irSeen = new Map<string, CabSettings>();
 
   openIr(): void {
     this.irAsked = null;
@@ -723,6 +726,9 @@ export class EditController {
   }
 
   closeIr(): void {
+    // Its values as last shown (edits included): what it shows again while off.
+    const ir = this.store.get().edit.ir;
+    if (ir?.status === 'ready' && ir.settings && ir.slot !== null) this.irSeen.set(`${ir.preset}|${ir.slot}`, ir.settings);
     this.patchEdit({ ir: null });
     this.irAsked = null;
   }
@@ -738,9 +744,18 @@ export class EditController {
     if (!force && key === this.irAsked) return;
     this.irAsked = key;
     const preset = this.activePreset();
-    // On or off alike, as an FX block: an IR that is off is read on the slot "on" goes to.
     const slot = this.irPanelSlot();
     const same = ir.preset === preset && ir.slot === slot;
+    if (!this.store.get().cabOn.value) {
+      // Off: the pedal leaves a read unanswered (board, 2026-10-11). Shown from what was read of it (the panel's own
+      // values when it was just turned off, else the last read, else its saved settings), still editable.
+      if (this.irTimer) clearTimeout(this.irTimer);
+      this.irTimer = null;
+      const saved = this.savedSourceNow();
+      const known = (same && ir.settings) || this.irSeen.get(`${preset}|${slot}`) || (saved?.cabSlot === slot ? saved.ir : null) || null;
+      this.patchEdit({ ir: { preset, slot, settings: known, status: known ? 'ready' : 'off' } });
+      return;
+    }
     this.patchEdit({ ir: { preset, slot, settings: same ? ir.settings : null, status: 'loading' } });
     if (this.host.transport.status !== 'connected') return;
     this.irReads.push({ preset, key, at: Date.now() });
@@ -763,6 +778,13 @@ export class EditController {
     const cs = decodeCabSettings(payload);
     this.host.log(cs ? 'info' : 'warn', cs ? `IR settings: "${cs.irName}" (${cs.factory ? 'factory' : 'user'}), mic "${cs.mic}" position ${cs.position + 1}, phase ${cs.phaseInverted ? 'inverted' : 'normal'}` : 'IR settings without an IR', hex);
     const ir = this.store.get().edit.ir;
+    // Kept even when the picture moved on (the IR turned off meanwhile): an IR that is off shows it.
+    const seen = read?.key.split('|').slice(0, 2).join('|');
+    if (cs && seen) this.irSeen.set(seen, cs);
+    if (ir?.status === 'off' && cs && seen === `${ir.preset}|${ir.slot}`) {
+      this.patchEdit({ ir: { ...ir, settings: cs, status: 'ready' } });
+      return;
+    }
     if (!ir || !read || this.irReads.length > 0) return;
     if (read.key !== this.irKey()) return;
     if (this.irTimer) clearTimeout(this.irTimer);
@@ -775,6 +797,7 @@ export class EditController {
     this.assertEdit();
     const ir = this.store.get().edit.ir;
     if (!ir) throw new Error('IR panel closed');
+    if (ir.status === 'off') throw new Error('Turn the IR on once to read its settings');
     return ir;
   }
 
