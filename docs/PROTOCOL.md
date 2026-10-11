@@ -323,6 +323,8 @@ preset is only saved by the pedal's save button) except rename / create / delete
 | IR microphone / position (factory IR) | `<len> C0 1A <n> {08 <kind> 12 <IR name> 18 <position 0..5> 22 <mic>} 5E 00 00 00` | read again |
 | Library | `0C C0 18 01 20 01 28 01 30 01 4C 00 00 00` (fields 3..6: factory captures, factory IRs, user captures, user IRs) | `0x4D`, multi-packet: `3` / `5` = capture `{1 hash, 2 name}`, `4` / `6` = IR name; an item's index is its place in its list |
 | Load a library IR | `<len> C0 <1A factory / 22 user> <n> {08 <index> 12 <name>} 5E 00 00 00` | state dump |
+| Load a library capture into the preset's own | the capture preview: `<len> C0 <1A factory / 22 user> <n> {08 <index> 12 <name>} 40 01 96 00 00 00` (Cortex Cloud's tap; whether Save keeps it in the preset is not yet seen) | `0x97` |
+| Load a library IR into an IR slot | `<len> C0 18 <slot 0..4> <22 factory / 2A user> <n> {08 <index> 12 <name>} 4E 00 00 00`, then the IR slot select | `0x4F` |
 | Load a library capture ("Use") | `<len> C0 18 <slot 0..24> <22 factory / 2A user> <n> {08 <index> 12 <name>} 50 00 00 00`, then the capture slot select above | `0x51` `08 06 18 01` |
 | Rename | `<len> C0 08 01 18 <preset> 22 <n> <name> 6F 00 00 00` | `0x70` `08 06 18 <preset> 20 <1 ok>` |
 | Create (the shown preset stored under a name) | `<len> C0 08 01 18 <preset> 2A <n> <name> 03 00 00 00` | `0x04`, same shape |

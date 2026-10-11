@@ -28,6 +28,8 @@ import {
   cabMicFrame,
   cabPhaseFrame,
   cabSelectFrame,
+  cabSlotLoadFrame,
+  capturePreviewFrame,
   cabSettingFrame,
   cabSettingsRequest,
   captureSlotLoadFrame,
@@ -624,6 +626,11 @@ export class EditController {
     return this.host.metadata()?.presets[this.activePreset() ?? -1]?.captureName ?? '';
   }
 
+  /** The name of the IR the shown preset has saved in itself (IR slot 6), from the metadata. */
+  ownIrName(): string {
+    return this.host.metadata()?.presets[this.activePreset() ?? -1]?.irShortName ?? '';
+  }
+
   /** Where the active capture bank starts among the pedal's 25 slots (bank 1 → 0). */
   private captureBankOffset(): number {
     return ((this.store.get().captureBank.value ?? 1) - 1) * CAPTURE_SELECT_SLOTS;
@@ -948,6 +955,46 @@ export class EditController {
       this.host.metadataChanged({ ...md, captures });
     }
     this.host.confirm(1500); // in case the 0x51 never comes
+  }
+
+  /**
+   * A library capture into the preset itself, not a slot: Cortex Cloud's preview (a tap on a library capture), which
+   * the pedal plays at once and does not mark edited. Save stores the shown preset with it (not yet seen on the
+   * pedal). Every other preset keeps its capture.
+   */
+  async loadCaptureIntoPreset(item: LibraryItem): Promise<void> {
+    this.assertEdit();
+    this.writtenAt.capture = Date.now();
+    this.store.setField('captureOn', true, 'optimistic');
+    this.store.setField('captureName', item.name, 'optimistic');
+    await this.send(capturePreviewFrame(item), `Load ${item.list} capture ${item.index + 1} "${item.name}" into the preset`);
+    this.host.confirm(600);
+  }
+
+  /** The IR slot a library IR goes into: the one playing (1..5), else the one "on" goes to, else 1. */
+  irLoadSlot(): number {
+    const s = this.store.get();
+    const cur = s.cabOn.value ? (s.cabSlot.value ?? 0) : 0;
+    if (cur >= 1 && cur <= CAB_SLOT_COUNT) return cur;
+    const on = this.irSlotForOn();
+    return on >= 1 && on <= CAB_SLOT_COUNT ? on : 1;
+  }
+
+  /**
+   * A library IR into one of the pedal's 5 IR slots (every preset on that slot hears it), then that slot selected:
+   * Cortex Cloud's IR "use" (type 0x4E → 0x4F, then the slot select).
+   */
+  async loadIrIntoSlot(item: LibraryItem): Promise<void> {
+    this.assertEdit();
+    const slot = this.irLoadSlot();
+    await this.send(cabSlotLoadFrame(slot - 1, item), `Load ${item.list} IR ${item.index + 1} "${item.name}" into IR slot ${slot}`);
+    const md = this.host.metadata();
+    if (md && md.irs[slot - 1]) {
+      const irs = md.irs.slice();
+      irs[slot - 1] = { ...irs[slot - 1]!, shortName: item.name, fullName: item.name };
+      this.host.metadataChanged({ ...md, irs });
+    }
+    await this.selectIrSlot(slot);
   }
 
   private onCaptureLoaded(ok: boolean, hex: string): void {

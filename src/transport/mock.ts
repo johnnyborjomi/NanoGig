@@ -448,6 +448,13 @@ export class MockTransport implements Transport {
         this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_SLOT_LOADED);
         break;
       }
+      case EDIT_MSG.CAB_SLOT_LOAD: {
+        // A library IR into IR slot 0..4 (every preset on it hears it).
+        const item = sub(4) ?? sub(5);
+        if (item) this.slotIrs[v(3)] = text(item, 2);
+        this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAB_SLOT_LOADED);
+        break;
+      }
       case EDIT_MSG.CAPTURE_PREVIEW: {
         const item = sub(3) ?? sub(4);
         if (item) {
@@ -532,6 +539,8 @@ export class MockTransport implements Transport {
 
   /** The capture slots' names after library loads (slot 0..24). */
   readonly slotCaptures: Record<number, string> = {};
+  /** The IR slots' names after library loads (slot 0..4). */
+  readonly slotIrs: Record<number, string> = {};
   /** Preset index on IA, IB, IIA, IIB. */
   readonly footswitches = [3, 7, 10, 16];
 
@@ -540,7 +549,7 @@ export class MockTransport implements Transport {
   }
 
   private metadataIrs(): string[] {
-    return [...new Set(this.presets.map((p) => p.irShortName).filter(Boolean))].slice(0, 5);
+    return [...new Set(this.presets.map((p) => p.irShortName).filter(Boolean))].slice(0, 5).map((n, i) => this.slotIrs[i] ?? n);
   }
 
   /** Test hook: the pedal's own save button (0x1B, field 3 = 2). */

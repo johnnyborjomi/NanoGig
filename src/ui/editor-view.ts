@@ -14,6 +14,7 @@
  */
 import {
   CAB_POSITIONS,
+  CAB_OWN_SLOT,
   CAPTURE_BANKS,
   CAPTURE_OWN_SLOT,
   CAPTURE_SELECT_SLOTS,
@@ -33,7 +34,7 @@ import {
   type LibraryKind,
   type LibraryList,
 } from "../protocol/edit";
-import { PRESET_COUNT, presetLabel, type FxSlot } from "../protocol/frames";
+import { CAB_SLOT_COUNT, PRESET_COUNT, presetLabel, type FxSlot } from "../protocol/frames";
 import { lookupFxModel } from "../protocol/models";
 import type { GigState, Store } from "../state/store";
 import type { EditController } from "../sync/editor";
@@ -41,6 +42,7 @@ import { FOLDER_NAME_MAX, LibraryFolders, type LibraryFolder } from "./library-f
 import { onHold } from "./hold";
 import { presetLabelEls, renderPresetLabel, type PresetLabelEls } from "./preset-label";
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CornerLeftUp,
@@ -185,6 +187,114 @@ class Slider {
   /** The track's fill up to the thumb (the slider is drawn in CSS, which has no fill of its own in WebKit). */
   private paint() {
     this.input.style.setProperty("--pct", `${(Number(this.input.value) / this.max) * 100}%`);
+  }
+}
+
+/**
+ * The pedal's slots as a list (the capture banks, the IR slots), collapsible under a header: the header's chevron
+ * shows / hides them (remembered in this browser); with several banks, ‹ › beside it page the banks while open.
+ * Browsing sends nothing; a tap plays a slot. The preset's own comes last.
+ */
+class SlotPicker {
+  readonly root = el("div", "ed-slots");
+  private readonly toggle = el("button", "ghost ed-slots-toggle");
+  private readonly label = el("span", "ed-slots-label");
+  private readonly prev: HTMLButtonElement;
+  private readonly next: HTMLButtonElement;
+  private readonly btns: HTMLButtonElement[] = [];
+  private readonly own = el("button", "ed-chip ed-cap-slot");
+  private readonly list = el("div", "ed-slots-list");
+  /** The bank shown; null = the one playing (also after that changes). */
+  private view: number | null = null;
+  private seen: string | null = null;
+  open: boolean;
+
+  constructor(
+    private readonly opts: {
+      banks: number;
+      per: number;
+      /** localStorage key for open / closed. */
+      key: string;
+      label: (bank: number) => string;
+      ownTitle: string;
+      onPick: (bank: number, position: number) => void;
+      onOwn: () => void;
+      /** Open / closed or the bank shown changed: the owner renders again. */
+      onChange: () => void;
+    },
+  ) {
+    let open = false;
+    try {
+      open = localStorage.getItem(opts.key) === "1";
+    } catch {
+      /* storage unavailable: closed */
+    }
+    this.open = open;
+    this.prev = iconButton(ChevronLeft, "Previous bank", "ed-step-btn");
+    this.next = iconButton(ChevronRight, "Next bank", "ed-step-btn");
+    const page = (d: number) => {
+      const cur = this.view ?? 1;
+      this.view = ((cur - 1 + d + opts.banks) % opts.banks) + 1;
+      opts.onChange();
+    };
+    this.prev.addEventListener("click", () => page(-1));
+    this.next.addEventListener("click", () => page(1));
+    this.toggle.append(this.label, icon(ChevronDown));
+    this.toggle.addEventListener("click", () => {
+      this.open = !this.open;
+      try {
+        localStorage.setItem(opts.key, this.open ? "1" : "0");
+      } catch {
+        /* kept for this session */
+      }
+      opts.onChange();
+    });
+    const head = el("div", "ed-row ed-step ed-slots-head");
+    if (opts.banks > 1) head.append(this.prev, this.toggle, this.next);
+    else head.append(this.toggle);
+    const slots = el("div", "ed-cap-slots");
+    for (let i = 0; i < opts.per; i++) {
+      const b = el("button", "ed-chip ed-cap-slot");
+      b.append(el("span", "ed-cap-pos", String(i + 1)), el("span", "ed-cap-name", ""));
+      b.addEventListener("click", () => opts.onPick(this.view ?? 1, i + 1));
+      this.btns.push(b);
+      slots.append(b);
+    }
+    this.own.append(el("span", "ed-cap-pos", "★"), el("span", "ed-cap-name", ""));
+    this.own.title = opts.ownTitle;
+    this.own.addEventListener("click", () => opts.onOwn());
+    this.list.append(slots, this.own);
+    this.root.append(head, this.list);
+  }
+
+  /**
+   * `names`: every slot over the banks; `bank` / `position`: what plays (position 1..per, `own` for the preset's own,
+   * null when off). The view follows the bank playing whenever what plays changes.
+   */
+  render(p: { names: readonly string[]; bank: number; position: number | null; own: boolean; on: boolean | null; ownName: string; playing: string }) {
+    if (p.playing !== this.seen) {
+      this.seen = p.playing;
+      this.view = null;
+    }
+    const view = this.view ?? p.bank;
+    this.view = view;
+    this.label.textContent = this.opts.label(view);
+    this.root.dataset.open = String(this.open);
+    this.toggle.setAttribute("aria-expanded", String(this.open));
+    this.list.hidden = !this.open;
+    // Bank arrows only with the slots shown (their room kept: the header does not move).
+    this.prev.dataset.shown = this.next.dataset.shown = String(this.open);
+    this.btns.forEach((b, i) => {
+      const name = p.names[(view - 1) * this.opts.per + i] ?? "";
+      (b.lastChild as HTMLElement).textContent = name || `Slot ${i + 1}`;
+      b.title = name;
+      b.dataset.active = String(p.on === true && !p.own && view === p.bank && p.position === i + 1);
+      b.disabled = p.on === null;
+    });
+    (this.own.lastChild as HTMLElement).textContent = p.ownName ? `Preset's own · ${p.ownName}` : "Preset's own";
+    this.own.dataset.active = String(p.on === true && p.own);
+    this.own.disabled = p.on === null;
+    this.root.dataset.off = String(p.on === false);
   }
 }
 
@@ -497,14 +607,30 @@ export class EditorView {
   private readonly irPane = el("div", "ed-pane");
   private readonly capName = el("div", "ed-big");
   private readonly capSlot = el("span", "ed-slot");
-  /** The capture banks as the pedal has them: 5 banks of 5 slots, ‹ › to browse, a tap to play one. */
-  private readonly capBanks = el("div", "ed-capbanks");
-  private readonly capBankLabel = el("span", "ed-slot");
-  private readonly capSlotBtns: HTMLButtonElement[] = [];
-  private readonly capOwnBtn = el("button", "ed-chip ed-cap-slot");
-  /** The bank shown; null = the one playing (also after it changes on the pedal). */
-  private capBankView: number | null = null;
-  private capBankSeen: string | null = null;
+  /** The capture banks as the pedal has them: 5 banks of 5 slots, collapsible; ‹ › to browse, a tap to play one. */
+  private readonly capPicker = new SlotPicker({
+    banks: CAPTURE_BANKS,
+    per: CAPTURE_SELECT_SLOTS,
+    key: "nanogig.captureSlotsOpen",
+    label: (bank) => `Bank ${bank} of ${CAPTURE_BANKS}`,
+    ownTitle: "The capture saved in this preset itself",
+    onPick: (bank, position) => this.run(this.edit().selectCapture(bank, position)),
+    onOwn: () => this.run(this.edit().selectCaptureSlot(CAPTURE_OWN_SLOT)),
+    onChange: () => this.renderSource(),
+  });
+  /** The pedal's IR slots (one bank of 5), collapsible like the captures'. */
+  private readonly irPicker = new SlotPicker({
+    banks: 1,
+    per: CAB_SLOT_COUNT,
+    key: "nanogig.irSlotsOpen",
+    label: () => "IR slots",
+    ownTitle: "The IR saved in this preset itself",
+    onPick: (_bank, position) => this.run(this.edit().selectIrSlot(position)),
+    onOwn: () => this.run(this.edit().selectIrSlot(CAB_OWN_SLOT)),
+    onChange: () => this.renderSource(),
+  });
+  private capStep!: HTMLElement;
+  private irStep!: HTMLElement;
   private readonly capPower = el("button", "ed-power");
   private readonly capVolume = new Slider(
     "Volume",
@@ -534,7 +660,6 @@ export class EditorView {
   openSource(tab: "capture" | "ir") {
     if (!this.canEdit) return;
     this.srcTab = tab;
-    this.capBankView = null;
     this.srcSheet.open();
     if (tab === "ir") this.run(() => this.edit().openIr());
     this.renderSource();
@@ -576,37 +701,10 @@ export class EditorView {
     const capHint = el(
       "p",
       "hint",
-      "‹ › browse the pedal's capture banks, tap a slot to play it. A library capture goes into the slot this preset plays, and every preset on that slot hears it. Save keeps it in this preset. Double-tap the volume to reset it to 0 dB.",
+      "‹ › step through the slots of the bank playing; open the bank list to browse all five banks and tap a slot to play it. A library capture goes into this preset or into the slot it plays (every preset on that slot hears it). Save keeps it. Double-tap the volume to reset it to 0 dB.",
     );
-    // On / off on its own row; the banks under it get the full width.
-    const powerRow = el("div", "ed-row");
-    this.capPower.append(icon(Power), el("span", "", ""));
-    this.capPower.addEventListener("click", () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value)));
-    powerRow.append(this.capPower, this.capSlot);
-    const nav = el("div", "ed-row ed-step");
-    const prev = iconButton(ChevronLeft, "Previous bank", "ed-step-btn");
-    const next = iconButton(ChevronRight, "Next bank", "ed-step-btn");
-    const page = (d: number) => {
-      const cur = this.capBankView ?? this.s.captureBank.value ?? 1;
-      this.capBankView = ((cur - 1 + d + CAPTURE_BANKS) % CAPTURE_BANKS) + 1;
-      this.renderSource();
-    };
-    prev.addEventListener("click", () => page(-1));
-    next.addEventListener("click", () => page(1));
-    nav.append(prev, this.capBankLabel, next);
-    const slots = el("div", "ed-cap-slots");
-    for (let i = 0; i < CAPTURE_SELECT_SLOTS; i++) {
-      const b = el("button", "ed-chip ed-cap-slot");
-      b.append(el("span", "ed-cap-pos", String(i + 1)), el("span", "ed-cap-name", ""));
-      b.addEventListener("click", () => this.run(this.edit().selectCapture(this.capBankView ?? this.s.captureBank.value ?? 1, i + 1)));
-      this.capSlotBtns.push(b);
-      slots.append(b);
-    }
-    this.capOwnBtn.append(el("span", "ed-cap-pos", "★"), el("span", "ed-cap-name", ""));
-    this.capOwnBtn.title = "The capture saved in this preset itself";
-    this.capOwnBtn.addEventListener("click", () => this.run(this.edit().selectCaptureSlot(CAPTURE_OWN_SLOT)));
-    this.capBanks.append(nav, slots, this.capOwnBtn);
-    this.capPane.append(this.capName, powerRow, this.capBanks, this.capVolume.root, capLib, capHint);
+    this.capStep = this.stepRow(this.capSlot, (d) => this.run(this.edit().stepCapture(d)), this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value)));
+    this.capPane.append(this.capName, this.capStep, this.capPicker.root, this.capVolume.root, capLib, capHint);
 
     const irLib = el("button", "ed-lib-btn");
     irLib.append(icon(Library), el("span", "", "IR library"));
@@ -635,9 +733,11 @@ export class EditorView {
       });
       this.irPositions.append(b);
     }
+    this.irStep = this.stepRow(this.irSlot, (d) => this.run(this.edit().stepIr(d)), this.irPower, () => this.run(this.edit().setIrOn(!this.s.cabOn.value)));
     this.irPane.append(
       this.irName,
-      this.stepRow(this.irSlot, (d) => this.run(this.edit().stepIr(d)), this.irPower, () => this.run(this.edit().setIrOn(!this.s.cabOn.value))),
+      this.irStep,
+      this.irPicker.root,
       irLib,
       status,
       sliders,
@@ -646,6 +746,11 @@ export class EditorView {
       this.irMicBox,
     );
     sh.body.append(this.capPane, this.irPane);
+  }
+
+  /** A stepper's ‹ › hidden while its slot list is open (visibility: the slot label and power keep their place). */
+  private showStepArrows(row: HTMLElement, shown: boolean) {
+    for (const b of Array.from(row.querySelectorAll<HTMLElement>(".ed-step-btn"))) b.dataset.shown = String(shown);
   }
 
   private showSrcDiscard(changed: boolean, title: string) {
@@ -671,26 +776,17 @@ export class EditorView {
       this.capSlot.textContent = !on ? "Off" : slot === CAPTURE_OWN_SLOT ? "Preset's own" : slot ? `Bank ${bank} · slot ${slot}` : "—";
       this.capPower.dataset.on = String(on === true);
       (this.capPower.lastChild as HTMLElement).textContent = on ? "On" : "Off";
-      // The bank shown follows the one playing when that changes (a tap, the pedal's encoder, another preset).
-      const playing = `${s.activePreset.value}|${bank}|${slot}`;
-      if (playing !== this.capBankSeen) {
-        this.capBankSeen = playing;
-        this.capBankView = null;
-      }
-      const view = this.capBankView ?? bank;
-      this.capBankLabel.textContent = `Bank ${view} of ${CAPTURE_BANKS}`;
-      this.capSlotBtns.forEach((b, i) => {
-        const name = s.captureSlots[(view - 1) * CAPTURE_SELECT_SLOTS + i] ?? "";
-        (b.lastChild as HTMLElement).textContent = name || `Slot ${i + 1}`;
-        b.title = name;
-        b.dataset.active = String(on === true && view === bank && slot === i + 1);
-        b.disabled = on === null;
+      this.capPicker.render({
+        names: s.captureSlots,
+        bank,
+        position: slot >= 1 && slot <= CAPTURE_SELECT_SLOTS ? slot : null,
+        own: slot === CAPTURE_OWN_SLOT,
+        on,
+        ownName: this.actions.edit()?.ownCaptureName() ?? "",
+        playing: `${s.activePreset.value}|${bank}|${slot}`,
       });
-      const own = this.actions.edit()?.ownCaptureName() ?? "";
-      (this.capOwnBtn.lastChild as HTMLElement).textContent = own ? `Preset's own · ${own}` : "Preset's own";
-      this.capOwnBtn.dataset.active = String(on === true && slot === CAPTURE_OWN_SLOT);
-      this.capOwnBtn.disabled = on === null;
-      this.capBanks.dataset.off = String(on === false);
+      // The list open: the slot stepper's ‹ › give way to it (their room kept).
+      this.showStepArrows(this.capStep, !this.capPicker.open);
       this.capVolume.set(s.captureVolume.value, on !== null);
       // Off: the volume still works (heard once it is on), drawn grey like an off block.
       this.capVolume.root.dataset.off = String(on === false);
@@ -706,6 +802,16 @@ export class EditorView {
     this.irSlot.textContent = !on ? "Off" : slot === 6 ? "Preset's own" : slot ? `Slot ${slot}` : "—";
     this.irPower.dataset.on = String(on === true);
     (this.irPower.lastChild as HTMLElement).textContent = on ? "On" : "Off";
+    this.irPicker.render({
+      names: s.irSlots,
+      bank: 1,
+      position: slot !== null && slot >= 1 && slot <= CAB_SLOT_COUNT ? slot : null,
+      own: slot === CAB_OWN_SLOT,
+      on,
+      ownName: this.actions.edit()?.ownIrName() ?? "",
+      playing: `${s.activePreset.value}|${slot}`,
+    });
+    this.showStepArrows(this.irStep, !this.irPicker.open);
     const status = ir?.status ?? "loading";
     setMsg(
       this.irStatus,
@@ -1247,19 +1353,33 @@ export class EditorView {
         row.append(name);
         if (this.libSelected === key) {
           const actions = el("div", "ed-item-actions");
-          const load = el("button", "primary", irs ? "Load into this preset" : `Load into slot ${slot}`);
-          load.addEventListener("click", () => {
-            this.libSelected = null;
-            this.run(this.edit().pickFromLibrary(it, this.libKind));
-            this.renderLibrary();
-          });
+          const action = (text: string, cls: string, go: () => Promise<void>) => {
+            const b = el("button", cls, text);
+            b.addEventListener("click", () => {
+              this.libSelected = null;
+              this.run(go());
+              this.renderLibrary();
+            });
+            return b;
+          };
+          // First into this preset alone, then into a slot of the pedal's (every preset on that slot hears it).
+          const intoPreset = irs
+            ? action("Load into this preset", "primary", () => this.edit().pickFromLibrary(it, "irs"))
+            : action("Load into preset's own", "primary", () => this.edit().loadCaptureIntoPreset(it));
+          const irSlot = irs ? this.actions.edit()?.irLoadSlot() ?? 1 : 0;
+          const bank = this.s.captureBank.value ?? 1;
+          const intoSlot = irs
+            ? action(`Load into IR slot ${irSlot}`, "", () => this.edit().loadIrIntoSlot(it))
+            : action(`Load into bank ${bank} · slot ${slot}`, "", () => this.edit().pickFromLibrary(it, "captures"));
           const move = el("button", "");
           move.append(icon(FolderInput), el("span", "", "Move to folder"));
           move.addEventListener("click", () => this.startMove(it));
-          actions.append(load, move);
+          actions.append(intoPreset, intoSlot, move);
           row.append(actions);
-          if (!irs) row.append(el("p", "hint", `Every preset that plays capture slot ${slot} hears it. Save on the pedal to keep it in this preset.`));
-          else if (this.s.cabOn.value !== true) row.append(el("p", "hint", "The IR is off: loading one turns it on."));
+          const hint = irs
+            ? `This preset alone, or IR slot ${irSlot}: every preset on that slot hears it.${this.s.cabOn.value !== true ? " The IR is off: loading one turns it on." : ""}`
+            : `This preset alone, or bank ${bank} slot ${slot}: every preset on that slot hears it. Save keeps it in this preset.`;
+          row.append(el("p", "hint", hint));
         }
         rows.push(row);
       }

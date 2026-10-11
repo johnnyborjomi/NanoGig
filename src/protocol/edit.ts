@@ -480,6 +480,8 @@ export const CAPTURE_SELECT_SLOTS = 5;
 /** Capture banks (field 9, 1..5): 5 × 5 = the pedal's 25 capture slots. */
 export const CAPTURE_BANKS = 5;
 export const CAPTURE_OWN_SLOT = 6;
+/** Field 12 / the IR select's 6: the IR saved in the preset itself (board 2026-10-10: selecting it restores it). */
+export const CAB_OWN_SLOT = 6;
 
 /**
  * The capture in slot 1..5 on (Cortex Cloud after a use: `08 C0 18 01 20 <slot> 1C 00 00 00`), 6 = back to the

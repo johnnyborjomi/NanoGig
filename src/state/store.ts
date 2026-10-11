@@ -213,6 +213,8 @@ export interface GigState {
   captureBank: Field<number | null>;
   /** The pedal's 25 capture slots (5 banks of 5) by name, from the metadata; [] until read. */
   captureSlots: string[];
+  /** The pedal's 5 IR slots by name (short name, else full), from the metadata; [] until read. */
+  irSlots: string[];
   /** Capture volume, raw 0..255 (state field 44; captureVolumeDb for the readout). */
   captureVolume: Field<number | null>;
   /** Gate threshold, raw 0..255 (state field 53 × 255). */
@@ -295,6 +297,7 @@ export function initialState(transportName = 'none'): GigState {
     captureSlot: field<number | null>(null),
     captureBank: field<number | null>(null),
     captureSlots: [],
+    irSlots: [],
     captureVolume: field<number | null>(null),
     gateThreshold: field<number | null>(null),
     cabSlot: field<number | null>(null),

@@ -721,7 +721,7 @@ export class SyncEngine {
   /** Preset names and the capture slots' names, from a metadata read (or its cache). */
   private publishNames(md: Metadata, source: 'metadata' | 'cache'): void {
     this.store.setField('presetNames', md.presets.map((p) => p.name), source);
-    this.store.patch({ captureSlots: md.captures.map((c) => c.name) });
+    this.store.patch({ captureSlots: md.captures.map((c) => c.name), irSlots: md.irs.map((r) => r.shortName || r.fullName) });
   }
 
   private applyState(state: CurrentState, requestedAt = 0) {

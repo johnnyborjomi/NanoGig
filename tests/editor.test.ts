@@ -186,12 +186,13 @@ describe('edit controller', () => {
     await edit.pickFromLibrary(comet, 'captures');
     await until(() => sent(mock, EDIT_MSG.ENCODER).length > 0 && store.get().captureName.source === 'dump');
     expect(store.get().captureName.value).toBe('Comet 60 6');
-    expect(mock.slotCaptures[store.get().captureSlot.value! - 1]).toBe('Comet 60 6');
+    // Into the playing bank's slot (the demo plays bank 2: pedal slots 5..9).
+    expect(mock.slotCaptures[(store.get().captureBank.value! - 1) * 5 + store.get().captureSlot.value! - 1]).toBe('Comet 60 6');
   });
 
   it('capture banks: a slot in another bank by bank and capture, in the playing bank by position; loads go to the playing bank', async () => {
     const { store, mock, edit } = await setup();
-    await until(() => store.get().captureBank.value === 1 && store.get().captureSlots.length === 25);
+    await until(() => store.get().captureBank.value === 2 && store.get().captureSlots.length === 25); // the demo plays bank 2
     const before = mock.edits.length;
     await edit.selectCapture(3, 2); // bank 3, slot 2 = slot 12 of 25
     expect(mock.edits.slice(before).at(-1)!.hex).toMatch(/^08 C0 18 04 20 0B 1C/);
@@ -209,13 +210,32 @@ describe('edit controller', () => {
     expect(edit.captureChanged()).toBe(false);
     // A library capture goes into the playing bank's slot (bank 2 slot 1 = pedal slot 5).
     await edit.selectCapture(2, 1);
-    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 2);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 2 && store.get().captureSlot.value === 1);
     await edit.loadLibrary('captures');
     await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
     const comet = store.get().edit.library.captures!.find((c) => c.name === 'Comet 60 6')!;
     await edit.pickFromLibrary(comet, 'captures');
     await until(() => mock.slotCaptures[5] === 'Comet 60 6');
     expect(mock.slotCaptures[0]).toBeUndefined();
+  });
+
+  it("library: a capture into the preset's own (Cortex Cloud's preview), an IR into the IR slot playing", async () => {
+    const { store, mock, edit } = await setup({ device: { initialState: { cabOn: true, cabSlot: 2 } } });
+    await edit.loadLibrary('captures');
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    const plexi = store.get().edit.library.captures!.find((c) => c.name === 'My Plexi')!;
+    const slots = { ...mock.slotCaptures };
+    await edit.loadCaptureIntoPreset(plexi);
+    expect(sent(mock, EDIT_MSG.CAPTURE_PREVIEW)).toHaveLength(1);
+    await until(() => store.get().captureName.source === 'dump' && store.get().captureName.value === 'My Plexi');
+    expect(mock.slotCaptures).toEqual(slots); // no slot of the pedal's changed
+    await edit.loadLibrary('irs');
+    await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
+    expect(edit.irLoadSlot()).toBe(2);
+    await edit.loadIrIntoSlot(store.get().edit.library.irs!.find((i) => i.name === 'YA')!);
+    expect(mock.slotIrs[1]).toBe('YA');
+    expect(store.get().irSlots[1]).toBe('YA');
+    await until(() => store.get().cabSlot.source === 'dump' && store.get().cabSlot.value === 2 && store.get().irName.value === 'YA');
   });
 
   it('renames, creates and deletes presets; checks the name first', async () => {

@@ -126,6 +126,7 @@ export function defaultMockDeviceState(): MockDeviceState {
     captureOn: true,
     amp: { gain: 127, level: 144, bass: 129, mid: 127, treble: 113 },
     captureSlot: 2,
+    captureBank: 2, // field 9 of the real dump (`48 02`): its capture slot 2 is bank 2's
     captureVolumeRaw: 127,
     firmware: '2.2.1',
     outputsMuted: false,

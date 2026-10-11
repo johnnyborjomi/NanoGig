@@ -2292,7 +2292,7 @@ button.warn {
 /* A block that is off (FX, capture, IR, gate): its controls still work (Cortex Cloud allows it), but grey like the
    off tile. The power button stays as it is: it is how to turn the block on. */
 .ed-params[data-off='true'],
-.ed-capbanks[data-off='true'],
+.ed-slots[data-off='true'],
 .ed-slider[data-off='true'],
 .ed-row[data-off='true'],
 .ed-mic[data-off='true'] {
@@ -2471,12 +2471,37 @@ button.warn {
   width: 20px;
   height: 20px;
 }
-/* Capture banks: ‹ Bank n of 5 ›, its five slots by name (one per row, a fixed count: no shift between banks),
-   then the preset's own capture. */
-.ed-capbanks {
+/* The pedal's slots (capture banks, IR slots): a header that opens / closes the list (‹ › page the banks while
+   open), the slots by name (one per row, a fixed count: no shift between banks), then the preset's own. */
+.ed-slots {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.ed-slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ed-slots-toggle {
+  flex: 1 1 120px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.ed-slots-toggle svg {
+  width: 20px;
+  height: 20px;
+  transition: transform 150ms ease;
+}
+.ed-slots[data-open='true'] .ed-slots-toggle svg {
+  transform: rotate(180deg);
+}
+/* Arrows that give way (a list open, a closed bank list): hidden, their room kept. */
+.ed-step-btn[data-shown='false'] {
+  visibility: hidden;
 }
 .ed-cap-slots {
   display: grid;
