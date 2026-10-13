@@ -265,7 +265,9 @@ describe('edit gestures', () => {
     tap(libBtn());
     await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
     const sheet = root.querySelector('.lib-sheet')!;
-    const firstItem = () => sheet.querySelector<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name')!;
+    // The first item in no slot of the pedal's (one in a slot offers Use instead of a load).
+    const items = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name'));
+    const firstItem = () => items().find((n) => !n.querySelector('.ed-item-slot'))!;
     const firstName = firstItem().querySelector('.ed-item-label')!.textContent!;
     const buttons = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')).map((b) => b.textContent);
     const saveBtn = root.querySelector<HTMLButtonElement>('.topbar .save-btn')!;
@@ -314,8 +316,8 @@ describe('edit gestures', () => {
     expect(buttons()).toEqual([expect.stringMatching(/^Slot \d$/), 'Move to folder']);
   });
 
-  it('library: A–Z / Z–A with a letter between the groups; where an item sits on the pedal', async () => {
-    const { root, store } = await setup(true);
+  it('library: A–Z / Z–A with a letter between the groups; where an item sits on the pedal, and Use for it', async () => {
+    const { root, store, mock } = await setup(true);
     try {
       localStorage.removeItem('nanogig.librarySort');
     } catch {
@@ -349,6 +351,22 @@ describe('edit gestures', () => {
     )!;
     const i = slots.findIndex((n) => n.toLowerCase() === row.querySelector('.ed-item-label')!.textContent!.toLowerCase());
     expect(row.querySelector('.ed-item-slot')!.textContent).toBe(`Bank ${Math.floor(i / 5) + 1} · Slot ${(i % 5) + 1}`);
+    // Already in a slot: Use (plays it from there, nothing written over), no load.
+    tap(row.querySelector<HTMLElement>('.ed-item-name')!);
+    expect(row.isConnected ? row : null).toBeNull(); // re-rendered
+    const open = sheet.querySelector<HTMLElement>('.ed-item[data-selected="true"]')!;
+    expect(open.querySelector('.ed-load-to .ed-label')!.textContent).toBe('Use:');
+    const labels = Array.from(open.querySelectorAll<HTMLButtonElement>('.ed-load-to button')).map((b) => b.textContent);
+    expect(labels[0]).toBe(`Bank ${Math.floor(i / 5) + 1} · Slot ${(i % 5) + 1}`);
+    expect(labels.at(-1)).toBe('Move to folder');
+    expect(labels).not.toContain("Preset's own slot");
+    const loads = (await import('../src/protocol/edit')).EDIT_MSG.CAPTURE_SLOT_LOAD;
+    const useBtn = open.querySelector<HTMLButtonElement>('.ed-load-to button')!;
+    if (!useBtn.disabled) {
+      tap(useBtn);
+      await until(() => store.get().captureSlot.source === 'dump' && store.get().captureBank.value === Math.floor(i / 5) + 1 && store.get().captureSlot.value === (i % 5) + 1);
+    }
+    expect(mock.edits.some((e) => e.type === loads)).toBe(false); // nothing written into a slot
   });
 
   it('amp & cab and gate: Discard once a value moves; an IR that is off is grey but editable', async () => {

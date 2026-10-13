@@ -1398,7 +1398,8 @@ export class EditorView {
         const name = el("button", "ed-item-name");
         name.append(el("span", "ed-item-index", String(it.index + 1)), el("span", "ed-item-label", it.name || "(no name)"));
         const tags = el("span", "ed-item-tags");
-        const at = slotNames.flatMap((n, i) => (n && norm(n) === norm(it.name) ? [slotLabel(i)] : []));
+        const inSlots = slotNames.flatMap((n, i) => (n && norm(n) === norm(it.name) ? [i] : []));
+        const at = inSlots.map(slotLabel);
         for (const label of at.slice(0, 2)) tags.append(el("span", "ed-item-slot", label));
         if (at.length > 2) tags.append(el("span", "ed-item-slot", `+${at.length - 2}`));
         const fid = this.folderOf(it);
@@ -1445,8 +1446,21 @@ export class EditorView {
           const bank = this.s.captureBank.value ?? 1;
           // "Load to:" above the buttons; Move to folder on the same row, at its end.
           const loads = el("div", "ed-item-actions ed-load-to");
-          loads.append(el("span", "ed-label", "Load to:"));
-          if (irs) loads.append(load(`Slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs")));
+          // Already in a slot of the pedal's: Use plays it from there, nothing is written over.
+          const use = inSlots.length > 0;
+          loads.append(el("span", "ed-label", use ? "Use:" : "Load to:"));
+          if (use)
+            for (const i of inSlots.slice(0, 3)) {
+              const b = Math.floor(i / CAPTURE_SELECT_SLOTS) + 1;
+              const n = (i % CAPTURE_SELECT_SLOTS) + 1;
+              const now = irs
+                ? this.s.cabOn.value === true && this.s.cabSlot.value === i + 1
+                : !preview && this.s.captureOn.value === true && bank === b && this.s.captureSlot.value === n;
+              const btn = load(slotLabel(i), "primary", () => (irs ? this.edit().selectIrSlot(i + 1) : this.edit().selectCapture(b, n)));
+              btn.disabled = now; // playing already
+              loads.append(btn);
+            }
+          else if (irs) loads.append(load(`Slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs")));
           else
             loads.append(
               load(`Bank ${bank} · Slot ${slot}`, "primary", () => this.edit().pickFromLibrary(it, "captures")),
@@ -1461,7 +1475,9 @@ export class EditorView {
           move.addEventListener("click", () => this.startMove(it));
           loads.append(move);
           row.append(loads);
-          const hint = irs
+          const hint = use
+            ? `On the pedal already: Use plays it from its slot, nothing is written over.`
+            : irs
             ? `Slot ${irSlot}: saved presets on it keep their own IR.`
             : `Bank ${bank} · Slot ${slot}: saved presets on it keep theirs. Preset's own slot: this preset alone, Save keeps it.`;
           row.append(el("p", "hint", hint));
