@@ -195,6 +195,9 @@ describe('edit gestures', () => {
     (root.querySelector('.capture.sub-name') as HTMLElement).click();
     expect(open('src-sheet')).toBe(true);
     expect(root.querySelector('.src-sheet .ed-big')!.textContent).toBe(store.get().captureName.value);
+    // On / off sits at the end of the name's row, not with the slot arrows.
+    expect(root.querySelectorAll('.src-sheet .ed-name-row > .ed-big + .ed-power')).toHaveLength(2);
+    expect(root.querySelector('.src-sheet .ed-step .ed-power')).toBeNull();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await hold(root.querySelector('.tile[data-key="gate"]')!);
     expect(open('gate-sheet')).toBe(true);

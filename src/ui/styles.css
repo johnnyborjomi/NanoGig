@@ -2460,6 +2460,17 @@ button.warn {
     line-clamp: 2;
   }
 }
+/* Name and on / off on one row: the name takes the room, the button keeps its size. */
+.ed-name-row {
+  flex-wrap: nowrap;
+}
+.ed-name-row > .ed-big {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.ed-name-row > .ed-power {
+  flex: none;
+}
 .ed-big[data-off='true'] {
   color: var(--off-text);
   text-decoration: line-through;

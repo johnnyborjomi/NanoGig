@@ -667,15 +667,22 @@ export class EditorView {
     this.renderSource();
   }
 
-  private stepRow(slotEl: HTMLElement, onStep: (d: number) => void, power: HTMLButtonElement, onPower: () => void): HTMLElement {
+  /** The capture's / IR's name with its on / off at the end of the row. */
+  private nameRow(nameEl: HTMLElement, power: HTMLButtonElement, onPower: () => void): HTMLElement {
+    const row = el("div", "ed-row ed-name-row");
+    power.append(icon(Power), el("span", "", ""));
+    power.addEventListener("click", onPower);
+    row.append(nameEl, power);
+    return row;
+  }
+
+  private stepRow(slotEl: HTMLElement, onStep: (d: number) => void): HTMLElement {
     const row = el("div", "ed-row ed-step");
     const prev = iconButton(ChevronLeft, "Previous slot", "ed-step-btn");
     const next = iconButton(ChevronRight, "Next slot", "ed-step-btn");
     prev.addEventListener("click", () => onStep(-1));
     next.addEventListener("click", () => onStep(1));
-    power.append(icon(Power), el("span", "", ""));
-    power.addEventListener("click", onPower);
-    row.append(prev, slotEl, next, power);
+    row.append(prev, slotEl, next);
     return row;
   }
 
@@ -701,8 +708,9 @@ export class EditorView {
     capLib.append(icon(Library), el("span", "", "Capture library"));
     capLib.addEventListener("click", () => this.openLibrary("captures"));
     const capHint = this.capHint; // one line under the library button: its text follows on / off (no layout shift)
-    this.capStep = this.stepRow(this.capSlot, (d) => this.run(this.edit().stepCapture(d)), this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value)));
-    this.capPane.append(this.capName, this.capStep, this.capPicker.root, this.capVolume.root, capLib, capHint);
+    const capHead = this.nameRow(this.capName, this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value)));
+    this.capStep = this.stepRow(this.capSlot, (d) => this.run(this.edit().stepCapture(d)));
+    this.capPane.append(capHead, this.capStep, this.capPicker.root, this.capVolume.root, capLib, capHint);
 
     const irLib = el("button", "ed-lib-btn");
     irLib.append(icon(Library), el("span", "", "IR library"));
@@ -731,9 +739,10 @@ export class EditorView {
       });
       this.irPositions.append(b);
     }
-    this.irStep = this.stepRow(this.irSlot, (d) => this.run(this.edit().stepIr(d)), this.irPower, () => this.run(this.edit().setIrOn(!this.s.cabOn.value)));
+    const irHead = this.nameRow(this.irName, this.irPower, () => this.run(this.edit().setIrOn(!this.s.cabOn.value)));
+    this.irStep = this.stepRow(this.irSlot, (d) => this.run(this.edit().stepIr(d)));
     this.irPane.append(
-      this.irName,
+      irHead,
       this.irStep,
       this.irPicker.root,
       irLib,
@@ -746,7 +755,7 @@ export class EditorView {
     sh.body.append(this.capPane, this.irPane);
   }
 
-  /** A stepper's ‹ › hidden while its slot list is open (visibility: the slot label and power keep their place). */
+  /** A stepper's ‹ › hidden while its slot list is open (visibility: the slot label keeps its place). */
   private showStepArrows(row: HTMLElement, shown: boolean) {
     for (const b of Array.from(row.querySelectorAll<HTMLElement>(".ed-step-btn"))) b.dataset.shown = String(shown);
   }
