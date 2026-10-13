@@ -200,6 +200,10 @@ export class SyncEngine {
       },
       refreshNames: () => void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Metadata refresh failed: ${(err as Error).message}`)),
       lastState: () => this.lastState,
+      reloadPreset: async () => {
+        const i = this.store.get().activePreset.value;
+        if (i !== null) await this.selectPreset(i);
+      },
     });
     this.assembler = new MessageAssembler({
       onMessage: (body, meta) => this.onAssembledMessage(body, meta),

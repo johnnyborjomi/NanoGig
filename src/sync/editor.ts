@@ -81,6 +81,8 @@ export interface EditHost {
   /** Re-read the names from the pedal (after a delete: the cache cannot follow it). */
   refreshNames(): void;
   lastState(): CurrentState | null;
+  /** Load the shown preset again (as the pedal's EXIT): what it has saved plays, the save light off. */
+  reloadPreset(): Promise<void>;
 }
 
 const PRESET_REPLY_TIMEOUT_MS = 3000;
@@ -131,7 +133,7 @@ export class EditController {
   private loadingCaptureSlot: number | null = null;
   /** Resolves the preview stop in flight on the pedal's 0x95. */
   private previewStopped: (() => void) | null = null;
-  /** A preview saved into the preset: once its stop is answered, the next state read is what the preset has saved. */
+  /** A preview saved into the preset: once it is stopped and the preset loaded again, the next state read is what it has saved. */
   private resnapAfterStop: { preset: number; answered: boolean } | null = null;
   private presetTimer: ReturnType<typeof setTimeout> | null = null;
   /** A preset write whose answer timed out: a late answer still applies (a delete is done on the pedal either way). */
@@ -283,7 +285,6 @@ export class EditController {
       case EDIT_MSG.CAPTURE_PREVIEW_STOPPED: {
         const done = this.previewStopped;
         this.previewStopped = null;
-        if (this.resnapAfterStop) this.resnapAfterStop.answered = true;
         this.host.log(decodeOk(payload) ? 'info' : 'warn', `Library capture preview stop ${decodeOk(payload) ? 'acknowledged' : 'refused'}`, hex);
         done?.();
         return true;
@@ -1214,14 +1215,20 @@ export class EditController {
       const preview = this.capturePreview();
       this.rememberSavedModels(busy.index, shown.fxModels.value);
       if (preview) {
-        // Saved with a preview playing: the preset keeps that capture as its own (board, 2026-10-13), but the pedal
-        // stays in its preview until the stop (later previews then went unheard). Stopped now, it plays the saved
-        // one, which is the same capture; the state read after the stop is what the preset has saved.
+        // Saved with a preview playing: the preset keeps that capture as its own (slot 6; board, 2026-10-13), but
+        // the pedal stays in its preview (later previews went unheard) and still plays the slot it had: a stop alone
+        // put the bank capture back with the save light on (board, 2026-10-13). So: the stop, then the preset loaded
+        // again, which plays what it has saved (its own, the previewed capture) with the light off. The state read
+        // after that load is what the preset has saved.
         this.resnapAfterStop = { preset: busy.index, answered: false };
         this.store.setField('captureName', preview.name, 'optimistic');
         void this.sendPreviewStop(`Stop the preview "${preview.name}" (saved into the preset)`)
-          .then(() => this.host.confirm())
-          .catch((err) => this.host.log('warn', `Preview stop failed: ${(err as Error).message}`));
+          .then(() => this.host.reloadPreset())
+          .then(() => {
+            if (this.resnapAfterStop) this.resnapAfterStop.answered = true;
+            this.host.confirm();
+          })
+          .catch((err) => this.host.log('warn', `After saving the preview: ${(err as Error).message}`));
         return;
       }
       this.host.confirm(400);

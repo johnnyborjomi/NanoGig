@@ -266,14 +266,18 @@ describe('edit controller', () => {
     await edit.savePreset();
     await until(() => store.get().edit.preset.busy === null);
     expect(store.get().edit.preset.result?.ok).toBe(true);
-    // Saved: the pedal is taken out of its preview, and the preset plays its own capture, the one saved.
+    // Saved: the pedal is taken out of its preview (which alone put the bank capture back, light on), then the
+    // preset is loaded again: it plays its own capture, the one saved, with the light off.
+    const loads = mock.presetLoads;
     await until(() => sent(mock, EDIT_MSG.CAPTURE_PREVIEW_STOP).length === 2);
+    await until(() => mock.presetLoads > loads);
     expect(mock.edits.map((e) => e.type).indexOf(EDIT_MSG.PRESET_CREATE)).toBeLessThan(mock.edits.map((e) => e.type).lastIndexOf(EDIT_MSG.CAPTURE_PREVIEW_STOP));
     await until(() => store.get().captureSlot.source === 'dump' && store.get().captureSlot.value === 6 && store.get().edit.savedSource?.captureSlot === 6);
     expect(store.get().captureName.value).toBe('Comet 60 6');
     expect(edit.ownCaptureName()).toBe('Comet 60 6');
     expect(edit.capturePreview()).toBeNull();
     expect(edit.captureChanged()).toBe(false);
+    await until(() => store.get().presetDirty.source === 'dump' && store.get().presetDirty.value === false);
   });
 
   it("library: a capture preview (Cortex Cloud's tap) changes no slot and marks nothing edited; an IR into the IR slot playing", async () => {

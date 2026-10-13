@@ -204,6 +204,8 @@ export class MockTransport implements Transport {
     if (bytes.length === 56 && bytes[0] === 0x36 && bytes[1] === 0xc0 && bytes[2] === 0x18 && bytes[4] === 0x20 && bytes[52] === 0x1d && bytes[51] !== 0x02) {
       // (field 9 = 2 is a footswitch assignment, not a select: handled with the edits)
       if (this.opts.acceptedMidi !== 'c304-select') return; // other firmware: ignored
+      if (this.device.previewSavedOwn && this.device.activePreset === bytes[5]) this.device.captureSlot = 6;
+      this.device.previewSavedOwn = false;
       this.device.activePreset = bytes[5]!;
       this.presetLoads++;
       this.device.captureNameOverride = this.device.irNameOverride = null; // a preset load drops unsaved edits (a preview too)
@@ -476,6 +478,11 @@ export class MockTransport implements Transport {
         // Cortex Cloud's stop (snoop 2026-10-11): the saved capture plays again; the reply echoes the time sent.
         this.device.captureNameOverride = null;
         this.device.previewing = false;
+        // After a save with the preview: the slot it had plays again (its bank capture), unlike what is saved (board).
+        if (this.device.previewSavedOwn && (this.device.captureSlot ?? 0) >= 1 && (this.device.captureSlot ?? 0) <= 5) {
+          this.device.captureNameOverride = this.metadataCaptures()[((this.device.captureBank ?? 1) - 1) * 5 + this.device.captureSlot! - 1] ?? null;
+          this.markDirty();
+        }
         const ts = f.find((x) => x.field === 2 && x.wire === 0)?.raw ?? [];
         this.reply([...varintField(1, 1), 0x10, ...Array.from(ts), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEW_STOPPED);
         break;
@@ -488,8 +495,9 @@ export class MockTransport implements Transport {
         const p = this.presets[index]!;
         if (msgType === EDIT_MSG.PRESET_CREATE) {
           p.captureName = this.device.captureNameOverride || this.currentPreset().captureName || 'Capture 1';
-          // Saved with a preview playing: the preset keeps it as its own capture (board, 2026-10-13).
-          if (this.device.previewing && index === this.device.activePreset) this.device.captureSlot = 6;
+          // Saved with a preview playing: the preset keeps it as its own capture (board, 2026-10-13); what plays
+          // stays on the slot it had until the preset loads again.
+          if (this.device.previewing && index === this.device.activePreset) this.device.previewSavedOwn = true;
           p.irShortName = this.device.irNameOverride || this.currentPreset().irShortName || 'IR 1';
         }
         p.name = name;

@@ -105,6 +105,8 @@ export interface MockDeviceState {
   captureNameOverride?: string | null;
   /** Mock only: a library preview plays (its name is the override) until a stop, a slot select or a load. */
   previewing?: boolean;
+  /** Mock only: saved with a preview playing; the preset's own is that capture from its next load on. */
+  previewSavedOwn?: boolean;
   irNameOverride?: string | null;
   /** Unsaved changes in the shown preset (field 41, the save light). */
   dirty?: boolean;
