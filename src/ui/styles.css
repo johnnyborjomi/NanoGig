@@ -2829,6 +2829,21 @@ button.warn {
   flex: 1 1 100%;
   margin: 0;
 }
+/* Load to: [bank · slot] [preset's own], under the name of the row that is open. */
+.ed-load-to {
+  flex: 1 1 100%;
+  align-items: center;
+}
+.ed-load-to .ed-label {
+  margin-right: 4px;
+}
+/* The capture playing from the library (listened to or loaded): a speaker right of its name. */
+.ed-item-playing {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
 .ed-preset-name {
   flex: 1;
   min-width: 0;

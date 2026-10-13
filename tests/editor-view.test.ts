@@ -256,27 +256,46 @@ describe('edit gestures', () => {
     tap(toggle); // closed again for the next test
   });
 
-  it('library rows: the edit first (into the slot playing), then a capture preview; the IR tab has its slot list too', async () => {
-    const { root, store } = await setup(true);
+  it('library rows: a tap plays the capture; Load to: bank · slot or the preset\'s own (Save keeps it), which closes the library', async () => {
+    const { root, store, open } = await setup(true);
     (root.querySelector('.capture.sub-name') as HTMLElement).click();
-    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!);
+    const libBtn = () => root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!;
+    tap(libBtn());
     await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
     const sheet = root.querySelector('.lib-sheet')!;
     const firstItem = () => sheet.querySelector<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name')!;
-    tap(firstItem());
+    const firstName = firstItem().querySelector('.ed-item-label')!.textContent!;
     const buttons = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')).map((b) => b.textContent);
-    expect(buttons()[0]).toBe(`Load into bank ${store.get().captureBank.value} · slot ${store.get().captureSlot.value}`);
-    expect(buttons()[1]).toBe("Load into preset's own");
-    // A preview: the row offers the way back, and so does the capture tab's Discard.
-    tap(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')[1]!);
-    await until(() => store.get().edit.capturePreview !== null);
-    expect(buttons()[1]).toBe('Undo'); // the row stays open after an action
-    expect(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!.dataset.shown).toBe('true');
-    // The top bar's Save too (the pedal's light stays off for a preview): Save stores what plays.
-    expect(root.querySelector<HTMLButtonElement>('.topbar .save-btn')!.hidden).toBe(false);
-    tap(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')[1]!);
-    await until(() => store.get().edit.capturePreview === null);
+    const saveBtn = root.querySelector<HTMLButtonElement>('.topbar .save-btn')!;
+    // A tap: it plays (listened to), a speaker right of its name; nothing to save yet.
+    tap(firstItem());
+    await until(() => store.get().edit.capturePreview?.name === firstName);
+    expect(store.get().edit.capturePreview!.kept).toBe(false);
+    expect(firstItem().querySelector('.ed-item-label + .ed-item-playing')).not.toBeNull();
+    expect(sheet.querySelector('.ed-load-to .ed-label')!.textContent).toBe('Load to:');
+    expect(buttons()).toEqual([`Bank ${store.get().captureBank.value} · slot ${store.get().captureSlot.value}`, "Preset's own slot", 'Move to folder']);
+    expect(saveBtn.hidden).toBe(store.get().presetDirty.value !== true); // a listen is no change (the demo may have one)
+    // Closed without a load: the preset's capture plays again.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(open('lib-sheet')).toBe(false);
+    await until(() => store.get().edit.capturePreview === null);
+    // Into the preset's own: the library closes, Save shows, the capture tab shows it in the preset's own place.
+    tap(libBtn());
+    tap(firstItem());
+    await until(() => store.get().edit.capturePreview?.name === firstName);
+    tap(Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button'))[1]!);
+    expect(open('lib-sheet')).toBe(false);
+    await until(() => store.get().edit.capturePreview?.kept === true);
+    expect(saveBtn.hidden).toBe(false);
+    const pane = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden])')!;
+    expect(pane.querySelector('.ed-step .ed-slot')!.textContent).toBe("Preset's own");
+    const own = pane.querySelector<HTMLElement>('.ed-cap-slots + .ed-cap-slot')!;
+    expect(own.dataset.active).toBe('true');
+    expect(own.dataset.shown).toBe('true');
+    expect(own.textContent).toContain(firstName);
+    expect(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!.dataset.shown).toBe('true');
+    tap(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!);
+    await until(() => store.get().edit.capturePreview === null);
     tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-tab')[1]!);
     expect(root.querySelector('.src-sheet .ed-pane:not([hidden]) .ed-slots .ed-slots-label')!.textContent).toBe('IR slots');
     // The IR is off in the demo: as the capture's, its library waits for it to be on.
@@ -286,10 +305,11 @@ describe('edit gestures', () => {
     await until(() => store.get().cabOn.value === true && !irLib.disabled);
     tap(irLib);
     await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
+    const sent = store.get().edit.capturePreview;
     tap(firstItem());
-    // No load into the preset itself (the pedal has none): the IR slot playing, then Move.
-    expect(buttons()[0]).toMatch(/^Load into IR slot \d$/);
-    expect(buttons()[1]).toBe('Move to folder');
+    expect(store.get().edit.capturePreview).toBe(sent); // an IR is not previewed
+    // No load into the preset itself for an IR: the IR slot playing, then Move.
+    expect(buttons()).toEqual([expect.stringMatching(/^Slot \d$/), 'Move to folder']);
   });
 
   it('library: A–Z / Z–A with a letter between the groups; where an item sits on the pedal', async () => {

@@ -60,6 +60,7 @@ import {
   Search,
   Trash2,
   Undo2,
+  Volume2,
   X,
   createElement as lucideElement,
 } from "lucide";
@@ -818,18 +819,21 @@ export class EditorView {
       this.capName.textContent = s.captureName.value || "—";
       this.capName.dataset.off = String(on === false);
       const bank = s.captureBank.value ?? 1;
-      this.capSlot.textContent = !on ? "Off" : slot === CAPTURE_OWN_SLOT ? "Preset's own" : slot ? `Bank ${bank} · slot ${slot}` : "—";
+      // A library capture playing (listened to, or loaded into the preset's own) sits in the preset's own place.
+      const preview = this.actions.edit()?.capturePreview() ?? null;
+      const own = slot === CAPTURE_OWN_SLOT || !!preview;
+      this.capSlot.textContent = !on ? "Off" : own ? "Preset's own" : slot ? `Bank ${bank} · slot ${slot}` : "—";
       this.capPower.dataset.on = String(on === true);
       (this.capPower.lastChild as HTMLElement).textContent = on ? "On" : "Off";
       this.capPicker.render({
         names: s.captureSlots,
         bank,
-        position: slot >= 1 && slot <= CAPTURE_SELECT_SLOTS ? slot : null,
-        own: slot === CAPTURE_OWN_SLOT,
-        ownShown: slot === CAPTURE_OWN_SLOT || this.savedSource()?.captureSlot === CAPTURE_OWN_SLOT,
+        position: !preview && slot >= 1 && slot <= CAPTURE_SELECT_SLOTS ? slot : null,
+        own,
+        ownShown: own || this.savedSource()?.captureSlot === CAPTURE_OWN_SLOT,
         on,
-        ownName: this.actions.edit()?.ownCaptureName() ?? "",
-        playing: `${s.activePreset.value}|${bank}|${slot}`,
+        ownName: preview?.name ?? this.actions.edit()?.ownCaptureName() ?? "",
+        playing: `${s.activePreset.value}|${bank}|${own ? "own" : slot}`,
       });
       // The list open: the slot stepper's ‹ › give way to it (their room kept).
       this.showStepArrows(this.capStep, !this.capPicker.open);
@@ -1115,6 +1119,8 @@ export class EditorView {
   /** Opened on the current item's list and folder once the library is there. */
   private libLanded = false;
   private libSelected: string | null = null;
+  /** The library closes because of a load (not to be undone as a listen). */
+  private libLoaded = false;
   private libDeleteArmed: ReturnType<typeof setTimeout> | null = null;
   private libHeld = false;
   private readonly libSearch = el("input", "ed-input");
@@ -1244,6 +1250,10 @@ export class EditorView {
       this.libMode = "browse";
       this.libMoving = null;
       this.disarmFolderDelete();
+      // A capture only listened to stops (one loaded stays).
+      const edit = this.actions.edit();
+      if (edit && !this.libLoaded) this.run(() => edit.endAudition());
+      this.libLoaded = false;
     };
     const searchRow = el("label", "ed-search");
     searchRow.append(icon(Search), this.libSearch);
@@ -1410,6 +1420,7 @@ export class EditorView {
       const shown = inList.filter((it) => (q ? norm(it.name).includes(q) : this.folderOf(it) === (folder?.id ?? null)));
       if (this.libSort !== "off") shown.sort((a, b) => (this.libSort === "az" ? 1 : -1) * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
       const slot = this.actions.edit()?.captureSlotForEdit() ?? 1;
+      const preview = this.actions.edit()?.capturePreview() ?? null;
       // Where each one sits on the pedal: capture banks / slots, IR slots (by name, as the pedal lists them).
       const slotNames = irs ? s.irSlots : s.captureSlots;
       const slotLabel = (i: number) => (irs ? `Slot ${i + 1}` : `Bank ${Math.floor(i / CAPTURE_SELECT_SLOTS) + 1} · slot ${(i % CAPTURE_SELECT_SLOTS) + 1}`);
@@ -1436,9 +1447,21 @@ export class EditorView {
         if (q && fid !== null) tags.append(el("span", "ed-item-folder", this.folders.find(fid)?.name ?? ""));
         if (row.dataset.saved === "true") tags.append(el("span", "ed-item-saved", "saved"));
         if (tags.childElementCount) name.append(tags);
+        // A tap opens the row; a capture plays at once (Cortex Cloud's preview, in the preset's own place) for
+        // listening, until another is tapped, it is loaded, or the library closes.
+        const playing = !irs && preview?.name === it.name;
+        if (playing) {
+          const speaker = icon(Volume2, "Playing");
+          speaker.classList.add("ed-item-playing");
+          name.querySelector(".ed-item-label")!.after(speaker); // right of the name
+        }
         name.addEventListener("click", () => {
-          this.libSelected = this.libSelected === key ? null : key;
+          const open = this.libSelected !== key;
+          this.libSelected = open ? key : null;
           this.renderLibrary();
+          if (irs) return;
+          if (open && this.actions.edit()?.capturePreview()?.name !== it.name) this.run(this.edit().previewCapture(it));
+          else if (!open) this.run(() => this.edit().endAudition());
         });
         onHold(name, () => this.startMove(it, true), () => mode === "browse" && !naming);
         name.draggable = true;
@@ -1448,36 +1471,41 @@ export class EditorView {
         });
         row.append(name);
         if (this.libSelected === key) {
-          const actions = el("div", "ed-item-actions");
-          const action = (text: string, cls: string, go: () => Promise<void>) => {
+          // Load to: the slot playing (Cortex Cloud's "Use": an edit, the save light comes on; saved presets on that
+          // slot keep theirs), or, for a capture, the preset's own (the preview kept: a Save stores it as the preset's
+          // own, board 2026-10-13; the pedal leaves its light off, the app shows Save). Either closes the library.
+          const load = (text: string, cls: string, go: () => Promise<void> | void) => {
             const b = el("button", cls, text);
-            // The row stays open: Preview, Stop preview and a load follow one another.
-            b.addEventListener("click", () => this.run(go()));
+            b.addEventListener("click", () => {
+              this.run(async () => go());
+              this.libLoaded = true; // the close below is the load's: what it plays stays
+              this.libSheet.close();
+            });
             return b;
           };
-          // Into the slot playing first, Cortex Cloud's "Use" (an edit: the save light comes on; saved presets on that
-          // slot keep theirs). Then, for a capture, into the preset's own: Cortex Cloud's preview, which a Save keeps
-          // as the preset's own capture (board, 2026-10-13); the pedal leaves its light off, the app shows Save.
           const irSlot = irs ? this.actions.edit()?.irLoadSlot() ?? 1 : 0;
           const bank = this.s.captureBank.value ?? 1;
-          const previewing = !irs && this.actions.edit()?.capturePreview()?.name === it.name;
-          const load = irs
-            ? action(`Load into IR slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs"))
-            : action(`Load into bank ${bank} · slot ${slot}`, "primary", () => this.edit().pickFromLibrary(it, "captures"));
+          const loads = el("div", "ed-item-actions ed-load-to");
+          loads.append(el("span", "ed-label", "Load to:"));
+          if (irs) loads.append(load(`Slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs")));
+          else
+            loads.append(
+              load(`Bank ${bank} · slot ${slot}`, "primary", () => this.edit().pickFromLibrary(it, "captures")),
+              load("Preset's own slot", "primary", async () => {
+                const edit = this.edit();
+                if (edit.capturePreview()?.name !== it.name) await edit.previewCapture(it);
+                edit.keepCapturePreview();
+              }),
+            );
           const move = el("button", "");
           move.append(icon(FolderInput), el("span", "", "Move to folder"));
           move.addEventListener("click", () => this.startMove(it));
-          if (irs) actions.append(load, move);
-          else
-            actions.append(
-              load,
-              previewing ? action("Undo", "", () => this.edit().stopCapturePreview()) : action("Load into preset's own", "", () => this.edit().previewCapture(it)),
-              move,
-            );
-          row.append(actions);
+          const more = el("div", "ed-item-actions");
+          more.append(move);
+          row.append(loads, more);
           const hint = irs
-            ? `Into IR slot ${irSlot}: saved presets keep their own IR.`
-            : `Bank ${bank} slot ${slot}: saved presets keep theirs. Preset's own: this preset alone, Save keeps it.`;
+            ? `Slot ${irSlot}: saved presets on it keep their own IR.`
+            : `Bank ${bank} · slot ${slot}: saved presets on it keep theirs. Preset's own: this preset alone, Save keeps it.`;
           row.append(el("p", "hint", hint));
         }
         rows.push(row);

@@ -1677,7 +1677,8 @@ export class GigView {
       this.editBtn.setAttribute("aria-pressed", String(editing));
       // Unsaved changes while editing: Save and Discard instead of Edit, until the light goes out.
       // A capture preview counts too (the pedal leaves its light off): Save stores it, for trying the preset's own.
-      const previewing = s.edit.capturePreview !== null && s.edit.capturePreview.preset === s.activePreset.value;
+      // Only one loaded into the preset's own: a capture just listened to in the library is not a change.
+      const previewing = s.edit.capturePreview?.kept === true && s.edit.capturePreview.preset === s.activePreset.value;
       const unsaved = editing && (s.presetDirty.value === true || previewing) && !!this.actions.edit;
       this.frameInput.disabled = this.frameSend.disabled = !(editing && this.actions.edit);
       this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit || unsaved;

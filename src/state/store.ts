@@ -124,12 +124,15 @@ export interface SavedSource {
 }
 
 /**
- * A library capture heard over the preset's own: Cortex Cloud's preview, which the pedal plays until it is stopped
- * (`capturePreviewStopFrame`) or a slot is selected. Not an edit: no save light.
+ * A library capture heard in the preset's own place: Cortex Cloud's preview, which the pedal plays until it is
+ * stopped (`capturePreviewStopFrame`). The pedal shows no save light for it, but a Save keeps it as the preset's own
+ * capture. `kept`: loaded into the preset's own (the app shows Save); else only listened to from the library (stopped
+ * when the library closes).
  */
 export interface CapturePreview {
   preset: number;
   name: string;
+  kept: boolean;
 }
 
 export interface EditState {

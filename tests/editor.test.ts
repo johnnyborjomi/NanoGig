@@ -246,6 +246,22 @@ describe('edit controller', () => {
     await until(() => store.get().captureOn.source === 'dump' && store.get().captureName.value === 'My Plexi' && store.get().captureOn.value === true);
   });
 
+  it('library: a capture listened to, then loaded into a bank slot: the stop follows the slot select (Cortex Cloud)', async () => {
+    const { store, mock, edit } = await setup();
+    await edit.loadLibrary('captures');
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    const comet = store.get().edit.library.captures!.find((c) => c.name === 'Comet 60 6')!;
+    await edit.previewCapture(comet);
+    await edit.pickFromLibrary(comet, 'captures');
+    expect(edit.capturePreview()).toBeNull();
+    await until(() => sent(mock, EDIT_MSG.CAPTURE_PREVIEW_STOP).length === 1);
+    const types = mock.edits.map((e) => e.type);
+    expect(types.indexOf(EDIT_MSG.CAPTURE_SLOT_LOAD)).toBeLessThan(types.lastIndexOf(EDIT_MSG.ENCODER));
+    expect(types.lastIndexOf(EDIT_MSG.ENCODER)).toBeLessThan(types.indexOf(EDIT_MSG.CAPTURE_PREVIEW_STOP));
+    await edit.endAudition(); // nothing left to stop
+    expect(sent(mock, EDIT_MSG.CAPTURE_PREVIEW_STOP)).toHaveLength(1);
+  });
+
   it("library: into the preset's own — a preview (one at a time), which Save keeps; the preview is stopped after", async () => {
     const { store, mock, edit } = await setup();
     await edit.loadLibrary('captures');

@@ -131,6 +131,8 @@ export class EditController {
   private libraryTimer: ReturnType<typeof setTimeout> | null = null;
   /** A capture load into this slot (1..5) awaits the pedal's 0x51; then the slot is selected. */
   private loadingCaptureSlot: number | null = null;
+  /** A preview was playing when a capture went into a slot: stopped once that slot is selected. */
+  private stopAfterLoad: string | null = null;
   /** Resolves the preview stop in flight on the pedal's 0x95. */
   private previewStopped: (() => void) | null = null;
   /** A preview saved into the preset: once it is stopped and the preset loaded again, the next state read is what it has saved. */
@@ -516,6 +518,18 @@ export class EditController {
   capturePreview(): CapturePreview | null {
     const p = this.store.get().edit.capturePreview;
     return p && p.preset === this.store.get().activePreset.value ? p : null;
+  }
+
+  /** The preview playing goes into the preset's own: Save keeps it (the app shows Save; the pedal's light stays off). */
+  keepCapturePreview(): void {
+    const p = this.capturePreview();
+    if (p && !p.kept) this.patchEdit({ capturePreview: { ...p, kept: true } });
+  }
+
+  /** The library closes: a preview only listened to stops (one kept for the preset's own stays). */
+  async endAudition(): Promise<void> {
+    const p = this.capturePreview();
+    if (p && !p.kept) await this.stopCapturePreview();
   }
 
   /** Forget a preview without sending anything (the preset is being loaded again, which puts its own capture back). */
@@ -1021,6 +1035,9 @@ export class EditController {
     this.assertEdit();
     if (kind === 'irs') return this.loadIrIntoSlot(item);
     const slot = this.captureSlotForEdit();
+    // Listened to first (the library's tap): Cortex Cloud stops the preview after its "Use" (snoop 2026-10-11).
+    this.stopAfterLoad = this.capturePreview()?.name ?? null;
+    this.clearCapturePreview();
     this.loadingCaptureSlot = slot;
     this.writtenAt.capture = Date.now();
     this.store.setField('captureOn', true, 'optimistic');
@@ -1068,7 +1085,7 @@ export class EditController {
     this.store.setField('captureName', item.name, 'optimistic');
     const preset = this.activePreset();
     await this.send(capturePreviewFrame(item), `Load ${item.list} capture ${item.index + 1} "${item.name}" into the preset's own (a preview: Save keeps it)`);
-    if (preset !== null) this.patchEdit({ capturePreview: { preset, name: item.name } });
+    if (preset !== null) this.patchEdit({ capturePreview: { preset, name: item.name, kept: false } });
     this.host.confirm(600);
   }
 
@@ -1121,11 +1138,17 @@ export class EditController {
     const slot = this.loadingCaptureSlot;
     this.loadingCaptureSlot = null;
     this.host.log(ok ? 'info' : 'warn', `Capture load ${ok ? 'acknowledged' : 'refused'}`, hex);
+    const preview = this.stopAfterLoad;
+    this.stopAfterLoad = null;
+    const stop = () => (preview ? this.sendPreviewStop(`Stop the capture preview "${preview}" (a slot was loaded)`).then(() => this.host.confirm()) : Promise.resolve());
     if (!ok || slot === null) {
+      void stop().catch((err) => this.host.log('warn', `Preview stop failed: ${(err as Error).message}`));
       this.host.confirm();
       return;
     }
-    void this.selectCaptureSlot(slot).catch((err) => this.host.log('warn', `Capture select failed: ${(err as Error).message}`));
+    void this.selectCaptureSlot(slot)
+      .then(stop)
+      .catch((err) => this.host.log('warn', `Capture select failed: ${(err as Error).message}`));
   }
 
   // -------------------------------------------------------------------------
