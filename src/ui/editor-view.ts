@@ -42,6 +42,8 @@ import { FOLDER_NAME_MAX, LibraryFolders, type LibraryFolder } from "./library-f
 import { onHold } from "./hold";
 import { presetLabelEls, renderPresetLabel, type PresetLabelEls } from "./preset-label";
 import {
+  ArrowDownAZ,
+  ArrowDownZA,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -66,6 +68,32 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+type LibrarySort = "off" | "az" | "za";
+const LIBRARY_SORT_KEY = "nanogig.librarySort";
+
+function readLibrarySort(): LibrarySort {
+  try {
+    const v = localStorage.getItem(LIBRARY_SORT_KEY);
+    return v === "az" || v === "za" ? v : "off";
+  } catch {
+    return "off";
+  }
+}
+
+function writeLibrarySort(v: LibrarySort) {
+  try {
+    localStorage.setItem(LIBRARY_SORT_KEY, v);
+  } catch {
+    /* private window: the order is just not remembered */
+  }
+}
+
+/** The letter a name is grouped under in a sorted list: its first letter (accents dropped), else "#". */
+function sortLetter(name: string): string {
+  const c = name.trim().charAt(0).normalize("NFD").charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : "#";
 }
 
 function icon(i: Parameters<typeof lucideElement>[0], label?: string): SVGElement {
@@ -1083,6 +1111,9 @@ export class EditorView {
   private readonly libBar = el("div", "ed-libbar");
   private readonly barMain = el("button", "ed-bar-main");
   private readonly barTitle = el("span", "ed-bar-title");
+  /** Alphabetical order, both ways (off = the pedal's order); kept in this browser for both libraries. */
+  private readonly barSort = el("button", "ed-bar-sort");
+  private libSort: LibrarySort = readLibrarySort();
   private readonly barRename = iconButton(Pencil, "Rename folder", "icon-btn");
   private readonly barDelete = el("button", "warn ed-bar-delete");
   private readonly folderInput = el("input", "ed-input");
@@ -1219,6 +1250,11 @@ export class EditorView {
       else this.startNaming("new");
     });
     this.dropTarget(this.barMain, () => null);
+    this.barSort.addEventListener("click", () => {
+      this.libSort = this.libSort === "off" ? "az" : this.libSort === "az" ? "za" : "off";
+      writeLibrarySort(this.libSort);
+      this.renderLibrary();
+    });
     this.barRename.addEventListener("click", () => this.startNaming("rename"));
     this.barDelete.append(icon(Trash2), el("span", "", ""));
     this.barDelete.addEventListener("click", () => {
@@ -1262,7 +1298,7 @@ export class EditorView {
       },
       true,
     );
-    this.libBar.append(this.barMain, this.barTitle, this.barRename, this.barDelete, this.folderInput, this.folderSave, this.folderCancel);
+    this.libBar.append(this.barMain, this.barSort, this.barTitle, this.barRename, this.barDelete, this.folderInput, this.folderSave, this.folderCancel);
     sh.body.append(searchRow, this.libLists, this.libBar, this.libStatus, this.libItems);
   }
 
@@ -1305,6 +1341,11 @@ export class EditorView {
     this.barMain.disabled = !naming && mode === "browse" && !folder && !items.length;
     this.barMain.hidden = naming;
     this.barTitle.hidden = naming;
+    this.barSort.hidden = naming || mode === "move";
+    const sortNext = { off: "Sort A to Z", az: "Sort Z to A", za: "The pedal's order" }[this.libSort];
+    this.barSort.replaceChildren(icon(this.libSort === "za" ? ArrowDownZA : ArrowDownAZ), el("span", "", this.libSort === "za" ? "Z–A" : "A–Z"));
+    this.barSort.dataset.active = String(this.libSort !== "off");
+    this.barSort.title = this.barSort.ariaLabel = sortNext;
     this.barTitle.dataset.kind = mode === "move" ? "move" : folder ? "folder" : "hint";
     this.barTitle.replaceChildren();
     if (mode === "move" && this.libMoving) this.barTitle.append(el("span", "", "Move "), el("strong", "", this.libMoving.name), el("span", "", " to:"));
@@ -1354,8 +1395,19 @@ export class EditorView {
       // Searching looks through the whole list, folders included; else the folders, then the items in none.
       if (!q && !folder) for (const f of folders) folderRow(f, () => this.libGo({ folder: f.id }));
       const shown = inList.filter((it) => (q ? norm(it.name).includes(q) : this.folderOf(it) === (folder?.id ?? null)));
+      if (this.libSort !== "off") shown.sort((a, b) => (this.libSort === "az" ? 1 : -1) * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
       const slot = this.actions.edit()?.captureSlotForEdit() ?? 1;
+      // Where each one sits on the pedal: capture banks / slots, IR slots (by name, as the pedal lists them).
+      const slotNames = irs ? s.irSlots : s.captureSlots;
+      const slotLabel = (i: number) => (irs ? `Slot ${i + 1}` : `Bank ${Math.floor(i / CAPTURE_SELECT_SLOTS) + 1} · slot ${(i % CAPTURE_SELECT_SLOTS) + 1}`);
+      let letter: string | null = null;
       for (const it of shown) {
+        // Sorted: a letter between the groups.
+        if (this.libSort !== "off") {
+          const l = sortLetter(it.name);
+          if (l !== letter) rows.push(el("div", "ed-letter", l));
+          letter = l;
+        }
         const key = `${it.list}:${it.index}`;
         const row = el("div", "ed-item");
         row.dataset.current = String(norm(it.name) === current);
@@ -1363,9 +1415,14 @@ export class EditorView {
         row.dataset.selected = String(this.libSelected === key);
         const name = el("button", "ed-item-name");
         name.append(el("span", "ed-item-index", String(it.index + 1)), el("span", "ed-item-label", it.name || "(no name)"));
+        const tags = el("span", "ed-item-tags");
+        const at = slotNames.flatMap((n, i) => (n && norm(n) === norm(it.name) ? [slotLabel(i)] : []));
+        for (const label of at.slice(0, 2)) tags.append(el("span", "ed-item-slot", label));
+        if (at.length > 2) tags.append(el("span", "ed-item-slot", `+${at.length - 2}`));
         const fid = this.folderOf(it);
-        if (q && fid !== null) name.append(el("span", "ed-item-folder", this.folders.find(fid)?.name ?? ""));
-        if (row.dataset.saved === "true") name.append(el("span", "ed-item-saved", "saved"));
+        if (q && fid !== null) tags.append(el("span", "ed-item-folder", this.folders.find(fid)?.name ?? ""));
+        if (row.dataset.saved === "true") tags.append(el("span", "ed-item-saved", "saved"));
+        if (tags.childElementCount) name.append(tags);
         name.addEventListener("click", () => {
           this.libSelected = this.libSelected === key ? null : key;
           this.renderLibrary();
@@ -1385,29 +1442,29 @@ export class EditorView {
             b.addEventListener("click", () => this.run(go()));
             return b;
           };
-          // The load the pedal counts as an edit first (its save light comes on). An IR goes into the preset itself;
-          // a capture into the slot it plays, Cortex Cloud's "Use" (every preset on that slot hears it; the pedal has
-          // no load into the preset itself). Then: an IR into a slot of the pedal's; a capture previewed (Cortex
-          // Cloud's play button), heard until Stop preview.
+          // The load the pedal counts as an edit first (its save light comes on): into the slot playing, Cortex
+          // Cloud's "Use" (the pedal has no load into the preset itself; saved presets on that slot keep theirs).
+          // Then, for a capture: a preview (Cortex Cloud's play button), heard until Stop preview.
           const irSlot = irs ? this.actions.edit()?.irLoadSlot() ?? 1 : 0;
           const bank = this.s.captureBank.value ?? 1;
           const previewing = !irs && this.actions.edit()?.capturePreview()?.name === it.name;
           const load = irs
-            ? action("Load into this preset", "primary", () => this.edit().pickFromLibrary(it, "irs"))
+            ? action(`Load into IR slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs"))
             : action(`Load into bank ${bank} · slot ${slot}`, "primary", () => this.edit().pickFromLibrary(it, "captures"));
-          const other = irs
-            ? action(`Load into IR slot ${irSlot}`, "", () => this.edit().loadIrIntoSlot(it))
-            : previewing
-              ? action("Stop preview", "", () => this.edit().stopCapturePreview())
-              : action("Preview", "", () => this.edit().previewCapture(it));
           const move = el("button", "");
           move.append(icon(FolderInput), el("span", "", "Move to folder"));
           move.addEventListener("click", () => this.startMove(it));
-          actions.append(load, other, move);
+          if (irs) actions.append(load, move);
+          else
+            actions.append(
+              load,
+              previewing ? action("Stop preview", "", () => this.edit().stopCapturePreview()) : action("Preview", "", () => this.edit().previewCapture(it)),
+              move,
+            );
           row.append(actions);
           const hint = irs
-            ? `This preset alone, or IR slot ${irSlot}: every preset on that slot hears it.${this.s.cabOn.value !== true ? " The IR is off: loading one turns it on." : ""}`
-            : `Into bank ${bank} slot ${slot}: every preset on that slot hears it. Preview: heard only.`;
+            ? `Into IR slot ${irSlot}: saved presets keep their own IR.`
+            : `Into bank ${bank} slot ${slot}: saved presets keep their own capture. Preview: heard only.`;
           row.append(el("p", "hint", hint));
         }
         rows.push(row);
@@ -1416,7 +1473,7 @@ export class EditorView {
     this.libItems.replaceChildren(...rows);
 
     // ---- the status line (always there: it changes text, never the layout)
-    const files = rows.filter((r) => !r.classList.contains("ed-folder-row")).length;
+    const files = rows.filter((r) => r.classList.contains("ed-item") && !r.classList.contains("ed-folder-row")).length;
     const loading = lib.loading !== null;
     const count = (n: number) => `${n} ${noun}${n === 1 ? "" : "s"}`;
     let msg: string;

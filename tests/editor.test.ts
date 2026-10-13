@@ -163,22 +163,21 @@ describe('edit controller', () => {
     expect(store.get().gateOn.value).toBe(true);
   });
 
-  it('library: an IR loads into the preset, a capture into its slot which is then selected', async () => {
+  it('library: an IR and a capture load into their slot, which is then selected', async () => {
     const { store, mock, edit } = await setup();
     await edit.loadLibrary('irs');
     await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
     const irs = store.get().edit.library.irs!;
     expect(irs.filter((i) => i.list === 'user').map((i) => i.index)).toEqual([0, 1]);
-    // The IR is off in the demo: it is turned on first (its slot select), then the IR loads into it.
+    // The IR is off in the demo: it goes into the slot "on" goes to, which is then selected (turned on).
     expect(store.get().cabOn.value).toBe(false);
+    const irSlot = edit.irLoadSlot();
     await edit.pickFromLibrary(irs.find((i) => i.name === 'YA')!, 'irs');
-    expect(store.get().irName.value).toBe('YA');
-    await until(() => store.get().irName.source === 'dump');
+    expect(mock.slotIrs[irSlot - 1]).toBe('YA');
+    await until(() => store.get().irName.source === 'dump' && store.get().cabSlot.value === irSlot);
     expect(store.get().irName.value).toBe('YA');
     expect(store.get().cabOn.value).toBe(true);
-    const types = mock.edits.map((e) => e.type);
-    expect(types.indexOf(EDIT_MSG.ENCODER)).toBeGreaterThanOrEqual(0);
-    expect(types.indexOf(EDIT_MSG.ENCODER)).toBeLessThan(types.indexOf(EDIT_MSG.CAB_SETTING)); // the load is a cab-setting frame
+    expect(mock.edits.map((e) => e.type)).not.toContain(EDIT_MSG.CAB_SETTING); // no load into the preset itself
 
     await edit.loadLibrary('captures');
     await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);

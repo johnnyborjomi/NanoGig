@@ -2924,6 +2924,41 @@ button.warn {
 .ed-item-folder + .ed-item-saved {
   margin-left: 0;
 }
+/* An item's tags (where it sits on the pedal, its folder in a search, saved) at the end of its row. */
+.ed-item-tags {
+  margin-left: auto;
+  flex: none;
+  max-width: 60%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 6px;
+}
+.ed-item-tags > * {
+  margin-left: 0;
+  white-space: nowrap;
+}
+.ed-item-slot {
+  font-size: 12px;
+  color: var(--text);
+  background: #222a35;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+/* Sorted: a letter between the groups. */
+.ed-letter {
+  padding: 10px 4px 2px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border-bottom: 1px solid #2a323d;
+}
+.ed-bar-sort[data-active='true'] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
 /* A one-line status under a settings hint: its text changes, its height does not. */
 .card .hint-line {
   margin-top: -0.4em;

@@ -247,7 +247,7 @@ describe('edit gestures', () => {
     tap(toggle); // closed again for the next test
   });
 
-  it('library rows: the edit first (a capture into its slot, an IR into the preset), then preview / IR slot; the IR tab has its slot list too', async () => {
+  it('library rows: the edit first (into the slot playing), then a capture preview; the IR tab has its slot list too', async () => {
     const { root, store } = await setup(true);
     (root.querySelector('.capture.sub-name') as HTMLElement).click();
     tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!);
@@ -276,8 +276,46 @@ describe('edit gestures', () => {
     tap(irLib);
     await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
     tap(firstItem());
-    expect(buttons()[0]).toBe('Load into this preset');
-    expect(buttons()[1]).toMatch(/^Load into IR slot \d$/);
+    // No load into the preset itself (the pedal has none): the IR slot playing, then Move.
+    expect(buttons()[0]).toMatch(/^Load into IR slot \d$/);
+    expect(buttons()[1]).toBe('Move to folder');
+  });
+
+  it('library: A–Z / Z–A with a letter between the groups; where an item sits on the pedal', async () => {
+    const { root, store } = await setup(true);
+    try {
+      localStorage.removeItem('nanogig.librarySort');
+    } catch {
+      /* none */
+    }
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!);
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    const sheet = root.querySelector('.lib-sheet')!;
+    const sort = sheet.querySelector<HTMLElement>('.ed-bar-sort')!;
+    const names = () => Array.from(sheet.querySelectorAll('.ed-item:not(.ed-folder-row) .ed-item-label')).map((n) => n.textContent!);
+    const letters = () => Array.from(sheet.querySelectorAll('.ed-letter')).map((n) => n.textContent);
+    const cmp = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    expect(sort.dataset.active).toBe('false');
+    expect(letters()).toEqual([]);
+    const before = names();
+    tap(sort);
+    expect(sort.dataset.active).toBe('true');
+    expect(names()).toEqual(before.slice().sort(cmp));
+    expect(letters().length).toBeGreaterThan(0);
+    expect(new Set(letters()).size).toBe(letters().length); // one divider per letter
+    tap(sort);
+    expect(names()).toEqual(before.slice().sort((a, b) => cmp(b, a)));
+    tap(sort);
+    expect(names()).toEqual(before);
+    expect(letters()).toEqual([]);
+    // A capture that is in a slot carries "Bank b · slot n".
+    const slots = store.get().captureSlots;
+    const row = Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row)')).find((r) =>
+      slots.some((n) => n && n.toLowerCase() === r.querySelector('.ed-item-label')!.textContent!.toLowerCase()),
+    )!;
+    const i = slots.findIndex((n) => n.toLowerCase() === row.querySelector('.ed-item-label')!.textContent!.toLowerCase());
+    expect(row.querySelector('.ed-item-slot')!.textContent).toBe(`Bank ${Math.floor(i / 5) + 1} · slot ${(i % 5) + 1}`);
   });
 
   it('amp & cab and gate: Discard once a value moves; an IR that is off is grey but editable', async () => {

@@ -24,7 +24,6 @@ import {
   CAPTURE_OWN_SLOT,
   CAPTURE_SELECT_SLOTS,
   EDIT_MSG,
-  cabLoadFrame,
   cabMicFrame,
   cabPhaseFrame,
   cabSelectFrame,
@@ -976,23 +975,13 @@ export class EditController {
   /**
    * A library capture goes the way of Cortex Cloud's "Use" (and the firmware's capture list): into the slot the
    * preset plays (`captureSlotForEdit`), then that slot is selected (on the pedal's 0x51), which marks the preset
-   * edited: the save light comes on, Save keeps it, Discard puts the saved one back. Every preset on that slot hears
-   * the new capture. An IR loads into the preset itself (an edit, kept when the preset is saved).
+   * edited: the save light comes on, Save keeps it, Discard puts the saved one back. A saved preset keeps its own
+   * copy of a capture, so the others on that slot keep theirs. An IR goes the same way, into an IR slot
+   * (`loadIrIntoSlot`): the pedal has no load into the preset itself.
    */
   async pickFromLibrary(item: LibraryItem, kind: LibraryKind): Promise<void> {
     this.assertEdit();
-    if (kind === 'irs') {
-      // An IR that is off is turned on first (the slot "on" goes to, as its power button), then the chosen IR loads
-      // into it: loading one means hearing it.
-      if (this.store.get().cabOn.value !== true) await this.selectIrSlot(this.irSlotForOn());
-      this.writtenAt.ir = Date.now();
-      this.store.setField('cabOn', true, 'optimistic');
-      this.store.setField('irName', item.name, 'optimistic');
-      await this.send(cabLoadFrame(item.list, item.index, item.name), `Load ${item.list} IR ${item.index + 1} "${item.name}"`);
-      this.host.confirm();
-      if (this.store.get().edit.ir) this.irTick(true);
-      return;
-    }
+    if (kind === 'irs') return this.loadIrIntoSlot(item);
     const slot = this.captureSlotForEdit();
     this.loadingCaptureSlot = slot;
     this.writtenAt.capture = Date.now();
