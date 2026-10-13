@@ -734,7 +734,7 @@ button.warn {
   width: 0.8em;
   height: 0.8em;
 }
-/* Power icon normally; a lock when the block cannot be toggled from the app. Colour still shows on/off. */
+/* Power icon normally; a star for the preset's own capture / IR (in no slot). Colour still shows on/off. */
 .preset-sub .sub-state .i-lock {
   display: none;
 }
@@ -745,8 +745,21 @@ button.warn {
   display: block;
 }
 .preset-sub .sub-state[data-on='true'] {
-  background: var(--warn);
-  color: var(--on-text);
+  background: var(--src, var(--warn));
+  color: var(--src-ink, var(--on-text));
+}
+/* Capture red, IR violet: the label's border and text, and its on square. */
+.preset-sub .lbl-capture {
+  --src: var(--fx-cab);
+  --src-ink: var(--fx-text);
+}
+.preset-sub .lbl-ir {
+  --src: var(--fx-ir);
+  --src-ink: #fff;
+}
+.preset-sub .lbl.lbl-capture,
+.preset-sub .lbl.lbl-ir {
+  color: color-mix(in srgb, var(--src) 80%, #fff);
 }
 .preset-sub .sub-state[data-on='false'] {
   background: var(--off);

@@ -105,9 +105,9 @@ disconnected. The connect screen shows these steps only on a Chrome without the 
 - **Preset row**: bank/slot label and preset name, sized to always fit on one line. A small
   tag shows _live_ right after a footswitch press until the pedal confirms, or _sending_ while
   the app is changing the preset.
-- **Capture / cab line**: names plus an on/off indicator in each label. A lock instead of the
-  indicator means that capture or cab is a factory one the app could not switch back on, so it
-  leaves it alone.
+- **Capture / cab line**: names plus an on/off indicator in each label (capture red, IR violet). A star
+  instead of the power sign means the preset's own capture or IR (in none of the pedal's slots): the
+  label leaves it alone; the amp & cab sheet can still switch it.
 - **Gate and FX tiles**: effect category, model name, colour when on.
 - **Preset strip**: seven presets around the active one, the active one framed. In control
   mode the arrows page through all 64 and a tap selects.

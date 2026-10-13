@@ -23,7 +23,6 @@ import {
   Copy,
   Download,
   ListOrdered,
-  Lock,
   Metronome,
   LogOut,
   Maximize,
@@ -36,6 +35,7 @@ import {
   Save,
   ScrollText,
   Settings,
+  Star,
   Undo2,
   VolumeX,
   createElement as lucideElement,
@@ -558,15 +558,16 @@ export class GigView {
     this.slotLabel.append(this.slotBank, this.slotSlot, this.slotNum, this.slotFs);
     this.slotFs.hidden = true;
     this.slotEl.append(this.slotLabel, this.nameEl, this.sourceTag);
-    const capLbl = el("span", "lbl", "capture");
-    const irLbl = el("span", "lbl", "cab / ir");
+    // In their colours: capture red, IR violet (as the amp & cab sheet and the libraries).
+    const capLbl = el("span", "lbl lbl-capture", "capture");
+    const irLbl = el("span", "lbl lbl-ir", "cab / ir");
     for (const st of [this.captureState, this.irState]) {
       const power = lucideElement(Power, {
         "stroke-width": 2.5,
         "aria-hidden": "true",
       });
       power.classList.add("i-power");
-      const lock = lucideElement(Lock, {
+      const lock = lucideElement(Star, {
         "stroke-width": 2.5,
         "aria-hidden": "true",
       });
@@ -1755,7 +1756,7 @@ export class GigView {
     this.irEl.textContent = s.irName.value || "—";
     const onAttr = (v: boolean | null) =>
       v === null ? "unknown" : v ? "true" : "false";
-    // Locked = the current capture/IR is not in the pedal's slot list, so it could not be re-enabled from here.
+    // The preset's own capture / IR (in none of the pedal's slots): a star, and the label does not toggle it.
     const locks: [HTMLElement, HTMLElement, boolean | null, string][] = [
       [
         this.subLabels[0]!,
@@ -1774,7 +1775,7 @@ export class GigView {
       lbl.classList.toggle("locked", locked);
       st.dataset.locked = locked ? "true" : "false";
       lbl.title = locked
-        ? `This ${what} is not in the pedal's slot list, so it can only be switched on the pedal`
+        ? `The preset's own ${what} (in none of the pedal's slots): switched on the pedal, or from the amp & cab sheet`
         : "";
     }
     this.captureState.dataset.on = onAttr(s.captureOn.value);
