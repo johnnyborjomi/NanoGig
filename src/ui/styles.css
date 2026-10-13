@@ -2536,8 +2536,9 @@ button.warn {
 .ed-step-btn[data-shown='false'] {
   visibility: hidden;
 }
+/* The preset's own, first in the list: out of it for a preset saved on a slot (no gap above slot 1). */
 .ed-cap-slot[data-shown='false'] {
-  visibility: hidden;
+  display: none;
 }
 .ed-cap-slots {
   display: grid;

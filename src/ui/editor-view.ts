@@ -222,7 +222,7 @@ class Slider {
 /**
  * The pedal's slots (the capture banks, the IR slots): a header ‹ what plays › whose arrows step through every slot
  * (over the banks too) and whose middle shows / hides the list of the bank playing (remembered in this browser).
- * A tap in the list plays a slot. The preset's own comes last.
+ * A tap in the list plays a slot. The preset's own comes first (when the preset plays its own).
  */
 class SlotPicker {
   readonly root = el("div", "ed-slots");
@@ -284,7 +284,7 @@ class SlotPicker {
     this.own.append(el("span", "ed-cap-pos", "★"), el("span", "ed-cap-name", ""));
     this.own.title = opts.ownTitle;
     this.own.addEventListener("click", () => opts.onOwn());
-    this.list.append(slots, this.own);
+    this.list.append(this.own, slots); // the preset's own first
     this.root.append(head, this.list);
   }
 
@@ -308,7 +308,7 @@ class SlotPicker {
     });
     (this.own.lastChild as HTMLElement).textContent = p.ownName ? `Preset's own · ${p.ownName}` : "Preset's own";
     this.own.dataset.active = String(p.on === true && p.own);
-    // Only for a preset that plays its own: one saved on a slot has the same capture there (its room kept).
+    // Only for a preset that plays its own: one saved on a slot has the same capture there.
     this.own.dataset.shown = String(p.ownShown);
     this.own.disabled = p.on === null || !p.ownShown;
     this.root.dataset.off = String(p.on === false);

@@ -240,8 +240,8 @@ describe('edit gestures', () => {
     const names = () => slots().map((b) => b.querySelector('.ed-cap-name')!.textContent);
     expect(names()).toEqual(store.get().captureSlots.slice(5, 10));
     expect(slots().filter((b) => b.dataset.active === 'true')).toHaveLength(1);
-    // A preset saved on a slot: no "Preset's own" (it would play the same capture), its room kept.
-    const own = picker.querySelector<HTMLElement>('.ed-cap-slots + .ed-cap-slot')!;
+    // A preset saved on a slot: no "Preset's own" (it would play the same capture).
+    const own = picker.querySelector<HTMLElement>('.ed-slots-list > .ed-cap-slot')!;
     expect(own.dataset.shown).toBe('false');
     expect((own as HTMLButtonElement).disabled).toBe(true);
     // Bank 2 slot 5, then › goes on to bank 3 slot 1 (the list follows), ‹ back.
@@ -293,7 +293,7 @@ describe('edit gestures', () => {
     expect(saveBtn.hidden).toBe(false);
     const pane = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden])')!;
     expect(pane.querySelector('.ed-slots-label')!.textContent).toBe("Preset's own slot");
-    const own = pane.querySelector<HTMLElement>('.ed-cap-slots + .ed-cap-slot')!;
+    const own = pane.querySelector<HTMLElement>('.ed-slots-list > .ed-cap-slot')!;
     expect(own.dataset.active).toBe('true');
     expect(own.dataset.shown).toBe('true');
     expect(own.textContent).toContain(firstName);
