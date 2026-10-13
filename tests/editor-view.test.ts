@@ -266,11 +266,11 @@ describe('edit gestures', () => {
     tap(firstItem());
     const buttons = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')).map((b) => b.textContent);
     expect(buttons()[0]).toBe(`Load into bank ${store.get().captureBank.value} · slot ${store.get().captureSlot.value}`);
-    expect(buttons()[1]).toBe('Preview');
+    expect(buttons()[1]).toBe("Load into preset's own");
     // A preview: the row offers the way back, and so does the capture tab's Discard.
     tap(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')[1]!);
     await until(() => store.get().edit.capturePreview !== null);
-    expect(buttons()[1]).toBe('Stop preview'); // the row stays open after an action
+    expect(buttons()[1]).toBe('Undo'); // the row stays open after an action
     expect(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!.dataset.shown).toBe('true');
     // The top bar's Save too (the pedal's light stays off for a preview): Save stores what plays.
     expect(root.querySelector<HTMLButtonElement>('.topbar .save-btn')!.hidden).toBe(false);

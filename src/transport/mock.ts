@@ -207,6 +207,7 @@ export class MockTransport implements Transport {
       this.device.activePreset = bytes[5]!;
       this.presetLoads++;
       this.device.captureNameOverride = this.device.irNameOverride = null; // a preset load drops unsaved edits (a preview too)
+      this.device.previewing = false;
       this.loadDropsEdits();
       // The real pedal answers with a bypass-changed notice, then the 0x1E ack; no 0x1D event.
       this.schedule(() => {
@@ -366,6 +367,7 @@ export class MockTransport implements Transport {
         if (v(3) === 1) {
           this.device.captureOn = v(4) > 0;
           if (v(4) > 0) this.device.captureSlot = v(4);
+          this.device.previewing = false;
           const bank = (this.device.captureBank ?? 1) - 1;
           if (v(4) > 0 && v(4) <= 5) this.device.captureNameOverride = this.metadataCaptures()[bank * 5 + v(4) - 1] ?? null;
           if (v(4) === 6) this.device.captureNameOverride = null;
@@ -376,6 +378,7 @@ export class MockTransport implements Transport {
           this.device.captureSlot = (abs % 5) + 1;
           this.device.captureOn = true;
           this.device.captureNameOverride = this.metadataCaptures()[abs] ?? null;
+          this.device.previewing = false;
         } else if (v(3) === 3) {
           this.device.cabOn = v(4) > 0;
           if (v(4) > 0) {
@@ -464,6 +467,7 @@ export class MockTransport implements Transport {
         if (item) {
           this.device.captureNameOverride = text(item, 2);
           this.device.captureOn = true;
+          this.device.previewing = true;
         }
         this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEWED);
         break;
@@ -471,6 +475,7 @@ export class MockTransport implements Transport {
       case EDIT_MSG.CAPTURE_PREVIEW_STOP: {
         // Cortex Cloud's stop (snoop 2026-10-11): the saved capture plays again; the reply echoes the time sent.
         this.device.captureNameOverride = null;
+        this.device.previewing = false;
         const ts = f.find((x) => x.field === 2 && x.wire === 0)?.raw ?? [];
         this.reply([...varintField(1, 1), 0x10, ...Array.from(ts), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEW_STOPPED);
         break;
@@ -483,6 +488,8 @@ export class MockTransport implements Transport {
         const p = this.presets[index]!;
         if (msgType === EDIT_MSG.PRESET_CREATE) {
           p.captureName = this.device.captureNameOverride || this.currentPreset().captureName || 'Capture 1';
+          // Saved with a preview playing: the preset keeps it as its own capture (board, 2026-10-13).
+          if (this.device.previewing && index === this.device.activePreset) this.device.captureSlot = 6;
           p.irShortName = this.device.irNameOverride || this.currentPreset().irShortName || 'IR 1';
         }
         p.name = name;
@@ -656,6 +663,7 @@ export class MockTransport implements Transport {
     const next = populated[(populated.indexOf(this.device.activePreset) + 1) % populated.length] ?? 0;
     this.device.activePreset = next;
     this.device.captureNameOverride = this.device.irNameOverride = null;
+    this.device.previewing = false;
     this.loadDropsEdits();
     // Alternate between the hardware-observed message and the 2-byte MIDI shape.
     if (i % 2 === 0) this.emit(buildPresetChangedEvent(next));
@@ -671,6 +679,7 @@ export class MockTransport implements Transport {
   pressFootswitch(preset: number) {
     this.device.activePreset = preset;
     this.device.captureNameOverride = this.device.irNameOverride = null;
+    this.device.previewing = false;
     this.loadDropsEdits();
     this.emit(buildPresetChangedEvent(preset));
     this.emit(Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x1f, 0x00, 0x00, 0x00])); // bypass-changed follows on hardware

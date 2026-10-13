@@ -103,6 +103,8 @@ export interface MockDeviceState {
   cabSlot?: number;
   /** Names loaded from the library over the preset's own (until the next preset change). */
   captureNameOverride?: string | null;
+  /** Mock only: a library preview plays (its name is the override) until a stop, a slot select or a load. */
+  previewing?: boolean;
   irNameOverride?: string | null;
   /** Unsaved changes in the shown preset (field 41, the save light). */
   dirty?: boolean;

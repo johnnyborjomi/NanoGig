@@ -757,7 +757,10 @@ export class SyncEngine {
     this.store.setField('gateOn', gateStale ? prev.gateOn.value : state.gateOn, gateStale ? 'optimistic' : 'dump', at);
     const cabStale = writtenSince(this.writtenAt.cab, requestedAt);
     this.store.setField('cabOn', cabStale ? prev.cabOn.value : state.cabOn, cabStale ? 'optimistic' : 'dump', at);
-    this.store.setField('captureName', state.capture?.name || null, 'dump', at); // '' (no capture) → null
+    // A preview plays: its name stands (the dump may still name the capture underneath).
+    const preview = this.store.get().edit.capturePreview;
+    if (preview && preview.preset === state.activePreset) this.store.setField('captureName', preview.name, 'optimistic', at);
+    else this.store.setField('captureName', state.capture?.name || null, 'dump', at); // '' (no capture) → null
     // Capture on/off follows field 11 (rotary position, 0/absent = bypassed) as in the web editor.
     // Field 32.1 ("enabled") is NOT used: hardware dumps show it stuck at 1 after a bypass
     // (2026-09-13) and at 0 with position 4 (2026-09-12), so it means something else.

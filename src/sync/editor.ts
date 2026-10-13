@@ -86,6 +86,8 @@ export interface EditHost {
 const PRESET_REPLY_TIMEOUT_MS = 3000;
 /** How long a capture turned on for a library load may take to show on in a state read. */
 const CAPTURE_ON_WAIT_MS = 2500;
+/** How long a preview stop waits for the pedal's 0x95 before the next frame goes anyway. */
+const PREVIEW_STOP_WAIT_MS = 1200;
 const READ_TIMEOUT_MS = 2500;
 const LIBRARY_TIMEOUT_MS = 15000;
 
@@ -127,6 +129,10 @@ export class EditController {
   private libraryTimer: ReturnType<typeof setTimeout> | null = null;
   /** A capture load into this slot (1..5) awaits the pedal's 0x51; then the slot is selected. */
   private loadingCaptureSlot: number | null = null;
+  /** Resolves the preview stop in flight on the pedal's 0x95. */
+  private previewStopped: (() => void) | null = null;
+  /** A preview saved into the preset: once its stop is answered, the next state read is what the preset has saved. */
+  private resnapAfterStop: { preset: number; answered: boolean } | null = null;
   private presetTimer: ReturnType<typeof setTimeout> | null = null;
   /** A preset write whose answer timed out: a late answer still applies (a delete is done on the pedal either way). */
   private lateOp: { kind: 'rename' | 'create' | 'delete'; index: number; name: string } | null = null;
@@ -274,10 +280,17 @@ export class EditController {
       case EDIT_MSG.CAPTURE_SLOT_LOADED:
         this.onCaptureLoaded(decodeOk(payload), hex);
         return true;
+      case EDIT_MSG.CAPTURE_PREVIEW_STOPPED: {
+        const done = this.previewStopped;
+        this.previewStopped = null;
+        if (this.resnapAfterStop) this.resnapAfterStop.answered = true;
+        this.host.log(decodeOk(payload) ? 'info' : 'warn', `Library capture preview stop ${decodeOk(payload) ? 'acknowledged' : 'refused'}`, hex);
+        done?.();
+        return true;
+      }
       case EDIT_MSG.CAB_SLOT_LOADED:
       case EDIT_MSG.CAPTURE_PREVIEWED:
-      case EDIT_MSG.CAPTURE_PREVIEW_STOPPED:
-        this.host.log(decodeOk(payload) ? 'info' : 'warn', `Library ${msgType === EDIT_MSG.CAB_SLOT_LOADED ? 'IR slot load' : msgType === EDIT_MSG.CAPTURE_PREVIEWED ? 'capture preview' : 'capture preview stop'} ${decodeOk(payload) ? 'acknowledged' : 'refused'}`, hex);
+        this.host.log(decodeOk(payload) ? 'info' : 'warn', `Library ${msgType === EDIT_MSG.CAB_SLOT_LOADED ? 'IR slot load' : 'capture preview'} ${decodeOk(payload) ? 'acknowledged' : 'refused'}`, hex);
         return true;
       case EDIT_MSG.RENAME_REPLY:
       case EDIT_MSG.PRESET_CREATED:
@@ -457,6 +470,13 @@ export class EditController {
    * capture, IR and gate in place (the pedal drops unsaved edits on a preset load).
    */
   noteSaved(preset: number | null): void {
+    const resnap = this.resnapAfterStop;
+    if (resnap && resnap.answered && resnap.preset === preset) {
+      // The slot it plays may have moved with the save (into the preset's own): take it as saved.
+      this.resnapAfterStop = null;
+      this.rememberSavedSource(preset);
+      return;
+    }
     if (preset === null || this.store.get().edit.savedModels?.preset === preset) return;
     this.rememberSavedModels(preset, this.store.get().fxModels.value);
   }
@@ -514,9 +534,26 @@ export class EditController {
     this.clearCapturePreview();
     const own = this.ownCaptureName();
     if (own) this.store.setField('captureName', own, 'optimistic');
-    this.writtenAt.capture = Date.now();
-    await this.send(capturePreviewStopFrame(), `Stop the capture preview "${p.name}"`);
+    await this.sendPreviewStop(`Stop the capture preview "${p.name}"`);
     this.host.confirm();
+  }
+
+  /** The stop frame, resolved on the pedal's 0x95 (or after a while: the next frame goes anyway). */
+  private async sendPreviewStop(label: string): Promise<void> {
+    this.writtenAt.capture = Date.now();
+    const answered = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.previewStopped === done) this.previewStopped = null;
+        resolve();
+      }, PREVIEW_STOP_WAIT_MS);
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.previewStopped = done;
+    });
+    await this.send(capturePreviewStopFrame(), label);
+    await answered;
   }
 
   private savedSourceNow(): SavedSource | null {
@@ -1020,10 +1057,16 @@ export class EditController {
       }, CAPTURE_ON_WAIT_MS);
       if (!on) throw new Error('The capture did not turn on: nothing loaded');
     }
+    // One preview at a time: Cortex Cloud stops each before the next (snoop 2026-10-11).
+    const running = this.capturePreview();
+    if (running) {
+      this.clearCapturePreview();
+      await this.sendPreviewStop(`Stop the capture preview "${running.name}" (another follows)`);
+    }
     this.writtenAt.capture = Date.now();
     this.store.setField('captureName', item.name, 'optimistic');
     const preset = this.activePreset();
-    await this.send(capturePreviewFrame(item), `Preview ${item.list} capture ${item.index + 1} "${item.name}" (over the preset's own; not an edit)`);
+    await this.send(capturePreviewFrame(item), `Load ${item.list} capture ${item.index + 1} "${item.name}" into the preset's own (a preview: Save keeps it)`);
     if (preset !== null) this.patchEdit({ capturePreview: { preset, name: item.name } });
     this.host.confirm(600);
   }
@@ -1154,10 +1197,10 @@ export class EditController {
     if (md) {
       const presets = md.presets.slice();
       const rec = { ...(presets[busy.index] ?? { name: '', captureName: '', captureId: '', irShortName: '', irFullName: '' }), name: busy.name };
-      // A create stores the shown preset: its capture and IR are the saved ones now.
+      // A create stores the shown preset: its capture and IR are the saved ones now (a preview's capture included).
       const s = this.store.get();
       if (busy.kind === 'create' && s.activePreset.value === busy.index) {
-        rec.captureName = s.captureName.value ?? '';
+        rec.captureName = this.capturePreview()?.name ?? s.captureName.value ?? '';
         rec.irShortName = s.irName.value ?? '';
       }
       presets[busy.index] = rec;
@@ -1168,7 +1211,19 @@ export class EditController {
     // Stored over the shown preset (Save): what it shows is what it has saved now. A read confirms the light.
     const shown = this.store.get();
     if (busy.kind === 'create' && shown.activePreset.value === busy.index) {
+      const preview = this.capturePreview();
       this.rememberSavedModels(busy.index, shown.fxModels.value);
+      if (preview) {
+        // Saved with a preview playing: the preset keeps that capture as its own (board, 2026-10-13), but the pedal
+        // stays in its preview until the stop (later previews then went unheard). Stopped now, it plays the saved
+        // one, which is the same capture; the state read after the stop is what the preset has saved.
+        this.resnapAfterStop = { preset: busy.index, answered: false };
+        this.store.setField('captureName', preview.name, 'optimistic');
+        void this.sendPreviewStop(`Stop the preview "${preview.name}" (saved into the preset)`)
+          .then(() => this.host.confirm())
+          .catch((err) => this.host.log('warn', `Preview stop failed: ${(err as Error).message}`));
+        return;
+      }
       this.host.confirm(400);
     }
   }

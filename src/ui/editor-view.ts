@@ -841,7 +841,7 @@ export class EditorView {
       this.capHint.textContent = on === false ? "Turn the capture on to open the library." : "Double-tap the volume to reset it to 0 dB.";
       this.showSrcDiscard(
         this.actions.edit()?.captureChanged() ?? false,
-        this.actions.edit()?.capturePreview() ? "Stop the preview: the capture this preset has saved plays again" : "Back to the capture and volume this preset has saved (on / off stays)",
+        this.actions.edit()?.capturePreview() ? "Undo the load into the preset's own: the capture it has saved plays again" : "Back to the capture and volume this preset has saved (on / off stays)",
       );
       return;
     }
@@ -1455,9 +1455,9 @@ export class EditorView {
             b.addEventListener("click", () => this.run(go()));
             return b;
           };
-          // The load the pedal counts as an edit first (its save light comes on): into the slot playing, Cortex
-          // Cloud's "Use" (the pedal has no load into the preset itself; saved presets on that slot keep theirs).
-          // Then, for a capture: a preview (Cortex Cloud's play button), heard until Stop preview.
+          // Into the slot playing first, Cortex Cloud's "Use" (an edit: the save light comes on; saved presets on that
+          // slot keep theirs). Then, for a capture, into the preset's own: Cortex Cloud's preview, which a Save keeps
+          // as the preset's own capture (board, 2026-10-13); the pedal leaves its light off, the app shows Save.
           const irSlot = irs ? this.actions.edit()?.irLoadSlot() ?? 1 : 0;
           const bank = this.s.captureBank.value ?? 1;
           const previewing = !irs && this.actions.edit()?.capturePreview()?.name === it.name;
@@ -1471,13 +1471,13 @@ export class EditorView {
           else
             actions.append(
               load,
-              previewing ? action("Stop preview", "", () => this.edit().stopCapturePreview()) : action("Preview", "", () => this.edit().previewCapture(it)),
+              previewing ? action("Undo", "", () => this.edit().stopCapturePreview()) : action("Load into preset's own", "", () => this.edit().previewCapture(it)),
               move,
             );
           row.append(actions);
           const hint = irs
             ? `Into IR slot ${irSlot}: saved presets keep their own IR.`
-            : `Into bank ${bank} slot ${slot}: saved presets keep their own capture. Preview: heard only.`;
+            : `Bank ${bank} slot ${slot}: saved presets keep theirs. Preset's own: this preset alone, Save keeps it.`;
           row.append(el("p", "hint", hint));
         }
         rows.push(row);

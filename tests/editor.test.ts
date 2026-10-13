@@ -243,7 +243,37 @@ describe('edit controller', () => {
     expect(mock.edits.find((e) => e.type === EDIT_MSG.ENCODER)!.hex).toMatch(/^08 C0 18 01 20 06 1C/); // the preset's own
     expect(types.indexOf(EDIT_MSG.ENCODER)).toBeLessThan(types.indexOf(EDIT_MSG.CAPTURE_PREVIEW));
     expect(mock.previewedWhileOff).toBe(false);
-    await until(() => store.get().captureName.source === 'dump' && store.get().captureName.value === 'My Plexi' && store.get().captureOn.value === true);
+    await until(() => store.get().captureOn.source === 'dump' && store.get().captureName.value === 'My Plexi' && store.get().captureOn.value === true);
+  });
+
+  it("library: into the preset's own — a preview (one at a time), which Save keeps; the preview is stopped after", async () => {
+    const { store, mock, edit } = await setup();
+    await edit.loadLibrary('captures');
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    const caps = store.get().edit.library.captures!;
+    const a = caps.find((c) => c.name === 'My Plexi')!;
+    const b = caps.find((c) => c.name === 'Comet 60 6')!;
+    await edit.previewCapture(a);
+    await edit.previewCapture(b);
+    // Cortex Cloud stops each preview before the next.
+    expect(mock.edits.map((e) => e.type).filter((t) => t === EDIT_MSG.CAPTURE_PREVIEW || t === EDIT_MSG.CAPTURE_PREVIEW_STOP)).toEqual([
+      EDIT_MSG.CAPTURE_PREVIEW,
+      EDIT_MSG.CAPTURE_PREVIEW_STOP,
+      EDIT_MSG.CAPTURE_PREVIEW,
+    ]);
+    await until(() => store.get().captureVolume.source === 'dump');
+    expect(store.get().captureName.value).toBe('Comet 60 6'); // the preview's name stands over the dump's
+    await edit.savePreset();
+    await until(() => store.get().edit.preset.busy === null);
+    expect(store.get().edit.preset.result?.ok).toBe(true);
+    // Saved: the pedal is taken out of its preview, and the preset plays its own capture, the one saved.
+    await until(() => sent(mock, EDIT_MSG.CAPTURE_PREVIEW_STOP).length === 2);
+    expect(mock.edits.map((e) => e.type).indexOf(EDIT_MSG.PRESET_CREATE)).toBeLessThan(mock.edits.map((e) => e.type).lastIndexOf(EDIT_MSG.CAPTURE_PREVIEW_STOP));
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureSlot.value === 6 && store.get().edit.savedSource?.captureSlot === 6);
+    expect(store.get().captureName.value).toBe('Comet 60 6');
+    expect(edit.ownCaptureName()).toBe('Comet 60 6');
+    expect(edit.capturePreview()).toBeNull();
+    expect(edit.captureChanged()).toBe(false);
   });
 
   it("library: a capture preview (Cortex Cloud's tap) changes no slot and marks nothing edited; an IR into the IR slot playing", async () => {
@@ -254,7 +284,7 @@ describe('edit controller', () => {
     const slots = { ...mock.slotCaptures };
     await edit.previewCapture(plexi);
     expect(sent(mock, EDIT_MSG.CAPTURE_PREVIEW)).toHaveLength(1);
-    await until(() => store.get().captureName.source === 'dump' && store.get().captureName.value === 'My Plexi');
+    await until(() => store.get().captureVolume.source === 'dump' && store.get().captureName.value === 'My Plexi');
     expect(mock.slotCaptures).toEqual(slots); // no slot of the pedal's changed
     expect(store.get().presetDirty.value).not.toBe(true); // not an edit: no save light (the board, 2026-10-11)
     // The app keeps the books: a preview is heard until Cortex Cloud's stop frame (0x94), which the pedal answers (0x95).
