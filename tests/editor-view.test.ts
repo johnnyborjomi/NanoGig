@@ -230,6 +230,10 @@ describe('edit gestures', () => {
     expect(label.textContent).toBe('Bank 2 of 5');
     expect(names()).toEqual(store.get().captureSlots.slice(5, 10));
     expect(slots().filter((b) => b.dataset.active === 'true')).toHaveLength(1);
+    // A preset saved on a slot: no "Preset's own" (it would play the same capture), its room kept.
+    const own = picker.querySelector<HTMLElement>('.ed-cap-slots + .ed-cap-slot')!;
+    expect(own.dataset.shown).toBe('false');
+    expect((own as HTMLButtonElement).disabled).toBe(true);
     const sent = mock.edits.length;
     tap(picker.querySelectorAll<HTMLElement>('.ed-slots-head .ed-step-btn')[1]!);
     expect(label.textContent).toBe('Bank 3 of 5');
@@ -264,7 +268,12 @@ describe('edit gestures', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-tab')[1]!);
     expect(root.querySelector('.src-sheet .ed-pane:not([hidden]) .ed-slots .ed-slots-label')!.textContent).toBe('IR slots');
-    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!);
+    // The IR is off in the demo: as the capture's, its library waits for it to be on.
+    const irLib = root.querySelector<HTMLButtonElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!;
+    expect(irLib.disabled).toBe(true);
+    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-power')!);
+    await until(() => store.get().cabOn.value === true && !irLib.disabled);
+    tap(irLib);
     await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
     tap(firstItem());
     expect(buttons()[0]).toBe('Load into this preset');

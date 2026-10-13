@@ -2536,6 +2536,9 @@ button.warn {
 .ed-step-btn[data-shown='false'] {
   visibility: hidden;
 }
+.ed-cap-slot[data-shown='false'] {
+  visibility: hidden;
+}
 .ed-cap-slots {
   display: grid;
   gap: 6px;

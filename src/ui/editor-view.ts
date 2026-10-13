@@ -271,7 +271,7 @@ class SlotPicker {
    * `names`: every slot over the banks; `bank` / `position`: what plays (position 1..per, `own` for the preset's own,
    * null when off). The view follows the bank playing whenever what plays changes.
    */
-  render(p: { names: readonly string[]; bank: number; position: number | null; own: boolean; on: boolean | null; ownName: string; playing: string }) {
+  render(p: { names: readonly string[]; bank: number; position: number | null; own: boolean; ownShown: boolean; on: boolean | null; ownName: string; playing: string }) {
     if (p.playing !== this.seen) {
       this.seen = p.playing;
       this.view = null;
@@ -293,7 +293,9 @@ class SlotPicker {
     });
     (this.own.lastChild as HTMLElement).textContent = p.ownName ? `Preset's own · ${p.ownName}` : "Preset's own";
     this.own.dataset.active = String(p.on === true && p.own);
-    this.own.disabled = p.on === null;
+    // Only for a preset that plays its own: one saved on a slot has the same capture there (its room kept).
+    this.own.dataset.shown = String(p.ownShown);
+    this.own.disabled = p.on === null || !p.ownShown;
     this.root.dataset.off = String(p.on === false);
   }
 }
@@ -632,6 +634,7 @@ export class EditorView {
   private capStep!: HTMLElement;
   private irStep!: HTMLElement;
   private readonly capLib = el("button", "ed-lib-btn");
+  private readonly irLib = el("button", "ed-lib-btn");
   private readonly capHint = el("p", "hint", "");
   private readonly capPower = el("button", "ed-power");
   private readonly capVolume = new Slider(
@@ -712,7 +715,7 @@ export class EditorView {
     this.capStep = this.stepRow(this.capSlot, (d) => this.run(this.edit().stepCapture(d)));
     this.capPane.append(capHead, this.capStep, this.capPicker.root, this.capVolume.root, capLib, capHint);
 
-    const irLib = el("button", "ed-lib-btn");
+    const irLib = this.irLib;
     irLib.append(icon(Library), el("span", "", "IR library"));
     irLib.addEventListener("click", () => this.openLibrary("irs"));
     this.irRetry.addEventListener("click", () => this.run(() => this.edit().retryIr()));
@@ -760,6 +763,12 @@ export class EditorView {
     for (const b of Array.from(row.querySelectorAll<HTMLElement>(".ed-step-btn"))) b.dataset.shown = String(shown);
   }
 
+  /** What the shown preset has saved (as read at its load or last save), else null. */
+  private savedSource() {
+    const saved = this.s.edit.savedSource;
+    return saved && saved.preset === this.s.activePreset.value ? saved : null;
+  }
+
   private showSrcDiscard(changed: boolean, title: string) {
     this.srcDiscard.dataset.shown = String(changed);
     this.srcDiscard.title = changed ? title : "";
@@ -788,6 +797,7 @@ export class EditorView {
         bank,
         position: slot >= 1 && slot <= CAPTURE_SELECT_SLOTS ? slot : null,
         own: slot === CAPTURE_OWN_SLOT,
+        ownShown: slot === CAPTURE_OWN_SLOT || this.savedSource()?.captureSlot === CAPTURE_OWN_SLOT,
         on,
         ownName: this.actions.edit()?.ownCaptureName() ?? "",
         playing: `${s.activePreset.value}|${bank}|${slot}`,
@@ -820,6 +830,7 @@ export class EditorView {
       bank: 1,
       position: slot !== null && slot >= 1 && slot <= CAB_SLOT_COUNT ? slot : null,
       own: slot === CAB_OWN_SLOT,
+      ownShown: slot === CAB_OWN_SLOT || this.savedSource()?.cabSlot === CAB_OWN_SLOT,
       on,
       ownName: this.actions.edit()?.ownIrName() ?? "",
       playing: `${s.activePreset.value}|${slot}`,
@@ -833,13 +844,15 @@ export class EditorView {
         : status === "error"
           ? "No answer from the pedal"
           : status === "off"
-            ? "Off: turn it on once to read its settings"
+            ? "Off: turn it on to read its settings and open the library"
             : on === false
-              ? "Off: heard once it is on · Save keeps it"
+              ? "Off: turn it on to hear it or open the library"
               : "Live: Save keeps it",
       status === "error" ? "warn" : "muted",
     );
     this.irRetry.dataset.shown = String(status === "error");
+    // As the capture's: the library needs the IR on.
+    this.irLib.disabled = on !== true;
     // Off or on alike, as an FX block: an IR that is off keeps its edits for when it is on, drawn grey.
     const ready = status === "ready" && !!cs;
     for (const box of [this.irParamsBox, this.irPhaseRow, this.irMicBox]) box.dataset.off = String(on === false);
