@@ -272,6 +272,8 @@ describe('edit gestures', () => {
     await until(() => store.get().edit.capturePreview !== null);
     expect(buttons()[1]).toBe('Stop preview'); // the row stays open after an action
     expect(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!.dataset.shown).toBe('true');
+    // The top bar's Save too (the pedal's light stays off for a preview): Save stores what plays.
+    expect(root.querySelector<HTMLButtonElement>('.topbar .save-btn')!.hidden).toBe(false);
     tap(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')[1]!);
     await until(() => store.get().edit.capturePreview === null);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));

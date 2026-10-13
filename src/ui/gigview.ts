@@ -428,7 +428,14 @@ export class GigView {
     this.discardBtn.title = "Discard the changes: the preset is loaded again as saved (as the pedal's EXIT)";
     this.discardBtn.append(lucideElement(Undo2, { "stroke-width": 2.5, "aria-hidden": "true" }), el("span", "btn-label", "Discard"));
     this.discardBtn.addEventListener("click", () => {
-      const i = this.store.get().activePreset.value;
+      const s = this.store.get();
+      const i = s.activePreset.value;
+      // A preview is not undone by a load: it gets the stop the capture tab's Discard sends.
+      const edit = this.actions.edit?.();
+      if (edit && s.edit.capturePreview?.preset === i && s.presetDirty.value !== true) {
+        void edit.discardCapture().catch((e) => this.toast(e));
+        return;
+      }
       if (i !== null) void this.actions.selectPreset(i).catch((e) => this.toast(e));
     });
     this.saveBtn.hidden = this.discardBtn.hidden = true;
@@ -1669,7 +1676,9 @@ export class GigView {
       this.editBtn.classList.toggle("on", editing);
       this.editBtn.setAttribute("aria-pressed", String(editing));
       // Unsaved changes while editing: Save and Discard instead of Edit, until the light goes out.
-      const unsaved = editing && s.presetDirty.value === true && !!this.actions.edit;
+      // A capture preview counts too (the pedal leaves its light off): Save stores it, for trying the preset's own.
+      const previewing = s.edit.capturePreview !== null && s.edit.capturePreview.preset === s.activePreset.value;
+      const unsaved = editing && (s.presetDirty.value === true || previewing) && !!this.actions.edit;
       this.frameInput.disabled = this.frameSend.disabled = !(editing && this.actions.edit);
       this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit || unsaved;
       this.saveBtn.hidden = this.discardBtn.hidden = !unsaved;
