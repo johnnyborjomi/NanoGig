@@ -8,6 +8,7 @@ import { Store } from '../src/state/store';
 import { SyncEngine } from '../src/sync/engine';
 import { MockTransport } from '../src/transport/mock';
 import { LibraryFolders } from '../src/ui/library-folders';
+import { EDIT_MSG } from '../src/protocol/edit';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until(cond: () => boolean, ms = 2000) {
@@ -191,7 +192,7 @@ describe('edit gestures', () => {
   });
 
   it('the capture name opens amp & cab; hold the gate for its threshold; hold the name to rename', async () => {
-    const { root, store, toggles, open } = await setup(true);
+    const { root, store, mock, toggles, open } = await setup(true);
     (root.querySelector('.capture.sub-name') as HTMLElement).click();
     expect(open('src-sheet')).toBe(true);
     expect(root.querySelector('.src-sheet .ed-big')!.textContent).toBe(store.get().captureName.value);
@@ -207,6 +208,14 @@ describe('edit gestures', () => {
     expect(open('preset-sheet')).toBe(true);
     const input = root.querySelector<HTMLInputElement>('.preset-sheet .ed-input')!;
     expect(input.value).toBe(store.get().presetNames.value[store.get().activePreset.value!]);
+    // Save now: the preset playing stored with the save light off too (the create frame under its own name).
+    const force = root.querySelector<HTMLButtonElement>('.preset-sheet .ed-force-save')!;
+    expect(force.disabled).toBe(false);
+    const sent = mock.edits.length;
+    tap(force);
+    await until(() => mock.edits.length > sent);
+    expect(mock.edits.at(-1)!.type).toBe(EDIT_MSG.PRESET_CREATE);
+    await until(() => store.get().edit.preset.busy === null);
   });
 
   it('capture tab: the bank list opens under the stepper; ‹ › browse banks without playing; a tap plays a slot', async () => {

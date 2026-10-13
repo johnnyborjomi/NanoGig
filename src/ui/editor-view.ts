@@ -56,6 +56,7 @@ import {
   Library,
   Pencil,
   Power,
+  Save,
   Search,
   Trash2,
   Undo2,
@@ -965,6 +966,9 @@ export class EditorView {
   private readonly presetMsg = el("p", "ed-msg");
   private readonly fsRow = el("div", "ed-chips");
   private readonly deleteBtn = el("button", "warn ed-delete");
+  /** Save with the save light off too (what plays now stored on the preset): for trying out what the pedal keeps. */
+  private readonly forceSaveBtn = el("button", "ed-force-save");
+  private readonly forceSaveHint = el("p", "hint", "");
   private deleteArmed = false;
   private nameTypedAt = 0;
   private readonly presetIntro = el("p", "hint ed-intro");
@@ -1028,6 +1032,8 @@ export class EditorView {
       this.deleteArmed = false;
       this.run(this.edit().deletePreset(i));
     });
+    this.forceSaveBtn.append(icon(Save), el("span", "", "Save now"));
+    this.forceSaveBtn.addEventListener("click", () => this.run(this.edit().savePreset()));
     const nameRow = el("div", "ed-row");
     nameRow.append(this.nameInput, this.nameBtn);
     sh.body.append(
@@ -1037,6 +1043,9 @@ export class EditorView {
       el("h2", "", "Pedal footswitch"),
       el("p", "hint", "Put this preset on one of the Nano's footswitches (IA, IB, IIA, IIB)."),
       this.fsRow,
+      el("h2", "", "Save"),
+      this.forceSaveHint,
+      this.forceSaveBtn,
       el("h2", "", "Delete"),
       this.deleteBtn,
     );
@@ -1079,6 +1088,10 @@ export class EditorView {
       b.replaceChildren(el("strong", "", key.toUpperCase()), el("span", "ed-fs-now", holds));
       b.title = on === null ? "" : `${key.toUpperCase()} plays ${holds} now`;
     }
+    this.forceSaveBtn.disabled = !!busy || mode === "create" || !active;
+    this.forceSaveHint.textContent = active
+      ? "Stores what plays now on this preset, also with the save light off (a preview included)."
+      : "Only for the preset playing.";
     this.deleteBtn.disabled = !!busy || mode === "create";
     (this.deleteBtn.lastChild as HTMLElement).textContent = this.deleteArmed ? "Tap again to delete" : "Delete preset";
     this.deleteBtn.dataset.armed = String(this.deleteArmed);

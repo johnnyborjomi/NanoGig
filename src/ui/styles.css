@@ -2591,14 +2591,16 @@ button.warn {
   outline: 2px solid var(--fx, var(--accent));
   outline-offset: 1px;
 }
-.ed-delete {
+.ed-delete,
+.ed-force-save {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   align-self: flex-start;
 }
-.ed-delete svg {
+.ed-delete svg,
+.ed-force-save svg {
   width: 18px;
   height: 18px;
 }
