@@ -22,6 +22,7 @@
 import type { CurrentState, Metadata } from '../protocol/decode';
 import {
   CAPTURE_OWN_SLOT,
+  CAPTURE_BANKS,
   CAPTURE_SELECT_SLOTS,
   EDIT_MSG,
   cabMicFrame,
@@ -767,9 +768,16 @@ export class EditController {
     } else {
       this.store.setField('captureOn', false, 'optimistic');
     }
+    const preview = this.capturePreview();
     this.clearCapturePreview(); // a slot plays now (6: the preset's own, as saved)
     await this.send(frame, slot ? `Capture slot ${slot}${slot === CAPTURE_OWN_SLOT ? " (the preset's own)" : ''}` : 'Capture off');
+    await this.endPreviewAfterSelect(preview);
     this.host.confirm();
+  }
+
+  /** A slot selected while a preview played: the stop follows (Cortex Cloud's order after its "Use"). */
+  private async endPreviewAfterSelect(preview: CapturePreview | null): Promise<void> {
+    if (preview) await this.sendPreviewStop(`Stop the capture preview "${preview.name}" (a slot was selected)`);
   }
 
   /**
@@ -787,8 +795,10 @@ export class EditController {
     this.store.setField('captureSlot', position, 'optimistic');
     const name = this.host.metadata()?.captures[abs - 1]?.name;
     if (name) this.store.setField('captureName', name, 'optimistic');
+    const preview = this.capturePreview();
     this.clearCapturePreview();
     await this.send(captureSelectFrame(abs), `Capture bank ${bank} slot ${position}`);
+    await this.endPreviewAfterSelect(preview);
     this.host.confirm();
   }
 
@@ -797,13 +807,19 @@ export class EditController {
     await this.selectCaptureSlot(on ? this.captureSlotForEdit() : 0);
   }
 
-  /** The slots 1..5, wrapping; from the preset's own capture (6) or off, the ends. */
+  /**
+   * The previous / next of all 25 slots, over the banks (bank 1 slot 5 → bank 2 slot 1, wrapping). From the preset's
+   * own capture (6) or off: next is slot 1 of the bank playing, previous the slot before it.
+   */
   async stepCapture(delta: number): Promise<void> {
     const s = this.store.get();
-    const count = CAPTURE_SELECT_SLOTS;
+    const per = CAPTURE_SELECT_SLOTS;
+    const total = CAPTURE_BANKS * per;
+    const bank = s.captureBank.value ?? 1;
     const cur = s.captureOn.value ? (s.captureSlot.value ?? 0) : this.captureSlotForEdit();
-    const next = cur >= 1 && cur <= count ? ((cur - 1 + (delta > 0 ? 1 : count - 1)) % count) + 1 : delta > 0 ? 1 : count;
-    await this.selectCaptureSlot(next);
+    const at = cur >= 1 && cur <= per ? (bank - 1) * per + cur : (bank - 1) * per + (delta > 0 ? 0 : 1);
+    const next = ((((at - 1 + (delta > 0 ? 1 : -1)) % total) + total) % total) + 1;
+    await this.selectCapture(Math.floor((next - 1) / per) + 1, ((next - 1) % per) + 1);
   }
 
   // -------------------------------------------------------------------------

@@ -2829,13 +2829,38 @@ button.warn {
   flex: 1 1 100%;
   margin: 0;
 }
-/* Load to: [bank · slot] [preset's own], under the name of the row that is open. */
+/* Load to: the label above, then [Bank · Slot] [Preset's own slot] … [Move to folder] on one row. */
 .ed-load-to {
   flex: 1 1 100%;
   align-items: center;
 }
 .ed-load-to .ed-label {
-  margin-right: 4px;
+  flex: 1 1 100%;
+}
+.ed-load-to .ed-move {
+  margin-left: auto;
+}
+/* The library in the amp & cab colour (red), as the sheet it opens from: one hue, lighter or darker, nothing else. */
+.card.sheet.lib-sheet {
+  --fx: var(--fx-cab);
+  --fx-ink: var(--fx-text);
+  --accent: var(--fx-cab);
+  --on: var(--fx-cab);
+}
+.lib-sheet button.primary {
+  background: var(--fx);
+  color: var(--fx-ink);
+}
+.lib-sheet button.primary.ed-load-own {
+  background: color-mix(in srgb, var(--fx) 72%, #000);
+  color: #fff;
+}
+.lib-sheet .ed-item[data-saved='true'] .ed-item-name {
+  color: color-mix(in srgb, var(--fx) 55%, #fff);
+}
+.lib-sheet .ed-item-saved {
+  color: color-mix(in srgb, var(--fx) 55%, #fff);
+  border-color: color-mix(in srgb, var(--fx) 50%, transparent);
 }
 /* The capture playing from the library (listened to or loaded): a speaker right of its name. */
 .ed-item-playing {
