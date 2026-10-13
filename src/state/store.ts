@@ -144,6 +144,8 @@ export interface EditState {
   savedParams: SavedParams | null;
   savedSource: SavedSource | null;
   capturePreview: CapturePreview | null;
+  /** A library IR played from the library (Cortex Cloud's IR preview, 0x9E) until it is stopped or one is loaded. */
+  irPreview: { preset: number; name: string } | null;
 }
 
 export function emptyEdit(): EditState {
@@ -156,6 +158,7 @@ export function emptyEdit(): EditState {
     savedParams: null,
     savedSource: null,
     capturePreview: null,
+    irPreview: null,
   };
 }
 

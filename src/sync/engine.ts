@@ -778,7 +778,9 @@ export class SyncEngine {
     this.store.setField('captureVolume', state.captureVolumeRaw ?? 0, 'dump', at);
     this.store.setField('gateThreshold', state.gateThresholdRaw, 'dump', at);
     this.store.setField('cabSlot', state.cabOn ? state.cabSlot : null, 'dump', at);
-    this.store.setField('irName', state.ir?.shortName || null, 'dump', at);
+    const irPreview = this.store.get().edit.irPreview;
+    if (irPreview && irPreview.preset === state.activePreset) this.store.setField('irName', irPreview.name, 'optimistic', at);
+    else this.store.setField('irName', state.ir?.shortName || null, 'dump', at);
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
     if (state.footswitchAssignments) this.store.setField('footswitches', state.footswitchAssignments, 'dump', at);
     this.store.setField('tempo', state.tempoBpm, 'dump', at);
@@ -1126,6 +1128,7 @@ export class SyncEngine {
     this.expAssignTries = 0;
     this.store.setField('activePreset', index, 'optimistic');
     this.edit.clearCapturePreview(); // a load puts the preset's own capture back
+    this.edit.clearIrPreview();
 
     if (this.selectInflight) {
       this.log('info', `Preset ${index + 1} held until the pedal acks the select in flight`);

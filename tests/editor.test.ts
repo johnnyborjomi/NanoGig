@@ -246,6 +246,26 @@ describe('edit controller', () => {
     await until(() => store.get().captureOn.source === 'dump' && store.get().captureName.value === 'My Plexi' && store.get().captureOn.value === true);
   });
 
+  it("library: an IR listened to, then loaded into the preset's own IR slot, in Cortex Cloud's order", async () => {
+    const { store, mock, edit } = await setup({ device: { initialState: { cabOn: true, cabSlot: 2 } } });
+    await edit.loadLibrary('irs');
+    await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
+    const ya = store.get().edit.library.irs!.find((i) => i.name === 'YA')!;
+    const slots = { ...mock.slotIrs };
+    await edit.previewIr(ya);
+    expect(edit.irPreview()).toMatchObject({ name: 'YA' });
+    await edit.loadIrIntoOwn(ya);
+    // Preview, its stop (field 4), the load into slot index 5, then IR slot 6 selected (snoop 2026-10-11).
+    const frames = mock.edits.filter((e) => ([EDIT_MSG.IR_PREVIEW, EDIT_MSG.CAPTURE_PREVIEW_STOP, EDIT_MSG.CAB_SLOT_LOAD, EDIT_MSG.ENCODER] as number[]).includes(e.type));
+    expect(frames.map((e) => e.type)).toEqual([EDIT_MSG.IR_PREVIEW, EDIT_MSG.CAPTURE_PREVIEW_STOP, EDIT_MSG.CAB_SLOT_LOAD, EDIT_MSG.ENCODER]);
+    expect(frames[1]!.hex).toMatch(/ 20 00 94 00 00 00$/);
+    expect(frames[2]!.hex).toMatch(/^.. C0 18 05 /);
+    expect(frames[3]!.hex).toBe('08 C0 18 03 20 06 1C 00 00 00');
+    expect(mock.slotIrs).toEqual(slots); // no slot of the pedal's written
+    await until(() => store.get().cabSlot.source === 'dump' && store.get().cabSlot.value === 6 && store.get().irName.value === 'YA');
+    expect(edit.irPreview()).toBeNull();
+  });
+
   it('library: a capture listened to, then loaded into a bank slot: the stop follows the slot select (Cortex Cloud)', async () => {
     const { store, mock, edit } = await setup();
     await edit.loadLibrary('captures');

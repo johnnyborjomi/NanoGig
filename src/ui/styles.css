@@ -37,6 +37,8 @@
   --fx-eq: #3a62d6;
   --fx-gate: #94a3b8;
   --fx-cab: #ef4444;
+  /* IRs: the Quad Cortex IR loader's violet. */
+  --fx-ir: #6d5cf6;
   --fx-unknown: #a8a29e;
   --fx-none: #2dd4a0;
   --fx-text: #0b0d10;
@@ -2098,6 +2100,7 @@ button.warn {
 }
 .card.sheet.gate-sheet { --fx: var(--fx-gate); --fx-ink: var(--fx-text); }
 .card.sheet.src-sheet { --fx: var(--fx-cab); --fx-ink: var(--fx-text); }
+.card.sheet.src-sheet[data-tab='ir'] { --fx: var(--fx-ir); --fx-ink: #fff; }
 .sheet-head {
   display: flex;
   align-items: flex-start;
@@ -2847,6 +2850,12 @@ button.warn {
   --fx-ink: var(--fx-text);
   --accent: var(--fx-cab);
   --on: var(--fx-cab);
+}
+.card.sheet.lib-sheet[data-kind='irs'] {
+  --fx: var(--fx-ir);
+  --fx-ink: #fff;
+  --accent: var(--fx-ir);
+  --on: var(--fx-ir);
 }
 .lib-sheet button.primary {
   background: var(--fx);

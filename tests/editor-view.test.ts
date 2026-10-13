@@ -309,11 +309,19 @@ describe('edit gestures', () => {
     await until(() => store.get().cabOn.value === true && !irLib.disabled);
     tap(irLib);
     await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
-    const sent = store.get().edit.capturePreview;
+    // An IR plays on a tap too (Cortex Cloud's IR preview); Load to: the IR slot playing or the preset's own slot.
+    expect(root.querySelector<HTMLElement>('.lib-sheet')!.dataset.kind).toBe('irs'); // the IR colour
+    const irName = firstItem().querySelector('.ed-item-label')!.textContent!;
     tap(firstItem());
-    expect(store.get().edit.capturePreview).toBe(sent); // an IR is not previewed
-    // No load into the preset itself for an IR: the IR slot playing, then Move.
-    expect(buttons()).toEqual([expect.stringMatching(/^Slot \d$/), 'Move to folder']);
+    await until(() => store.get().edit.irPreview?.name === irName);
+    expect(firstItem().querySelector('.ed-item-label + .ed-item-playing')).not.toBeNull();
+    expect(buttons()).toEqual([expect.stringMatching(/^Slot \d$/), "Preset's own slot", 'Move to folder']);
+    tap(Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button'))[1]!);
+    expect(open('lib-sheet')).toBe(false);
+    // Straight into the preset's own IR slot (index 5, then slot 6 selected): the preview stopped first.
+    await until(() => store.get().cabSlot.source === 'dump' && store.get().cabSlot.value === 6 && store.get().irName.value === irName);
+    expect(store.get().edit.irPreview).toBeNull();
+    expect(root.querySelector('.src-sheet .ed-pane:not([hidden]) .ed-slots-label')!.textContent).toBe("Preset's own slot");
   });
 
   it('library: A–Z / Z–A with a letter between the groups; where an item sits on the pedal, and Use for it', async () => {

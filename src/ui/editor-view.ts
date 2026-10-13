@@ -771,6 +771,7 @@ export class EditorView {
     const s = this.s;
     const capture = this.srcTab === "capture";
     this.capTab.dataset.active = String(capture);
+    this.srcSheet.card.dataset.tab = capture ? "capture" : "ir"; // the IR tab in the IR colour
     this.irTab.dataset.active = String(!capture);
     this.capPane.hidden = !capture;
     this.irPane.hidden = capture;
@@ -815,17 +816,20 @@ export class EditorView {
     this.irName.textContent = s.irName.value || "—";
     this.irName.dataset.off = String(on === false);
     const slot = s.cabSlot.value;
+    // A library IR playing (Cortex Cloud's preview) sits in the preset's own place, as a capture's does.
+    const irPreview = this.actions.edit()?.irPreview() ?? null;
+    const irOwn = slot === CAB_OWN_SLOT || !!irPreview;
     this.irPower.dataset.on = String(on === true);
     (this.irPower.lastChild as HTMLElement).textContent = on ? "On" : "Off";
     this.irPicker.render({
       names: s.irSlots,
       bank: 1,
-      position: slot !== null && slot >= 1 && slot <= CAB_SLOT_COUNT ? slot : null,
-      own: slot === CAB_OWN_SLOT,
-      ownShown: slot === CAB_OWN_SLOT || this.savedSource()?.cabSlot === CAB_OWN_SLOT,
+      position: !irPreview && slot !== null && slot >= 1 && slot <= CAB_SLOT_COUNT ? slot : null,
+      own: irOwn,
+      ownShown: irOwn || this.savedSource()?.cabSlot === CAB_OWN_SLOT,
       on,
-      ownName: this.actions.edit()?.ownIrName() ?? "",
-      current: !on ? "Off" : slot === CAB_OWN_SLOT ? "Preset's own slot" : slot ? `Slot ${slot}` : "—",
+      ownName: irPreview?.name ?? (slot === CAB_OWN_SLOT ? s.irName.value ?? "" : this.actions.edit()?.ownIrName() ?? ""),
+      current: !on ? "Off" : irOwn ? "Preset's own slot" : slot ? `Slot ${slot}` : "—",
     });
     const status = ir?.status ?? "loading";
     setMsg(
@@ -1305,6 +1309,7 @@ export class EditorView {
     if (this.libFolder !== null && !this.folders.find(this.libFolder)) this.libFolder = null; // deleted
 
     this.libSheet.sub.textContent = "On the pedal";
+    this.libSheet.card.dataset.kind = this.libKind; // captures red, IRs violet
     this.libSheet.title.textContent = irs ? "IR library" : "Capture library";
     this.libUser.dataset.active = String(this.libList === "user");
     this.libFactory.dataset.active = String(this.libList === "factory");
@@ -1379,6 +1384,7 @@ export class EditorView {
       if (this.libSort !== "off") shown.sort((a, b) => (this.libSort === "az" ? 1 : -1) * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
       const slot = this.actions.edit()?.captureSlotForEdit() ?? 1;
       const preview = this.actions.edit()?.capturePreview() ?? null;
+      const irPreview = this.actions.edit()?.irPreview() ?? null;
       // Where each one sits on the pedal: capture banks / slots, IR slots (by name, as the pedal lists them).
       const slotNames = irs ? s.irSlots : s.captureSlots;
       const slotLabel = (i: number) => (irs ? `Slot ${i + 1}` : `Bank ${Math.floor(i / CAPTURE_SELECT_SLOTS) + 1} · Slot ${(i % CAPTURE_SELECT_SLOTS) + 1}`);
@@ -1408,7 +1414,7 @@ export class EditorView {
         if (tags.childElementCount) name.append(tags);
         // A tap opens the row; a capture plays at once (Cortex Cloud's preview, in the preset's own place) for
         // listening, until another is tapped, it is loaded, or the library closes.
-        const playing = !irs && preview?.name === it.name;
+        const playing = irs ? irPreview?.name === it.name : preview?.name === it.name;
         if (playing) {
           const speaker = icon(Volume2, "Playing");
           speaker.classList.add("ed-item-playing");
@@ -1418,9 +1424,10 @@ export class EditorView {
           const open = this.libSelected !== key;
           this.libSelected = open ? key : null;
           this.renderLibrary();
-          if (irs) return;
-          if (open && this.actions.edit()?.capturePreview()?.name !== it.name) this.run(this.edit().previewCapture(it));
-          else if (!open) this.run(() => this.edit().endAudition());
+          const edit = this.edit();
+          const now = irs ? edit.irPreview()?.name : edit.capturePreview()?.name;
+          if (open && now !== it.name) this.run(irs ? edit.previewIr(it) : edit.previewCapture(it));
+          else if (!open) this.run(() => edit.endAudition());
         });
         onHold(name, () => this.startMove(it, true), () => mode === "browse" && !naming);
         name.draggable = true;
@@ -1460,7 +1467,11 @@ export class EditorView {
               btn.disabled = now; // playing already
               loads.append(btn);
             }
-          else if (irs) loads.append(load(`Slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs")));
+          else if (irs)
+            loads.append(
+              load(`Slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs")),
+              load("Preset's own slot", "primary ed-load-own", () => this.edit().loadIrIntoOwn(it)),
+            );
           else
             loads.append(
               load(`Bank ${bank} · Slot ${slot}`, "primary", () => this.edit().pickFromLibrary(it, "captures")),
@@ -1478,7 +1489,7 @@ export class EditorView {
           const hint = use
             ? `On the pedal already: Use plays it from its slot, nothing is written over.`
             : irs
-            ? `Slot ${irSlot}: saved presets on it keep their own IR.`
+            ? `Slot ${irSlot}: saved presets on it keep theirs. Preset's own slot: this preset alone.`
             : `Bank ${bank} · Slot ${slot}: saved presets on it keep theirs. Preset's own slot: this preset alone, Save keeps it.`;
           row.append(el("p", "hint", hint));
         }
@@ -1591,6 +1602,9 @@ export class EditorView {
     if (
       prev.edit.library !== s.edit.library ||
       prev.edit.capturePreview !== s.edit.capturePreview ||
+      prev.edit.irPreview !== s.edit.irPreview ||
+      prev.cabSlot.value !== s.cabSlot.value ||
+      prev.cabOn.value !== s.cabOn.value ||
       prev.captureName.value !== s.captureName.value ||
       prev.irName.value !== s.irName.value ||
       prev.activePreset.value !== s.activePreset.value ||

@@ -22,6 +22,7 @@
 import type { CurrentState, Metadata } from '../protocol/decode';
 import {
   CAPTURE_OWN_SLOT,
+  CAB_OWN_SLOT,
   CAPTURE_BANKS,
   CAPTURE_SELECT_SLOTS,
   EDIT_MSG,
@@ -31,6 +32,8 @@ import {
   cabSlotLoadFrame,
   capturePreviewFrame,
   capturePreviewStopFrame,
+  irPreviewFrame,
+  irPreviewStopFrame,
   cabSettingFrame,
   cabSettingsRequest,
   captureSlotLoadFrame,
@@ -91,6 +94,8 @@ const PRESET_REPLY_TIMEOUT_MS = 3000;
 const CAPTURE_ON_WAIT_MS = 2500;
 /** How long a preview stop waits for the pedal's 0x95 before the next frame goes anyway. */
 const PREVIEW_STOP_WAIT_MS = 1200;
+/** How long an IR slot load waits for the pedal's 0x4F before its select goes anyway. */
+const IR_LOAD_WAIT_MS = 1500;
 const READ_TIMEOUT_MS = 2500;
 const LIBRARY_TIMEOUT_MS = 15000;
 
@@ -132,6 +137,8 @@ export class EditController {
   private libraryTimer: ReturnType<typeof setTimeout> | null = null;
   /** A capture load into this slot (1..5) awaits the pedal's 0x51; then the slot is selected. */
   private loadingCaptureSlot: number | null = null;
+  /** Resolves the IR slot load in flight on the pedal's 0x4F. */
+  private irSlotLoaded: (() => void) | null = null;
   /** A preview was playing when a capture went into a slot: stopped once that slot is selected. */
   private stopAfterLoad: string | null = null;
   /** Resolves the preview stop in flight on the pedal's 0x95. */
@@ -292,9 +299,16 @@ export class EditController {
         done?.();
         return true;
       }
-      case EDIT_MSG.CAB_SLOT_LOADED:
+      case EDIT_MSG.CAB_SLOT_LOADED: {
+        const done = this.irSlotLoaded;
+        this.irSlotLoaded = null;
+        this.host.log(decodeOk(payload) ? 'info' : 'warn', `Library IR slot load ${decodeOk(payload) ? 'acknowledged' : 'refused'}`, hex);
+        done?.();
+        return true;
+      }
+      case EDIT_MSG.IR_PREVIEWED:
       case EDIT_MSG.CAPTURE_PREVIEWED:
-        this.host.log(decodeOk(payload) ? 'info' : 'warn', `Library ${msgType === EDIT_MSG.CAB_SLOT_LOADED ? 'IR slot load' : 'capture preview'} ${decodeOk(payload) ? 'acknowledged' : 'refused'}`, hex);
+        this.host.log(decodeOk(payload) ? 'info' : 'warn', `Library ${msgType === EDIT_MSG.IR_PREVIEWED ? 'IR preview' : 'capture preview'} ${decodeOk(payload) ? 'acknowledged' : 'refused'}`, hex);
         return true;
       case EDIT_MSG.RENAME_REPLY:
       case EDIT_MSG.PRESET_CREATED:
@@ -531,6 +545,49 @@ export class EditController {
   async endAudition(): Promise<void> {
     const p = this.capturePreview();
     if (p && !p.kept) await this.stopCapturePreview();
+    if (this.irPreview()) await this.stopIrPreview();
+  }
+
+  /** The library IR playing from the library (`previewIr`), none once stopped, loaded or the preset changed. */
+  irPreview(): { preset: number; name: string } | null {
+    const p = this.store.get().edit.irPreview;
+    return p && p.preset === this.store.get().activePreset.value ? p : null;
+  }
+
+  /** Forget an IR preview without sending anything (a preset load ends it). */
+  clearIrPreview(): void {
+    if (this.store.get().edit.irPreview) this.patchEdit({ irPreview: null });
+  }
+
+  /**
+   * Hear a library IR, as Cortex Cloud's tap on one (0x9E; snoop 2026-10-11): until another, a load or the stop.
+   * Only onto an IR that is on (the library is closed while it is off; a capture preview onto an off capture hung
+   * the pedal).
+   */
+  async previewIr(item: LibraryItem): Promise<void> {
+    this.assertEdit();
+    if (this.store.get().cabOn.value !== true) throw new Error('Turn the IR on first');
+    const running = this.irPreview();
+    if (running) {
+      this.clearIrPreview();
+      await this.sendPreviewStop(`Stop the IR preview "${running.name}" (another follows)`, 'ir');
+    }
+    this.writtenAt.ir = Date.now();
+    this.store.setField('irName', item.name, 'optimistic');
+    const preset = this.activePreset();
+    await this.send(irPreviewFrame(item), `Preview ${item.list} IR ${item.index + 1} "${item.name}"`);
+    if (preset !== null) this.patchEdit({ irPreview: { preset, name: item.name } });
+    this.host.confirm(600);
+  }
+
+  /** Stop an IR preview (Cortex Cloud's stop with field 4): what the preset plays is heard again. */
+  async stopIrPreview(): Promise<void> {
+    this.assertEdit();
+    const p = this.irPreview();
+    if (!p) return;
+    this.clearIrPreview();
+    await this.sendPreviewStop(`Stop the IR preview "${p.name}"`, 'ir');
+    this.host.confirm();
   }
 
   /** Forget a preview without sending anything (the preset is being loaded again, which puts its own capture back). */
@@ -554,9 +611,9 @@ export class EditController {
     this.host.confirm();
   }
 
-  /** The stop frame, resolved on the pedal's 0x95 (or after a while: the next frame goes anyway). */
-  private async sendPreviewStop(label: string): Promise<void> {
-    this.writtenAt.capture = Date.now();
+  /** The stop frame (a capture's, or an IR's), resolved on the pedal's 0x95 (or after a while: the next frame goes anyway). */
+  private async sendPreviewStop(label: string, kind: 'capture' | 'ir' = 'capture'): Promise<void> {
+    this.writtenAt[kind] = Date.now();
     const answered = new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         if (this.previewStopped === done) this.previewStopped = null;
@@ -568,7 +625,7 @@ export class EditController {
       };
       this.previewStopped = done;
     });
-    await this.send(capturePreviewStopFrame(), label);
+    await this.send(kind === 'ir' ? irPreviewStopFrame() : capturePreviewStopFrame(), label);
     await answered;
   }
 
@@ -854,7 +911,10 @@ export class EditController {
     } else {
       this.store.setField('cabOn', false, 'optimistic');
     }
+    const preview = this.irPreview();
+    this.clearIrPreview();
     await this.send(frame, slot ? `IR slot ${slot}` : 'IR off');
+    if (preview) await this.sendPreviewStop(`Stop the IR preview "${preview.name}" (a slot was selected)`, 'ir');
     this.host.confirm();
   }
 
@@ -1134,20 +1194,44 @@ export class EditController {
   }
 
   /**
-   * A library IR into one of the pedal's 5 IR slots (every preset on that slot hears it), then that slot selected:
-   * Cortex Cloud's IR "use" (type 0x4E → 0x4F, then the slot select).
+   * A library IR into one of the pedal's 5 IR slots (saved presets on it keep theirs), or into the preset's own IR
+   * slot (6), then that slot selected: Cortex Cloud's IR load (type 0x4E → 0x4F, the slot select after the ack;
+   * the own slot is index 5, snoop 2026-10-11). A preview playing is stopped first, as Cortex Cloud does.
    */
-  async loadIrIntoSlot(item: LibraryItem): Promise<void> {
+  async loadIrIntoSlot(item: LibraryItem, slot = this.irLoadSlot()): Promise<void> {
     this.assertEdit();
-    const slot = this.irLoadSlot();
-    await this.send(cabSlotLoadFrame(slot - 1, item), `Load ${item.list} IR ${item.index + 1} "${item.name}" into IR slot ${slot}`);
+    const preview = this.irPreview();
+    if (preview) {
+      this.clearIrPreview();
+      await this.sendPreviewStop(`Stop the IR preview "${preview.name}" (one is loaded)`, 'ir');
+    }
+    const own = slot === CAB_OWN_SLOT;
+    const loaded = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.irSlotLoaded === done) this.irSlotLoaded = null;
+        resolve();
+      }, IR_LOAD_WAIT_MS);
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.irSlotLoaded = done;
+    });
+    await this.send(cabSlotLoadFrame(slot - 1, item), `Load ${item.list} IR ${item.index + 1} "${item.name}" into ${own ? "the preset's own IR slot" : `IR slot ${slot}`}`);
     const md = this.host.metadata();
-    if (md && md.irs[slot - 1]) {
+    if (!own && md && md.irs[slot - 1]) {
       const irs = md.irs.slice();
       irs[slot - 1] = { ...irs[slot - 1]!, shortName: item.name, fullName: item.name };
       this.host.metadataChanged({ ...md, irs });
     }
+    await loaded;
     await this.selectIrSlot(slot);
+    if (own) this.store.setField('irName', item.name, 'optimistic');
+  }
+
+  /** Into the preset's own IR slot: this preset alone (an edit Save keeps; no slot of the pedal's written). */
+  loadIrIntoOwn(item: LibraryItem): Promise<void> {
+    return this.loadIrIntoSlot(item, CAB_OWN_SLOT);
   }
 
   private onCaptureLoaded(ok: boolean, hex: string): void {

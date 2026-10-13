@@ -209,7 +209,8 @@ export class MockTransport implements Transport {
       this.device.activePreset = bytes[5]!;
       this.presetLoads++;
       this.device.captureNameOverride = this.device.irNameOverride = null; // a preset load drops unsaved edits (a preview too)
-      this.device.previewing = false;
+      this.device.previewing = this.device.irPreviewing = false;
+      this.device.irOwnLoaded = null;
       this.loadDropsEdits();
       // The real pedal answers with a bypass-changed notice, then the 0x1E ack; no 0x1D event.
       this.schedule(() => {
@@ -385,8 +386,9 @@ export class MockTransport implements Transport {
           this.device.cabOn = v(4) > 0;
           if (v(4) > 0) {
             this.device.cabSlot = v(4);
-            this.device.irNameOverride = this.metadataIrs()[v(4) - 1] ?? null;
+            this.device.irNameOverride = v(4) === 6 ? (this.device.irOwnLoaded ?? null) : (this.metadataIrs()[v(4) - 1] ?? null);
           }
+          this.device.irPreviewing = false;
         } else return false;
         this.markDirty(); // the slot write's ack is this notice (`08 C0 08 01 18 01 73`)
         break;
@@ -455,9 +457,10 @@ export class MockTransport implements Transport {
         break;
       }
       case EDIT_MSG.CAB_SLOT_LOAD: {
-        // A library IR into IR slot 0..4 (every preset on it hears it).
+        // A library IR into IR slot 0..4 (saved presets on it keep theirs), or 5: the preset's own IR slot.
         const item = sub(4) ?? sub(5);
-        if (item) this.slotIrs[v(3)] = text(item, 2);
+        if (item && v(3) === 5) this.device.irOwnLoaded = text(item, 2);
+        else if (item) this.slotIrs[v(3)] = text(item, 2);
         this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAB_SLOT_LOADED);
         break;
       }
@@ -474,7 +477,26 @@ export class MockTransport implements Transport {
         this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEWED);
         break;
       }
+      case EDIT_MSG.IR_PREVIEW: {
+        // Cortex Cloud's IR preview (snoop 2026-10-11): heard at once, in the preset's own place.
+        const item = sub(3) ?? sub(4);
+        if (item) {
+          if (!this.device.irPreviewing) this.device.irBeforePreview = this.device.irNameOverride ?? null;
+          this.device.irNameOverride = text(item, 2);
+          this.device.irPreviewing = true;
+        }
+        this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.IR_PREVIEWED);
+        break;
+      }
       case EDIT_MSG.CAPTURE_PREVIEW_STOP: {
+        // Field 4 (not 3): the IR's stop.
+        if (f.some((x) => x.field === 4)) {
+          if (this.device.irPreviewing) this.device.irNameOverride = this.device.irBeforePreview ?? null;
+          this.device.irPreviewing = false;
+          const ts = f.find((x) => x.field === 2 && x.wire === 0)?.raw ?? [];
+          this.reply([...varintField(1, 1), 0x10, ...Array.from(ts), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEW_STOPPED);
+          break;
+        }
         // Cortex Cloud's stop (snoop 2026-10-11): the saved capture plays again; the reply echoes the time sent.
         this.device.captureNameOverride = null;
         this.device.previewing = false;
@@ -671,7 +693,8 @@ export class MockTransport implements Transport {
     const next = populated[(populated.indexOf(this.device.activePreset) + 1) % populated.length] ?? 0;
     this.device.activePreset = next;
     this.device.captureNameOverride = this.device.irNameOverride = null;
-    this.device.previewing = false;
+    this.device.previewing = this.device.irPreviewing = false;
+    this.device.irOwnLoaded = null;
     this.loadDropsEdits();
     // Alternate between the hardware-observed message and the 2-byte MIDI shape.
     if (i % 2 === 0) this.emit(buildPresetChangedEvent(next));
@@ -687,7 +710,8 @@ export class MockTransport implements Transport {
   pressFootswitch(preset: number) {
     this.device.activePreset = preset;
     this.device.captureNameOverride = this.device.irNameOverride = null;
-    this.device.previewing = false;
+    this.device.previewing = this.device.irPreviewing = false;
+    this.device.irOwnLoaded = null;
     this.loadDropsEdits();
     this.emit(buildPresetChangedEvent(preset));
     this.emit(Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x1f, 0x00, 0x00, 0x00])); // bypass-changed follows on hardware

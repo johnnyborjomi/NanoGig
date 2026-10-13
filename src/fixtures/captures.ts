@@ -108,6 +108,11 @@ export interface MockDeviceState {
   /** Mock only: saved with a preview playing; the preset's own is that capture from its next load on. */
   previewSavedOwn?: boolean;
   irNameOverride?: string | null;
+  /** Mock only: an IR loaded into the preset's own IR slot (index 5), heard once slot 6 is selected. */
+  irOwnLoaded?: string | null;
+  /** Mock only: what the IR played before a library IR preview (back after the stop). */
+  irBeforePreview?: string | null;
+  irPreviewing?: boolean;
   /** Unsaved changes in the shown preset (field 41, the save light). */
   dirty?: boolean;
   /** Capture bank 1..5 (field 9); the capture slot counts in it. */
