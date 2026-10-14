@@ -198,6 +198,11 @@ describe('edit gestures', () => {
     expect(root.querySelector('.src-sheet .ed-big')!.textContent).toBe(store.get().captureName.value);
     // On / off sits at the end of the name's row, not with the slot arrows.
     expect(root.querySelectorAll('.src-sheet .ed-name-row > .ed-big + .ed-power')).toHaveLength(2);
+    // The tabs and the name row stay put while the sheet scrolls: in its head, the shown tab's row only.
+    expect(root.querySelector('.src-sheet .sheet-head > .ed-tabs')).not.toBeNull();
+    expect(root.querySelectorAll('.src-sheet .sheet-head > .ed-name-row:not([hidden])')).toHaveLength(1);
+    // The amp & cab sheet is the first level: an X; the library over it: Back.
+    expect(root.querySelector<HTMLElement>('.src-sheet .sheet-close')!.dataset.back).toBe('false');
     expect(root.querySelector('.src-sheet .ed-step .ed-power')).toBeNull();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await hold(root.querySelector('.tile[data-key="gate"]')!);
@@ -278,6 +283,8 @@ describe('edit gestures', () => {
     const sheet = root.querySelector<HTMLElement>('.lib-sheet')!;
     await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
     expect(sheet.querySelector('.sheet-sub')!.textContent).toBe(`For Bank ${bank} · Slot 3`);
+    expect(sheet.querySelector<HTMLElement>('.sheet-close')!.dataset.back).toBe('true');
+    expect(sheet.querySelector('.sheet-close')!.textContent).toBe('Back');
     const item = Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name')).find((n) => !n.querySelector('.ed-item-slot'))!;
     const name = item.querySelector('.ed-item-label')!.textContent!;
     tap(item);
@@ -376,7 +383,7 @@ describe('edit gestures', () => {
     // The IR is off in the demo: as the capture's, its library waits for it to be on.
     const irLib = root.querySelector<HTMLButtonElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!;
     expect(irLib.disabled).toBe(true);
-    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-power')!);
+    tap(root.querySelector<HTMLElement>('.src-sheet .sheet-head > .ed-name-row:not([hidden]) .ed-power')!);
     await until(() => store.get().cabOn.value === true && !irLib.disabled);
     tap(irLib);
     await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
@@ -467,9 +474,9 @@ describe('edit gestures', () => {
     const irParams = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-params')!;
     expect(irParams.querySelector<HTMLInputElement>('input')!.disabled).toBe(true);
     // On: read. Off again: its settings stay, grey and editable.
-    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-power')!);
+    tap(root.querySelector<HTMLElement>('.src-sheet .sheet-head > .ed-name-row:not([hidden]) .ed-power')!);
     await until(() => store.get().cabOn.value === true && store.get().edit.ir?.status === 'ready');
-    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-power')!);
+    tap(root.querySelector<HTMLElement>('.src-sheet .sheet-head > .ed-name-row:not([hidden]) .ed-power')!);
     await until(() => store.get().cabOn.value === false && store.get().cabOn.source === 'dump');
     expect(store.get().edit.ir?.status).toBe('ready');
     expect(irParams.dataset.off).toBe('true');

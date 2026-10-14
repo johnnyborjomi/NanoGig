@@ -360,10 +360,14 @@ class Sheet {
   /** Buttons left of the close button (the FX sheet's Discard). */
   readonly actions = el("div", "sheet-actions");
   onClose: () => void = () => {};
+  /** Close (X); over another sheet, Back (‹ Back): it closes alike, onto the one under it. */
+  private readonly closeBtn = el("button", "ghost icon-btn sheet-close");
 
   constructor(className: string) {
     this.card.classList.add(className);
-    const close = iconButton(X, "Close");
+    const close = this.closeBtn;
+    close.type = "button";
+    this.setBack(false);
     close.addEventListener("click", () => this.close());
     const titles = el("div", "sheet-titles");
     titles.append(this.sub, this.title);
@@ -383,7 +387,18 @@ class Sheet {
   private static opened = 0;
   order = 0;
 
+  private setBack(back: boolean) {
+    const label = back ? "Back" : "Close";
+    this.closeBtn.title = label;
+    this.closeBtn.setAttribute("aria-label", label);
+    this.closeBtn.dataset.back = String(back);
+    this.closeBtn.replaceChildren(...(back ? [icon(ChevronLeft), el("span", "", "Back")] : [icon(X)]));
+  }
+
   open() {
+    // Over another sheet (the library over amp & cab, the slot chooser over the library): Back, not close.
+    const others = this.overlay.parentElement?.querySelectorAll(":scope > .edit-sheet.open") ?? [];
+    if (!this.isOpen) this.setBack(Array.from(others).some((o) => o !== this.overlay));
     this.order = ++Sheet.opened;
     // Same z-index for every sheet (under the update bar): the last in the page is on top, so it goes last.
     const parent = this.overlay.parentElement;
@@ -660,6 +675,9 @@ export class EditorView {
   private readonly capPane = el("div", "ed-pane");
   private readonly irPane = el("div", "ed-pane");
   private readonly capName = el("div", "ed-big");
+  /** The name rows (name, on / off): in the sheet's head, the tab's shown. */
+  private readonly capHead = el("div", "ed-row ed-name-row");
+  private readonly irHead = el("div", "ed-row ed-name-row");
   /** The capture banks as the pedal has them: 5 banks of 5 slots; ‹ › step through all 25, the list a tap away. */
   private readonly capPicker = new SlotPicker({
     per: CAPTURE_SELECT_SLOTS,
@@ -720,8 +738,7 @@ export class EditorView {
   }
 
   /** The capture's / IR's name with its on / off at the end of the row. */
-  private nameRow(nameEl: HTMLElement, power: HTMLButtonElement, onPower: () => void): HTMLElement {
-    const row = el("div", "ed-row ed-name-row");
+  private nameRow(row: HTMLElement, nameEl: HTMLElement, power: HTMLButtonElement, onPower: () => void): HTMLElement {
     power.append(icon(Power), el("span", "", ""));
     power.addEventListener("click", onPower);
     row.append(nameEl, power);
@@ -745,14 +762,15 @@ export class EditorView {
       this.renderSource();
     });
     this.tabs.append(this.capTab, this.irTab);
-    sh.head.after(this.tabs);
+    // The tabs and the name with its on / off stay at the top while the sheet scrolls (in its sticky head).
+    sh.head.append(this.tabs);
 
     const capLib = this.capLib;
     capLib.append(icon(Library), el("span", "", "Capture library"));
     capLib.addEventListener("click", () => this.openLibrary("captures"));
     const capHint = this.capHint; // one line under the library button: its text follows on / off (no layout shift)
-    const capHead = this.nameRow(this.capName, this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value)));
-    this.capPane.append(capHead, this.capPicker.root, this.capVolume.root, capLib, capHint);
+    sh.head.append(this.nameRow(this.capHead, this.capName, this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value))));
+    this.capPane.append(this.capPicker.root, this.capVolume.root, capLib, capHint);
 
     const irLib = this.irLib;
     irLib.append(icon(Library), el("span", "", "IR library"));
@@ -781,9 +799,8 @@ export class EditorView {
       });
       this.irPositions.append(b);
     }
-    const irHead = this.nameRow(this.irName, this.irPower, () => this.run(this.edit().setIrOn(!this.s.cabOn.value)));
+    sh.head.append(this.nameRow(this.irHead, this.irName, this.irPower, () => this.run(this.edit().setIrOn(!this.s.cabOn.value))));
     this.irPane.append(
-      irHead,
       this.irPicker.root,
       irLib,
       status,
@@ -813,8 +830,8 @@ export class EditorView {
     this.capTab.dataset.active = String(capture);
     this.srcSheet.card.dataset.tab = capture ? "capture" : "ir"; // the IR tab in the IR colour
     this.irTab.dataset.active = String(!capture);
-    this.capPane.hidden = !capture;
-    this.irPane.hidden = capture;
+    this.capPane.hidden = this.capHead.hidden = !capture;
+    this.irPane.hidden = this.irHead.hidden = capture;
     this.srcSheet.sub.textContent = presetLabel(s.activePreset.value ?? -1, { presetsPerBank: s.presetsPerBank, style: s.labelStyle }) + " · " + (s.presetNames.value[s.activePreset.value ?? -1] || "");
     if (capture) {
       const on = s.captureOn.value;

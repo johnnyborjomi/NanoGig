@@ -2131,6 +2131,32 @@ button.warn {
 .sheet-titles {
   min-width: 0;
 }
+/* What stays at the top with the title (amp & cab: its tabs, the name and on / off): a full row each. */
+.sheet-head {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.sheet-head > .ed-tabs,
+.sheet-head > .ed-name-row {
+  flex: 1 0 100%;
+}
+.sheet-head > .ed-name-row[hidden] {
+  display: none;
+}
+/* Over another sheet: ‹ Back instead of the X. */
+.sheet-close[data-back='true'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  padding-right: 12px;
+  font-weight: 600;
+}
+.sheet-close[data-back='true'] svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
 /* Buttons left of the close button: pushed right, as tall as it. */
 .sheet-actions {
   display: flex;
