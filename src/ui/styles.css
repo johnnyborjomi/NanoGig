@@ -2131,12 +2131,14 @@ button.warn {
 .sheet-titles {
   min-width: 0;
 }
-/* What stays at the top with the title (amp & cab: its tabs, the name and on / off): a full row each. */
+/* What stays at the top with the title (amp & cab: its tabs, the name and on / off; the libraries: the search and
+   User / Factory): a full row each. */
 .sheet-head {
   flex-wrap: wrap;
   row-gap: 10px;
 }
 .sheet-head > .ed-tabs,
+.sheet-head > .ed-search,
 .sheet-head > .ed-name-row {
   flex: 1 0 100%;
 }

@@ -1452,7 +1452,9 @@ export class EditorView {
       true,
     );
     this.libBar.append(this.barMain, this.barSort, this.barTitle, this.barRename, this.barDelete, this.folderInput, this.folderSave, this.folderCancel);
-    sh.body.append(searchRow, this.libLists, this.libBar, this.libStatus, this.libItems);
+    // The search and User / Factory stay at the top while the list scrolls (in the sheet's sticky head).
+    sh.head.append(searchRow, this.libLists);
+    sh.body.append(this.libBar, this.libStatus, this.libItems);
   }
 
   private renderLibrary() {

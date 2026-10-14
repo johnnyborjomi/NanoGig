@@ -285,6 +285,8 @@ describe('edit gestures', () => {
     expect(sheet.querySelector('.sheet-sub')!.textContent).toBe(`For Bank ${bank} · Slot 3`);
     expect(sheet.querySelector<HTMLElement>('.sheet-close')!.dataset.back).toBe('true');
     expect(sheet.querySelector('.sheet-close')!.textContent).toBe('Back');
+    // The search and User / Factory stay at the top while the list scrolls.
+    expect(sheet.querySelector('.sheet-head > .ed-search + .ed-tabs')).not.toBeNull();
     const item = Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name')).find((n) => !n.querySelector('.ed-item-slot'))!;
     const name = item.querySelector('.ed-item-label')!.textContent!;
     tap(item);
