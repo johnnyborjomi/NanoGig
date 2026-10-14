@@ -45,6 +45,7 @@ import {
   ArrowDownAZ,
   ArrowDownZA,
   ArrowLeftRight,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -58,9 +59,12 @@ import {
   FolderPlus,
   Library,
   Pencil,
+  Plus,
   Power,
   Save,
   Search,
+  Square,
+  SquareCheck,
   Trash2,
   Undo2,
   Volume2,
@@ -1134,7 +1138,10 @@ export class EditorView {
   private libList: LibraryList = "user";
   /** The open folder; null = the top of the list. */
   private libFolder: number | null = null;
-  private libMode: "browse" | "move" | "new" | "rename" = "browse";
+  /** pick: in a folder, ticking items of the list to add them to it at once (the bar's +). */
+  private libMode: "browse" | "move" | "pick" | "new" | "rename" = "browse";
+  /** The items ticked in pick mode, by name (in the list shown). */
+  private libPicked = new Set<string>();
   /** The item being moved (hold / Move / drag). */
   private libMoving: { list: LibraryList; name: string } | null = null;
   /** Opened on the current item's list and folder once the library is there. */
@@ -1154,6 +1161,8 @@ export class EditorView {
   /** Alphabetical order, both ways (off = the pedal's order); kept in this browser for both libraries. */
   private readonly barSort = el("button", "ed-bar-sort");
   private libSort: LibrarySort = readLibrarySort();
+  /** In a folder: + (pick items to add); picking: Add n. */
+  private readonly barAdd = el("button", "ed-bar-add");
   private readonly barRename = iconButton(Pencil, "Rename folder", "icon-btn");
   private readonly barDelete = el("button", "warn ed-bar-delete");
   private readonly folderInput = el("input", "ed-input");
@@ -1173,6 +1182,7 @@ export class EditorView {
     this.libFolder = null;
     this.libMode = "browse";
     this.libMoving = null;
+    this.libPicked.clear();
     this.libLanded = false;
     this.disarmFolderDelete();
     this.libSearch.value = "";
@@ -1196,7 +1206,28 @@ export class EditorView {
     this.libMode = "browse";
     this.libMoving = null;
     this.libSelected = null;
+    this.libPicked.clear();
     this.disarmFolderDelete();
+    this.renderLibrary();
+  }
+
+  /** In a folder: tick items of the list (in no folder or another) to add them all at once. */
+  private startPick() {
+    if (this.libFolder === null) return;
+    this.libMode = "pick";
+    this.libPicked.clear();
+    this.libSelected = null;
+    this.disarmFolderDelete();
+    this.renderLibrary();
+  }
+
+  /** The ticked items into the folder shown (out of any other they were in). */
+  private addPicked() {
+    const folder = this.libFolder;
+    const picked = [...this.libPicked];
+    this.libMode = "browse";
+    this.libPicked.clear();
+    if (folder !== null) for (const name of picked) this.folders.file(this.libKind, this.libList, name, folder);
     this.renderLibrary();
   }
 
@@ -1398,7 +1429,7 @@ export class EditorView {
     // The bar: [main] title [rename] [delete], or [name input] [Save] [Cancel].
     this.barMain.append(icon(FolderPlus), el("span", "", ""));
     this.barMain.addEventListener("click", () => {
-      if (this.libMode === "move") this.libGo({});
+      if (this.libMode === "move" || this.libMode === "pick") this.libGo({});
       else if (this.libFolder !== null) this.libGo({ folder: null });
       else this.startNaming("new");
     });
@@ -1408,6 +1439,7 @@ export class EditorView {
       writeLibrarySort(this.libSort);
       this.renderLibrary();
     });
+    this.barAdd.addEventListener("click", () => (this.libMode === "pick" ? this.addPicked() : this.startPick()));
     this.barRename.addEventListener("click", () => this.startNaming("rename"));
     this.barDelete.append(icon(Trash2), el("span", "", ""));
     this.barDelete.addEventListener("click", () => {
@@ -1451,7 +1483,7 @@ export class EditorView {
       },
       true,
     );
-    this.libBar.append(this.barMain, this.barSort, this.barTitle, this.barRename, this.barDelete, this.folderInput, this.folderSave, this.folderCancel);
+    this.libBar.append(this.barMain, this.barSort, this.barTitle, this.barAdd, this.barRename, this.barDelete, this.folderInput, this.folderSave, this.folderCancel);
     // The search and User / Factory stay at the top while the list scrolls (in the sheet's sticky head).
     sh.head.append(searchRow, this.libLists);
     sh.body.append(this.libBar, this.libStatus, this.libItems);
@@ -1494,23 +1526,32 @@ export class EditorView {
     const inList = items.filter((it) => it.list === this.libList);
 
     // ---- the bar
-    const mainLabel = mode === "move" ? "Cancel" : folder ? "All" : "New folder";
-    this.barMain.replaceChildren(icon(mode === "move" ? X : folder ? ChevronLeft : FolderPlus), el("span", "", mainLabel));
+    const cancel = mode === "move" || mode === "pick";
+    const mainLabel = cancel ? "Cancel" : folder ? "All" : "New folder";
+    this.barMain.replaceChildren(icon(cancel ? X : folder ? ChevronLeft : FolderPlus), el("span", "", mainLabel));
     this.barMain.disabled = !naming && mode === "browse" && !folder && !items.length;
     this.barMain.hidden = naming;
     this.barTitle.hidden = naming;
-    this.barSort.hidden = naming || mode === "move";
+    this.barSort.hidden = naming || cancel;
     const sortNext = { off: "Sort A to Z", az: "Sort Z to A", za: "The pedal's order" }[this.libSort];
     this.barSort.replaceChildren(icon(this.libSort === "za" ? ArrowDownZA : ArrowDownAZ), el("span", "", this.libSort === "za" ? "Z–A" : "A–Z"));
     this.barSort.dataset.active = String(this.libSort !== "off");
     this.barSort.title = this.barSort.ariaLabel = sortNext;
-    this.barTitle.dataset.kind = mode === "move" ? "move" : folder ? "folder" : "hint";
+    this.barTitle.dataset.kind = cancel ? "move" : folder ? "folder" : "hint";
     this.barTitle.replaceChildren();
     if (mode === "move" && this.libMoving) this.barTitle.append(el("span", "", "Move "), el("strong", "", this.libMoving.name), el("span", "", " to:"));
+    else if (mode === "pick" && folder) this.barTitle.append(el("span", "", "Add to "), el("strong", "", folder.name));
     else if (folder) this.barTitle.append(icon(FolderOpen), el("strong", "", folder.name));
     else this.barTitle.textContent = items.length ? `Hold a ${noun} to move it${HAS_HOVER ? " (or drag it)" : ""}` : "";
     this.barTitle.title = this.barTitle.textContent ?? "";
-    this.barRename.hidden = this.barDelete.hidden = naming || mode === "move" || !folder;
+    this.barRename.hidden = this.barDelete.hidden = naming || cancel || !folder;
+    // + in a folder; picking: Add n (nothing ticked: off).
+    const picking = mode === "pick";
+    this.barAdd.hidden = naming || mode === "move" || !folder;
+    this.barAdd.className = picking ? "primary ed-bar-add" : "icon-btn ed-bar-add";
+    this.barAdd.replaceChildren(icon(picking ? Check : Plus), ...(picking ? [el("span", "", `Add ${this.libPicked.size}`)] : []));
+    this.barAdd.disabled = picking && this.libPicked.size === 0;
+    this.barAdd.title = this.barAdd.ariaLabel = picking ? `Add the ticked ${noun}s to the folder` : `Add ${noun}s to this folder`;
     (this.barDelete.lastChild as HTMLElement).textContent = this.libDeleteArmed ? "Sure?" : "";
     this.barDelete.dataset.armed = String(!!this.libDeleteArmed);
     this.barDelete.title = this.barDelete.ariaLabel = this.libDeleteArmed ? "Tap again to delete the folder" : "Delete folder";
@@ -1549,6 +1590,39 @@ export class EditorView {
       b.addEventListener("click", () => this.startNaming("new"));
       add.append(b);
       rows.push(add);
+    } else if (mode === "pick" && folder) {
+      // Every item of the list not in this folder (in none or another), searchable; a tap ticks it.
+      const shown = inList.filter((it) => this.folderOf(it) !== folder.id && (!q || norm(it.name).includes(q)));
+      if (this.libSort !== "off") shown.sort((a, b) => (this.libSort === "az" ? 1 : -1) * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+      let letter: string | null = null;
+      for (const it of shown) {
+        if (this.libSort !== "off") {
+          const l = sortLetter(it.name);
+          if (l !== letter) rows.push(el("div", "ed-letter", l));
+          letter = l;
+        }
+        const picked = this.libPicked.has(it.name);
+        const row = el("div", "ed-item ed-pick-row");
+        row.dataset.picked = String(picked);
+        const b = el("button", "ed-item-name");
+        b.setAttribute("aria-pressed", String(picked));
+        const box = icon(picked ? SquareCheck : Square);
+        box.classList.add("ed-pick-box");
+        b.append(box, el("span", "ed-item-index", String(it.index + 1)), el("span", "ed-item-label", it.name || "(no name)"));
+        const fid = this.folderOf(it);
+        if (fid !== null) {
+          const tags = el("span", "ed-item-tags");
+          tags.append(el("span", "ed-item-folder", this.folders.find(fid)?.name ?? ""));
+          b.append(tags);
+        }
+        b.addEventListener("click", () => {
+          if (this.libPicked.has(it.name)) this.libPicked.delete(it.name);
+          else this.libPicked.add(it.name);
+          this.renderLibrary();
+        });
+        row.append(b);
+        rows.push(row);
+      }
     } else {
       // Searching looks through the whole list, folders included; else the folders, then the items in none.
       if (!q && !folder) for (const f of folders) folderRow(f, () => this.libGo({ folder: f.id }));
@@ -1706,6 +1780,14 @@ export class EditorView {
       tone = "warn";
     } else if (loading && !items.length) msg = `Reading the pedal's ${noun}s…`;
     else if (mode === "move") msg = folders.length ? "Tap a folder" : "No folders yet: make one";
+    else if (mode === "pick")
+      msg = !files
+        ? q
+          ? "No match"
+          : `Every ${noun} is in this folder already`
+        : this.libPicked.size
+          ? `${count(this.libPicked.size)} ticked: Add puts them in (out of any other folder)`
+          : `Tap the ${noun}s to add`;
     else if (q) msg = files ? `${count(files)} found` : "No match";
     else if (folder) msg = files ? count(files) : `Empty: hold a ${noun} to move it here`;
     else if (!inList.length) msg = `No ${this.libList} ${noun}s`;

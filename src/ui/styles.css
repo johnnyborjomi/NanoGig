@@ -2785,6 +2785,19 @@ button.warn {
   border-color: transparent;
   font-weight: 700;
 }
+/* Picking items for a folder: a box before each, ticked in the library's colour. */
+.ed-pick-box {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--muted);
+}
+.ed-pick-row[data-picked='true'] .ed-pick-box {
+  color: var(--accent);
+}
+.ed-pick-row[data-picked='true'] {
+  background: var(--panel-2);
+}
 .ed-folder-row .ed-item-name svg {
   width: 20px;
   height: 20px;

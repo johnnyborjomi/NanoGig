@@ -586,6 +586,23 @@ describe('library sheet', () => {
     tap(folderRow.querySelector('button')!);
     expect(Array.from(sheet.querySelectorAll('.ed-item-label')).map((n) => n.textContent)).toEqual([name]);
 
+    // + : tick captures of the list (not the one in already), Add puts them all in.
+    const add = sheet.querySelector<HTMLButtonElement>('.ed-bar-add')!;
+    expect(add.hidden).toBe(false);
+    tap(add);
+    expect(sheet.querySelector('.ed-bar-title')!.textContent).toBe('Add to Fenders');
+    const pickRows = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-pick-row'));
+    expect(pickRows().map((r) => r.querySelector('.ed-item-label')!.textContent)).not.toContain(name);
+    expect(add.disabled).toBe(true);
+    const picked = pickRows().slice(0, 2).map((r) => r.querySelector('.ed-item-label')!.textContent!);
+    tap(pickRows()[0]!.querySelector('button')!);
+    tap(pickRows()[1]!.querySelector('button')!);
+    expect(pickRows().filter((r) => r.dataset.picked === 'true')).toHaveLength(2);
+    expect(add.textContent).toBe('Add 2');
+    tap(add);
+    expect(sheet.querySelectorAll('.ed-pick-row')).toHaveLength(0);
+    expect(Array.from(sheet.querySelectorAll('.ed-item-label')).map((n) => n.textContent).sort()).toEqual([name, ...picked].sort());
+
     // Delete takes two taps; the capture goes back to the top.
     const del = sheet.querySelector('.ed-bar-delete') as HTMLElement;
     del.click();
