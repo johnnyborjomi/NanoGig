@@ -774,7 +774,7 @@ export class EditorView {
     capLib.addEventListener("click", () => this.openLibrary("captures"));
     const capHint = this.capHint; // one line under the library button: its text follows on / off (no layout shift)
     sh.head.append(this.nameRow(this.capHead, this.capName, this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value))));
-    this.capPane.append(this.capPicker.root, this.capVolume.root, capLib, capHint);
+    this.capPane.append(this.capPicker.root, capLib, capHint, this.capVolume.root); // as the IR tab: the library, its line, then the controls
 
     const irLib = this.irLib;
     irLib.append(icon(Library), el("span", "", "IR library"));
