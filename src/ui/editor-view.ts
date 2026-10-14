@@ -15,6 +15,7 @@
 import {
   CAB_POSITIONS,
   CAB_OWN_SLOT,
+  CAPTURE_BANKS,
   CAPTURE_OWN_SLOT,
   CAPTURE_SELECT_SLOTS,
   CAPTURE_VOLUME_DEFAULT_RAW,
@@ -413,6 +414,8 @@ export class EditorView {
   private readonly presetSheet = new Sheet("preset-sheet");
   private readonly libSheet = new Sheet("lib-sheet");
   private readonly listSheet = new Sheet("list-sheet");
+  /** Over the library: where a library item goes (its "Bank / Slot" button). */
+  private readonly slotSheet = new Sheet("slot-sheet");
   private s: GigState;
 
   constructor(
@@ -421,13 +424,14 @@ export class EditorView {
     private readonly folders = new LibraryFolders(),
   ) {
     this.s = store.get();
-    this.overlays = [this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet, this.listSheet].map((x) => x.overlay);
+    this.overlays = [this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet, this.listSheet, this.slotSheet].map((x) => x.overlay);
     this.buildFx();
     this.buildSource();
     this.buildGate();
     this.buildPreset();
     this.buildLibrary();
     this.buildList();
+    this.buildSlotChooser();
     this.folders.onChange(() => this.renderLibrary());
     store.subscribe((s) => this.render(s));
   }
@@ -441,7 +445,7 @@ export class EditorView {
   /** The sheets close with Escape; true when one was open. */
   closeTop(): boolean {
     // The one on top: opened last.
-    const top = [this.libSheet, this.presetSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.listSheet]
+    const top = [this.slotSheet, this.libSheet, this.presetSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.listSheet]
       .filter((sh) => sh.isOpen)
       .sort((a, b) => b.order - a.order)[0];
     top?.close();
@@ -1248,9 +1252,114 @@ export class EditorView {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // Slot chooser: where a library item goes (« ‹ bank · slot › », the bank's slots, Load)
+  // -------------------------------------------------------------------------
+
+  private slotFor: { item: LibraryItem; kind: LibraryKind } | null = null;
+  private slotChosen = { bank: 1, position: 1 };
+  private readonly slotFor_ = el("p", "ed-slot-for");
+  private readonly slotLabel = el("span", "ed-slots-label");
+  private readonly slotBankBtns: HTMLButtonElement[] = [];
+  private readonly slotBtns: HTMLButtonElement[] = [];
+  private readonly slotLoad = el("button", "primary ed-slot-load");
+  private readonly slotHint = el("p", "hint", "Saved presets on that slot keep theirs; this preset plays it at once (Save keeps it).");
+
+  private openSlotChooser(item: LibraryItem, from: { bank: number; position: number }) {
+    this.slotFor = { item, kind: this.libKind };
+    this.slotChosen = { ...from };
+    this.slotSheet.open();
+    this.renderSlotChooser();
+  }
+
+  /** The chosen slot stepped by one (over the banks, wrapping) or by a bank (`bank`). */
+  private stepSlot(delta: number, bank = false) {
+    const irs = this.slotFor?.kind === "irs";
+    const per = irs ? CAB_SLOT_COUNT : CAPTURE_SELECT_SLOTS;
+    const banks = irs ? 1 : CAPTURE_BANKS;
+    const total = per * banks;
+    const at = (this.slotChosen.bank - 1) * per + this.slotChosen.position - 1;
+    const next = (((at + (bank ? per : 1) * (delta > 0 ? 1 : -1)) % total) + total) % total;
+    this.slotChosen = { bank: Math.floor(next / per) + 1, position: (next % per) + 1 };
+    this.renderSlotChooser();
+  }
+
+  private buildSlotChooser() {
+    const sh = this.slotSheet;
+    sh.title.textContent = "Bank / Slot";
+    const bankPrev = iconButton(ChevronsLeft, "Previous bank", "ed-step-btn ed-bank-btn");
+    const prev = iconButton(ChevronLeft, "Previous slot", "ed-step-btn");
+    const next = iconButton(ChevronRight, "Next slot", "ed-step-btn");
+    const bankNext = iconButton(ChevronsRight, "Next bank", "ed-step-btn ed-bank-btn");
+    bankPrev.addEventListener("click", () => this.stepSlot(-1, true));
+    bankNext.addEventListener("click", () => this.stepSlot(1, true));
+    prev.addEventListener("click", () => this.stepSlot(-1));
+    next.addEventListener("click", () => this.stepSlot(1));
+    this.slotBankBtns.push(bankPrev, bankNext);
+    const middle = el("div", "ed-slots-toggle ed-slot-choice");
+    middle.append(this.slotLabel);
+    const head = el("div", "ed-row ed-step ed-slots-head");
+    head.append(bankPrev, prev, middle, next, bankNext);
+    const list = el("div", "ed-cap-slots");
+    for (let i = 0; i < Math.max(CAPTURE_SELECT_SLOTS, CAB_SLOT_COUNT); i++) {
+      const b = el("button", "ed-chip ed-cap-slot");
+      b.append(el("span", "ed-cap-pos", String(i + 1)), el("span", "ed-cap-name", ""));
+      b.addEventListener("click", () => {
+        this.slotChosen = { ...this.slotChosen, position: i + 1 };
+        this.renderSlotChooser();
+      });
+      this.slotBtns.push(b);
+      list.append(b);
+    }
+    this.slotLoad.addEventListener("click", () => {
+      const f = this.slotFor;
+      if (!f) return;
+      const to = { ...this.slotChosen };
+      this.run(() => this.edit().pickFromLibrary(f.item, f.kind, to));
+      this.libLoaded = true; // the library's close below is the load's: what it plays stays
+      this.slotSheet.close();
+      this.libSheet.close();
+    });
+    const picker = el("div", "ed-slots");
+    picker.dataset.open = "true";
+    picker.append(head, list);
+    sh.body.append(this.slotFor_, picker, this.slotLoad, this.slotHint);
+  }
+
+  private renderSlotChooser() {
+    const f = this.slotFor;
+    if (!this.slotSheet.isOpen || !f) return;
+    const irs = f.kind === "irs";
+    const s = this.s;
+    const { bank, position } = this.slotChosen;
+    const where = irs ? `Slot ${position}` : `Bank ${bank} · Slot ${position}`;
+    this.slotSheet.card.dataset.kind = f.kind; // captures red, IRs violet
+    this.slotSheet.title.textContent = irs ? "Slot" : "Bank / Slot";
+    this.slotSheet.sub.textContent = irs ? "IR library" : "Capture library";
+    this.slotFor_.replaceChildren(el("span", "", `Select ${irs ? "the slot" : "bank and slot"} to load this ${irs ? "IR" : "capture"} to:`), el("strong", "", f.item.name));
+    this.slotLabel.textContent = where;
+    for (const b of this.slotBankBtns) b.dataset.shown = String(!irs);
+    const per = irs ? CAB_SLOT_COUNT : CAPTURE_SELECT_SLOTS;
+    const names = irs ? s.irSlots : s.captureSlots;
+    const playingBank = s.captureBank.value ?? 1;
+    this.slotBtns.forEach((b, i) => {
+      b.hidden = i >= per;
+      const name = names[(bank - 1) * per + i] ?? "";
+      (b.lastChild as HTMLElement).textContent = name || `Slot ${i + 1}`;
+      b.title = name;
+      b.dataset.active = String(position === i + 1);
+      // The one playing now: underlined (Load writes over what plays).
+      b.dataset.playing = String(
+        irs ? s.cabOn.value === true && s.cabSlot.value === i + 1 : s.captureOn.value === true && playingBank === bank && s.captureSlot.value === i + 1,
+      );
+    });
+    this.slotLoad.textContent = `Load to ${where}`;
+  }
+
   private buildLibrary() {
     const sh = this.libSheet;
     sh.onClose = () => {
+      this.slotSheet.close(); // over it: goes with it
       this.libMode = "browse";
       this.libMoving = null;
       this.disarmFolderDelete();
@@ -1533,8 +1642,12 @@ export class EditorView {
               btn.disabled = now; // playing already
               loads.append(btn);
             }
-          else if (irs) loads.append(load(`Slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs")), loadOwn());
-          else loads.append(load(`Bank ${bank} · Slot ${slot}`, "primary", () => this.edit().pickFromLibrary(it, "captures")), loadOwn());
+          else {
+            // Free (the library button): where it goes is chosen over the library, the slot playing first.
+            const choose = el("button", "primary ed-load-choose", irs ? "Slot…" : "Bank / Slot…");
+            choose.addEventListener("click", () => this.openSlotChooser(it, irs ? { bank: 1, position: irSlot } : { bank, position: slot }));
+            loads.append(choose, loadOwn());
+          }
           const move = el("button", "ed-move");
           move.append(icon(FolderInput), el("span", "", "Move to folder"));
           move.addEventListener("click", () => this.startMove(it));
@@ -1551,8 +1664,8 @@ export class EditorView {
             : use
             ? `On the pedal already: Use plays it from its slot, nothing is written over.`
             : irs
-            ? `Slot ${irSlot}: saved presets on it keep theirs. Preset's own slot: this preset alone.`
-            : `Bank ${bank} · Slot ${slot}: saved presets on it keep theirs. Preset's own slot: this preset alone, Save keeps it.`;
+            ? `Slot…: pick the slot (saved presets on it keep theirs). Preset's own slot: this preset alone.`
+            : `Bank / Slot…: pick the slot (saved presets on it keep theirs). Preset's own slot: this preset alone, Save keeps it.`;
           row.append(el("p", "hint", hint));
         }
         rows.push(row);
@@ -1652,7 +1765,7 @@ export class EditorView {
     this.s = s;
     // Lost the link, control mode or the setting: the edit sheets close (the list stays; it only reads).
     if (!(s.connection === "connected" && s.writesEnabled && s.editing)) {
-      for (const sh of [this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet]) sh.close();
+      for (const sh of [this.slotSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet]) sh.close();
     }
     // The pedal saved an unnamed preset: ask for a name, as Cortex Cloud does.
     if (s.edit.preset.nameNew !== null && prev.edit.preset.nameNew !== s.edit.preset.nameNew && !this.presetSheet.isOpen) this.openPreset(s.edit.preset.nameNew);
@@ -1661,6 +1774,7 @@ export class EditorView {
     this.renderSource();
     this.renderGate();
     this.renderPreset();
+    this.renderSlotChooser();
     if (
       prev.edit.library !== s.edit.library ||
       prev.edit.capturePreview !== s.edit.capturePreview ||

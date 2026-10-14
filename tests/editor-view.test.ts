@@ -294,6 +294,41 @@ describe('edit gestures', () => {
     if (picker.dataset.open === 'true') tap(toggle); // closed again for the next test
   });
 
+  it('library: Bank / Slot… opens a chooser over it (« ‹ bank · slot › », the bank\'s slots); Load goes there', async () => {
+    const { root, store, mock, open } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!);
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    const sheet = root.querySelector<HTMLElement>('.lib-sheet')!;
+    const item = Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name')).find((n) => !n.querySelector('.ed-item-slot'))!;
+    const name = item.querySelector('.ed-item-label')!.textContent!;
+    tap(item);
+    tap(sheet.querySelector<HTMLElement>('.ed-item[data-selected="true"] .ed-load-choose')!);
+    expect(open('slot-sheet')).toBe(true);
+    expect(open('lib-sheet')).toBe(true); // under it
+    const chooser = root.querySelector<HTMLElement>('.slot-sheet')!;
+    expect(chooser.querySelector('.ed-slot-for strong')!.textContent).toBe(name);
+    const label = chooser.querySelector<HTMLElement>('.ed-slots-label')!;
+    const bank = store.get().captureBank.value!;
+    // Starts on the slot playing; » a bank on, a tap picks the slot, Load writes it there and closes both.
+    expect(label.textContent).toBe(`Bank ${bank} · Slot ${store.get().captureSlot.value}`);
+    tap(chooser.querySelectorAll<HTMLElement>('.ed-bank-btn')[1]!);
+    const to = (bank % 5) + 1;
+    tap(chooser.querySelectorAll<HTMLElement>('.ed-cap-slot')[1]!);
+    expect(label.textContent).toBe(`Bank ${to} · Slot 2`);
+    const names = Array.from(chooser.querySelectorAll('.ed-cap-slot .ed-cap-name')).map((n) => n.textContent);
+    expect(names).toEqual(store.get().captureSlots.slice((to - 1) * 5, to * 5));
+    const load = chooser.querySelector<HTMLElement>('.ed-slot-load')!;
+    expect(load.textContent).toBe(`Load to Bank ${to} · Slot 2`);
+    tap(load);
+    expect(open('slot-sheet')).toBe(false);
+    expect(open('lib-sheet')).toBe(false);
+    const { EDIT_MSG } = await import('../src/protocol/edit');
+    await until(() => mock.edits.some((e) => e.type === EDIT_MSG.CAPTURE_SLOT_LOAD));
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureBank.value === to && store.get().captureSlot.value === 2);
+    await until(() => store.get().captureSlots[(to - 1) * 5 + 1] === name);
+  });
+
   it('library rows: a tap plays the capture; Load to: bank · slot or the preset\'s own (Save keeps it), which closes the library', async () => {
     const { root, store, open } = await setup(true);
     (root.querySelector('.capture.sub-name') as HTMLElement).click();
@@ -313,7 +348,7 @@ describe('edit gestures', () => {
     expect(store.get().edit.capturePreview!.kept).toBe(false);
     expect(firstItem().querySelector('.ed-item-label + .ed-item-playing')).not.toBeNull();
     expect(sheet.querySelector('.ed-load-to .ed-label')!.textContent).toBe('Load to:');
-    expect(buttons()).toEqual([`Bank ${store.get().captureBank.value} · Slot ${store.get().captureSlot.value}`, "Preset's own slot", 'Move to folder']);
+    expect(buttons()).toEqual(['Bank / Slot…', "Preset's own slot", 'Move to folder']);
     expect(saveBtn.hidden).toBe(store.get().presetDirty.value !== true); // a listen is no change (the demo may have one)
     // Closed without a load: the preset's capture plays again.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
@@ -351,7 +386,7 @@ describe('edit gestures', () => {
     tap(firstItem());
     await until(() => store.get().edit.irPreview?.name === irName);
     expect(firstItem().querySelector('.ed-item-label + .ed-item-playing')).not.toBeNull();
-    expect(buttons()).toEqual([expect.stringMatching(/^Slot \d$/), "Preset's own slot", 'Move to folder']);
+    expect(buttons()).toEqual(['Slot…', "Preset's own slot", 'Move to folder']);
     tap(Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button'))[1]!);
     expect(open('lib-sheet')).toBe(false);
     // Straight into the preset's own IR slot (index 5, then slot 6 selected): the preview stopped first.

@@ -2923,6 +2923,51 @@ button.warn {
   color: color-mix(in srgb, var(--fx) 55%, #fff);
   border-color: color-mix(in srgb, var(--fx) 50%, transparent);
 }
+/* Over the library: where an item goes. Its colour, the bank / slot stepper of the amp & cab sheet, then Load. */
+.card.sheet.slot-sheet {
+  --fx: var(--fx-cab);
+  --fx-ink: var(--fx-text);
+  --accent: var(--fx-cab);
+  --on: var(--fx-cab);
+}
+.card.sheet.slot-sheet[data-kind='irs'] {
+  --fx: var(--fx-ir);
+  --fx-ink: #fff;
+  --accent: var(--fx-ir);
+  --on: var(--fx-ir);
+}
+.ed-slot-for {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+}
+.ed-slot-for strong {
+  color: var(--text);
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.ed-slot-choice {
+  min-height: 44px;
+  background: var(--panel-2);
+  border-radius: 12px;
+}
+.slot-sheet .ed-cap-slot[hidden] {
+  display: none;
+}
+/* What plays now: Load writes over it. */
+.slot-sheet .ed-cap-slot[data-playing='true'] .ed-cap-pos::after {
+  content: ' ▶';
+  font-size: 0.75em;
+}
+.slot-sheet button.ed-slot-load {
+  width: 100%;
+  min-height: 48px;
+  background: var(--fx);
+  color: var(--fx-ink);
+  font-weight: 700;
+}
 /* The capture playing from the library (listened to or loaded): a speaker right of its name. */
 .ed-item-playing {
   flex: none;
