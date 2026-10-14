@@ -469,6 +469,21 @@ describe('edit gestures', () => {
     expect(discard.dataset.shown).toBe('true');
     tap(discard);
     await until(() => store.get().captureVolume.source === 'dump' && discard.dataset.shown === 'false');
+    // A double tap on the slider (or its readout) puts it at 0 dB; a drag between does not count as a tap.
+    volume.value = '60';
+    volume.dispatchEvent(new Event('input', { bubbles: true }));
+    await until(() => store.get().captureVolume.value === 60);
+    tap(volume);
+    press(volume, 'pointerdown', 10, 10);
+    press(volume, 'pointerup', 80, 10); // a drag
+    tap(volume);
+    await wait(30);
+    expect(store.get().captureVolume.value).toBe(60);
+    tap(volume);
+    await until(() => store.get().captureVolume.value === 128);
+    expect(root.querySelector('.src-sheet .ed-slider .ed-value')!.textContent).toBe('0.0 dB');
+    tap(discard);
+    await until(() => store.get().captureVolume.source === 'dump' && discard.dataset.shown === 'false');
     // The IR is off in the demo and never read yet: the pedal does not answer for it, so it is not asked.
     expect(store.get().cabOn.value).toBe(false);
     tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-tab')[1]!);

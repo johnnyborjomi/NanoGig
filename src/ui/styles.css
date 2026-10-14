@@ -2407,6 +2407,7 @@ button.warn {
 }
 .ed-value.resettable {
   cursor: pointer;
+  touch-action: manipulation; /* a double tap resets, it does not zoom */
 }
 .ed-slider input[type='range'],
 .ed-pane input[type='range'] {

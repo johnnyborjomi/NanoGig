@@ -147,6 +147,29 @@ function setMsg(node: HTMLElement, text: string, tone: "muted" | "warn" | "ok" =
   node.dataset.busy = String(text.endsWith("…"));
 }
 
+/** Two quick taps (not drags) on `node`: pointer events, as a phone gives no dblclick on a plain element. */
+function onDoubleTap(node: HTMLElement, fn: () => void) {
+  const TAP_MS = 300;
+  const GAP_MS = 350;
+  const SLOP_PX = 10;
+  let down: { x: number; y: number; t: number } | null = null;
+  let lastTap = 0;
+  node.addEventListener("pointerdown", (e) => (down = { x: e.clientX, y: e.clientY, t: e.timeStamp }));
+  node.addEventListener("pointercancel", () => (down = null));
+  node.addEventListener("pointerup", (e) => {
+    const d = down;
+    down = null;
+    if (!d || e.timeStamp - d.t > TAP_MS || Math.hypot(e.clientX - d.x, e.clientY - d.y) > SLOP_PX) {
+      lastTap = 0; // a drag or a hold: no double tap with it
+      return;
+    }
+    if (lastTap && e.timeStamp - lastTap <= GAP_MS) {
+      lastTap = 0;
+      fn();
+    } else lastTap = e.timeStamp;
+  });
+}
+
 /** A 0..max slider whose value is not overwritten while the user drags it. */
 class Slider {
   readonly root = el("div", "ed-slider");
@@ -203,7 +226,9 @@ class Slider {
     if (onReset) {
       this.value.title = "Double-tap to reset";
       this.value.classList.add("resettable");
-      this.value.addEventListener("dblclick", onReset);
+      // The readout and the slider itself: dblclick does not come on a phone (a double tap there zooms).
+      onDoubleTap(this.value, onReset);
+      onDoubleTap(this.input, onReset);
     }
     const track = el("div", "ed-track");
     track.append(this.minus, this.input, this.plus);
