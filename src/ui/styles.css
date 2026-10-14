@@ -2540,7 +2540,21 @@ button.warn {
   gap: 8px;
   font-weight: 600;
 }
+.ed-slots-head {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.ed-slots-head .ed-slots-toggle {
+  min-width: 0;
+}
+.ed-slots-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ed-slots-toggle svg {
+  flex: none;
   width: 20px;
   height: 20px;
   transition: transform 150ms ease;
@@ -2553,8 +2567,32 @@ button.warn {
   visibility: hidden;
 }
 /* The preset's own, first in the list: out of it for a preset saved on a slot (no gap above slot 1). */
-.ed-cap-slot[data-shown='false'] {
+.ed-cap-row[data-shown='false'] {
   display: none;
+}
+/* « » : a bank at a time, narrower than ‹ › so the name keeps its room. */
+.ed-bank-btn {
+  width: 44px;
+}
+/* A slot and, at its end, its swap button (the library, bound to that slot). */
+.ed-cap-row {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.ed-cap-row > .ed-cap-slot {
+  flex: 1 1 0;
+}
+.ed-cap-swap {
+  flex: none;
+  width: 52px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 12px;
+}
+.ed-cap-swap svg {
+  width: 20px;
+  height: 20px;
 }
 .ed-cap-slots {
   display: grid;

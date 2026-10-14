@@ -43,9 +43,12 @@ import { presetLabelEls, renderPresetLabel, type PresetLabelEls } from "./preset
 import {
   ArrowDownAZ,
   ArrowDownZA,
+  ArrowLeftRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   CornerLeftUp,
   Ellipsis,
   Folder,
@@ -219,10 +222,14 @@ class Slider {
   }
 }
 
+/** A slot the library is opened for (a slot row's swap button): what it loads goes there. */
+type SlotTarget = { bank: number; position: number } | "own";
+
 /**
- * The pedal's slots (the capture banks, the IR slots): a header ‹ what plays › whose arrows step through every slot
- * (over the banks too) and whose middle shows / hides the list of the bank playing (remembered in this browser).
- * A tap in the list plays a slot. The preset's own comes first (when the preset plays its own).
+ * The pedal's slots (the capture banks, the IR slots): a header « ‹ what plays › » whose arrows step through every
+ * slot (over the banks too; « » a bank at a time, captures only) and whose middle shows / hides the list of the bank
+ * playing (remembered in this browser). A tap in the list plays a slot; its swap button opens the library for that
+ * slot. The preset's own comes first (when the preset plays its own).
  */
 class SlotPicker {
   readonly root = el("div", "ed-slots");
@@ -230,8 +237,12 @@ class SlotPicker {
   private readonly label = el("span", "ed-slots-label");
   private readonly prev: HTMLButtonElement;
   private readonly next: HTMLButtonElement;
+  private readonly bankPrev: HTMLButtonElement | null = null;
+  private readonly bankNext: HTMLButtonElement | null = null;
   private readonly btns: HTMLButtonElement[] = [];
+  private readonly swaps: HTMLButtonElement[] = [];
   private readonly own = el("button", "ed-chip ed-cap-slot");
+  private readonly ownRow = el("div", "ed-cap-row");
   private readonly list = el("div", "ed-slots-list");
   private bank = 1;
   open: boolean;
@@ -244,8 +255,12 @@ class SlotPicker {
       ownTitle: string;
       /** ‹ › : the previous / next slot played, over the banks. */
       onStep: (delta: number) => void;
+      /** « » : the same slot a bank before / after (captures). */
+      onBank?: (delta: number) => void;
       onPick: (bank: number, position: number) => void;
       onOwn: () => void;
+      /** A row's swap button: the library, bound to that slot. */
+      onSwap: (target: SlotTarget) => void;
       /** Open / closed changed: the owner renders again. */
       onChange: () => void;
     },
@@ -272,19 +287,35 @@ class SlotPicker {
       opts.onChange();
     });
     const head = el("div", "ed-row ed-step ed-slots-head");
-    head.append(this.prev, this.toggle, this.next);
+    if (opts.onBank) {
+      const onBank = opts.onBank;
+      this.bankPrev = iconButton(ChevronsLeft, "Previous bank", "ed-step-btn ed-bank-btn");
+      this.bankNext = iconButton(ChevronsRight, "Next bank", "ed-step-btn ed-bank-btn");
+      this.bankPrev.addEventListener("click", () => onBank(-1));
+      this.bankNext.addEventListener("click", () => onBank(1));
+      head.append(this.bankPrev, this.prev, this.toggle, this.next, this.bankNext);
+    } else head.append(this.prev, this.toggle, this.next);
+    const swap = (target: () => SlotTarget) => {
+      const b = iconButton(ArrowLeftRight, "Replace from the library", "ed-chip ed-cap-swap");
+      b.addEventListener("click", () => opts.onSwap(target()));
+      this.swaps.push(b);
+      return b;
+    };
     const slots = el("div", "ed-cap-slots");
     for (let i = 0; i < opts.per; i++) {
       const b = el("button", "ed-chip ed-cap-slot");
       b.append(el("span", "ed-cap-pos", String(i + 1)), el("span", "ed-cap-name", ""));
       b.addEventListener("click", () => opts.onPick(this.bank, i + 1));
       this.btns.push(b);
-      slots.append(b);
+      const row = el("div", "ed-cap-row");
+      row.append(b, swap(() => ({ bank: this.bank, position: i + 1 })));
+      slots.append(row);
     }
     this.own.append(el("span", "ed-cap-pos", "★"), el("span", "ed-cap-name", ""));
     this.own.title = opts.ownTitle;
     this.own.addEventListener("click", () => opts.onOwn());
-    this.list.append(this.own, slots); // the preset's own first
+    this.ownRow.append(this.own, swap(() => "own"));
+    this.list.append(this.ownRow, slots); // the preset's own first
     this.root.append(head, this.list);
   }
 
@@ -292,13 +323,15 @@ class SlotPicker {
    * `names`: every slot over the banks; `bank` / `position`: what plays (position 1..per, `own` for the preset's own,
    * null when off); `current`: the header's text for it. The list shows the bank playing.
    */
-  render(p: { names: readonly string[]; bank: number; position: number | null; own: boolean; ownShown: boolean; on: boolean | null; ownName: string; current: string }) {
+  render(p: { names: readonly string[]; bank: number; position: number | null; own: boolean; ownShown: boolean; on: boolean | null; ownName: string; current: string; canSwap: boolean }) {
     this.bank = p.bank;
     this.label.textContent = p.current;
     this.root.dataset.open = String(this.open);
     this.toggle.setAttribute("aria-expanded", String(this.open));
     this.list.hidden = !this.open;
     this.prev.disabled = this.next.disabled = p.on === null;
+    if (this.bankPrev && this.bankNext) this.bankPrev.disabled = this.bankNext.disabled = p.on === null;
+    for (const b of this.swaps) b.disabled = !p.canSwap;
     this.btns.forEach((b, i) => {
       const name = p.names[(p.bank - 1) * this.opts.per + i] ?? "";
       (b.lastChild as HTMLElement).textContent = name || `Slot ${i + 1}`;
@@ -309,7 +342,7 @@ class SlotPicker {
     (this.own.lastChild as HTMLElement).textContent = p.ownName ? `Preset's own · ${p.ownName}` : "Preset's own";
     this.own.dataset.active = String(p.on === true && p.own);
     // Only for a preset that plays its own: one saved on a slot has the same capture there.
-    this.own.dataset.shown = String(p.ownShown);
+    this.ownRow.dataset.shown = String(p.ownShown);
     this.own.disabled = p.on === null || !p.ownShown;
     this.root.dataset.off = String(p.on === false);
   }
@@ -629,8 +662,10 @@ export class EditorView {
     key: "nanogig.captureSlotsOpen",
     ownTitle: "The capture saved in this preset itself",
     onStep: (d) => this.run(this.edit().stepCapture(d)),
+    onBank: (d) => this.run(this.edit().stepCaptureBank(d)),
     onPick: (bank, position) => this.run(this.edit().selectCapture(bank, position)),
     onOwn: () => this.run(this.edit().selectCaptureSlot(CAPTURE_OWN_SLOT)),
+    onSwap: (target) => this.openLibrary("captures", target),
     onChange: () => this.renderSource(),
   });
   /** The pedal's IR slots (one bank of 5), like the captures'. */
@@ -641,6 +676,7 @@ export class EditorView {
     onStep: (d) => this.run(this.edit().stepIr(d)),
     onPick: (_bank, position) => this.run(this.edit().selectIrSlot(position)),
     onOwn: () => this.run(this.edit().selectIrSlot(CAB_OWN_SLOT)),
+    onSwap: (target) => this.openLibrary("irs", target),
     onChange: () => this.renderSource(),
   });
   private readonly capLib = el("button", "ed-lib-btn");
@@ -797,6 +833,7 @@ export class EditorView {
         on,
         ownName: preview?.name ?? this.actions.edit()?.ownCaptureName() ?? "",
         current,
+        canSwap: on === true, // as the library button
       });
       this.capVolume.set(s.captureVolume.value, on !== null);
       // Off: the volume still works (heard once it is on), drawn grey like an off block.
@@ -830,6 +867,7 @@ export class EditorView {
       on,
       ownName: irPreview?.name ?? (slot === CAB_OWN_SLOT ? s.irName.value ?? "" : this.actions.edit()?.ownIrName() ?? ""),
       current: !on ? "Off" : irOwn ? "Preset's own slot" : slot ? `Slot ${slot}` : "—",
+      canSwap: on === true, // as the library button
     });
     const status = ir?.status ?? "loading";
     setMsg(
@@ -1103,9 +1141,13 @@ export class EditorView {
   private readonly libStatus = el("p", "ed-msg");
   private readonly libItems = el("div", "ed-list");
 
-  openLibrary(kind: LibraryKind) {
+  /** The slot the library was opened for (a slot row's swap button), else null: the slot playing. */
+  private libTarget: SlotTarget | null = null;
+
+  openLibrary(kind: LibraryKind, target: SlotTarget | null = null) {
     if (!this.canEdit) return;
     this.libKind = kind;
+    this.libTarget = target;
     this.libSelected = null;
     this.libFolder = null;
     this.libMode = "browse";
@@ -1308,7 +1350,9 @@ export class EditorView {
     }
     if (this.libFolder !== null && !this.folders.find(this.libFolder)) this.libFolder = null; // deleted
 
-    this.libSheet.sub.textContent = "On the pedal";
+    const target = this.libTarget;
+    const targetLabel = !target ? "" : target === "own" ? "Preset's own slot" : irs ? `Slot ${target.position}` : `Bank ${target.bank} · Slot ${target.position}`;
+    this.libSheet.sub.textContent = target ? `For ${targetLabel}` : "On the pedal";
     this.libSheet.card.dataset.kind = this.libKind; // captures red, IRs violet
     this.libSheet.title.textContent = irs ? "IR library" : "Capture library";
     this.libUser.dataset.active = String(this.libList === "user");
@@ -1453,10 +1497,32 @@ export class EditorView {
           const bank = this.s.captureBank.value ?? 1;
           // "Load to:" above the buttons; Move to folder on the same row, at its end.
           const loads = el("div", "ed-item-actions ed-load-to");
+          const loadOwn = () =>
+            irs
+              ? load("Preset's own slot", "primary ed-load-own", () => this.edit().loadIrIntoOwn(it))
+              : load("Preset's own slot", "primary ed-load-own", async () => {
+                  const edit = this.edit();
+                  if (edit.capturePreview()?.name !== it.name) await edit.previewCapture(it);
+                  edit.keepCapturePreview();
+                });
+          // Opened for a slot (its swap button): that slot only. Already there: Use plays it; else it is replaced.
+          const targetAbs = target && target !== "own" ? (irs ? target.position - 1 : (target.bank - 1) * CAPTURE_SELECT_SLOTS + target.position - 1) : null;
+          const there = targetAbs !== null && inSlots.includes(targetAbs);
           // Already in a slot of the pedal's: Use plays it from there, nothing is written over.
-          const use = inSlots.length > 0;
-          loads.append(el("span", "ed-label", use ? "Use:" : "Load to:"));
-          if (use)
+          const use = target ? there : inSlots.length > 0;
+          loads.append(el("span", "ed-label", use ? "Use:" : target && target !== "own" ? "Replace:" : "Load to:"));
+          if (target === "own") loads.append(loadOwn());
+          else if (target) {
+            const { bank: b, position: n } = target;
+            const playing = irs
+              ? this.s.cabOn.value === true && this.s.cabSlot.value === n
+              : !preview && this.s.captureOn.value === true && bank === b && this.s.captureSlot.value === n;
+            const btn = there
+              ? load(targetLabel, "primary", () => (irs ? this.edit().selectIrSlot(n) : this.edit().selectCapture(b, n)))
+              : load(targetLabel, "primary", () => this.edit().pickFromLibrary(it, this.libKind, { bank: b, position: n }));
+            btn.disabled = there && playing; // playing already
+            loads.append(btn);
+          } else if (use)
             for (const i of inSlots.slice(0, 3)) {
               const b = Math.floor(i / CAPTURE_SELECT_SLOTS) + 1;
               const n = (i % CAPTURE_SELECT_SLOTS) + 1;
@@ -1467,26 +1533,22 @@ export class EditorView {
               btn.disabled = now; // playing already
               loads.append(btn);
             }
-          else if (irs)
-            loads.append(
-              load(`Slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs")),
-              load("Preset's own slot", "primary ed-load-own", () => this.edit().loadIrIntoOwn(it)),
-            );
-          else
-            loads.append(
-              load(`Bank ${bank} · Slot ${slot}`, "primary", () => this.edit().pickFromLibrary(it, "captures")),
-              load("Preset's own slot", "primary ed-load-own", async () => {
-                const edit = this.edit();
-                if (edit.capturePreview()?.name !== it.name) await edit.previewCapture(it);
-                edit.keepCapturePreview();
-              }),
-            );
+          else if (irs) loads.append(load(`Slot ${irSlot}`, "primary", () => this.edit().pickFromLibrary(it, "irs")), loadOwn());
+          else loads.append(load(`Bank ${bank} · Slot ${slot}`, "primary", () => this.edit().pickFromLibrary(it, "captures")), loadOwn());
           const move = el("button", "ed-move");
           move.append(icon(FolderInput), el("span", "", "Move to folder"));
           move.addEventListener("click", () => this.startMove(it));
           loads.append(move);
           row.append(loads);
-          const hint = use
+          const hint = target === "own"
+            ? irs
+              ? `Preset's own slot: this preset alone.`
+              : `Preset's own slot: this preset alone, Save keeps it.`
+            : target
+            ? there
+              ? `In ${targetLabel} already: Use plays it, nothing is written over.`
+              : `Replaces what ${targetLabel} holds: saved presets on it keep theirs.`
+            : use
             ? `On the pedal already: Use plays it from its slot, nothing is written over.`
             : irs
             ? `Slot ${irSlot}: saved presets on it keep theirs. Preset's own slot: this preset alone.`

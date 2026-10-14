@@ -135,8 +135,8 @@ export class EditController {
   private irTimer: ReturnType<typeof setTimeout> | null = null;
   private libraryAsked: LibraryKind[] | null = null;
   private libraryTimer: ReturnType<typeof setTimeout> | null = null;
-  /** A capture load into this slot (1..5) awaits the pedal's 0x51; then the slot is selected. */
-  private loadingCaptureSlot: number | null = null;
+  /** A capture load into this bank / slot (1..5 each) awaits the pedal's 0x51; then the slot is selected. */
+  private loadingCaptureSlot: { bank: number; position: number } | null = null;
   /** Resolves the IR slot load in flight on the pedal's 0x4F. */
   private irSlotLoaded: (() => void) | null = null;
   /** A preview was playing when a capture went into a slot: stopped once that slot is selected. */
@@ -879,6 +879,16 @@ export class EditController {
     await this.selectCapture(Math.floor((next - 1) / per) + 1, ((next - 1) % per) + 1);
   }
 
+  /** The same slot a bank before / after (wrapping); from the preset's own capture or off, the slot "on" goes to. */
+  async stepCaptureBank(delta: number): Promise<void> {
+    const s = this.store.get();
+    const bank = s.captureBank.value ?? 1;
+    const cur = s.captureOn.value ? (s.captureSlot.value ?? 0) : 0;
+    const position = cur >= 1 && cur <= CAPTURE_SELECT_SLOTS ? cur : this.captureSlotForEdit();
+    const next = ((((bank - 1 + (delta > 0 ? 1 : -1)) % CAPTURE_BANKS) + CAPTURE_BANKS) % CAPTURE_BANKS) + 1;
+    await this.selectCapture(next, position);
+  }
+
   // -------------------------------------------------------------------------
   // IR: on / off, the pedal's IR list, settings
   // -------------------------------------------------------------------------
@@ -1105,21 +1115,24 @@ export class EditController {
    * preset plays (`captureSlotForEdit`), then that slot is selected (on the pedal's 0x51), which marks the preset
    * edited: the save light comes on, Save keeps it, Discard puts the saved one back. A saved preset keeps its own
    * copy of a capture, so the others on that slot keep theirs. An IR goes the same way, into an IR slot
-   * (`loadIrIntoSlot`): the pedal has no load into the preset itself.
+   * (`loadIrIntoSlot`). `to`: another slot (any bank's, or IR slot n; the slot list's swap button) than the one
+   * playing.
    */
-  async pickFromLibrary(item: LibraryItem, kind: LibraryKind): Promise<void> {
+  async pickFromLibrary(item: LibraryItem, kind: LibraryKind, to?: { bank: number; position: number }): Promise<void> {
     this.assertEdit();
-    if (kind === 'irs') return this.loadIrIntoSlot(item);
-    const slot = this.captureSlotForEdit();
+    if (kind === 'irs') return this.loadIrIntoSlot(item, to?.position);
+    const bank = to?.bank ?? this.store.get().captureBank.value ?? 1;
+    const slot = to?.position ?? this.captureSlotForEdit();
+    if (!Number.isInteger(bank) || bank < 1 || bank > CAPTURE_BANKS || !Number.isInteger(slot) || slot < 1 || slot > CAPTURE_SELECT_SLOTS) throw new RangeError(`bad capture slot ${bank}/${slot}`);
     // Listened to first (the library's tap): Cortex Cloud stops the preview after its "Use" (snoop 2026-10-11).
     this.stopAfterLoad = this.capturePreview()?.name ?? null;
     this.clearCapturePreview();
-    this.loadingCaptureSlot = slot;
+    this.loadingCaptureSlot = { bank, position: slot };
     this.writtenAt.capture = Date.now();
     this.store.setField('captureOn', true, 'optimistic');
     this.store.setField('captureName', item.name, 'optimistic');
-    // The pedal's slots are 0..24 over the five banks: the active bank's.
-    const abs = this.captureBankOffset() + slot - 1;
+    // The pedal's slots are 0..24 over the five banks.
+    const abs = (bank - 1) * CAPTURE_SELECT_SLOTS + slot - 1;
     await this.send(captureSlotLoadFrame(abs, item), `Load ${item.list} capture ${item.index + 1} "${item.name}" into bank ${Math.floor(abs / CAPTURE_SELECT_SLOTS) + 1} slot ${slot}`);
     const md = this.host.metadata();
     if (md && md.captures[abs]) {
@@ -1246,7 +1259,7 @@ export class EditController {
       this.host.confirm();
       return;
     }
-    void this.selectCaptureSlot(slot)
+    void this.selectCapture(slot.bank, slot.position)
       .then(stop)
       .catch((err) => this.host.log('warn', `Capture select failed: ${(err as Error).message}`));
   }

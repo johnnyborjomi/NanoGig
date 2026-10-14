@@ -224,7 +224,8 @@ describe('edit gestures', () => {
     await until(() => store.get().captureSlots.length === 25);
     const picker = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-slots')!;
     const toggle = picker.querySelector<HTMLElement>('.ed-slots-toggle')!;
-    const [prev, next] = Array.from(picker.querySelectorAll<HTMLElement>('.ed-slots-head .ed-step-btn'));
+    const [prev, next] = Array.from(picker.querySelectorAll<HTMLElement>('.ed-slots-head .ed-step-btn:not(.ed-bank-btn)'));
+    const [bankPrev, bankNext] = Array.from(picker.querySelectorAll<HTMLElement>('.ed-slots-head .ed-bank-btn'));
     // One row only: no stepper of its own above the list.
     expect(root.querySelectorAll('.src-sheet .ed-pane:not([hidden]) .ed-step')).toHaveLength(1);
     if (picker.dataset.open === 'true') tap(toggle);
@@ -241,8 +242,8 @@ describe('edit gestures', () => {
     expect(names()).toEqual(store.get().captureSlots.slice(5, 10));
     expect(slots().filter((b) => b.dataset.active === 'true')).toHaveLength(1);
     // A preset saved on a slot: no "Preset's own" (it would play the same capture).
-    const own = picker.querySelector<HTMLElement>('.ed-slots-list > .ed-cap-slot')!;
-    expect(own.dataset.shown).toBe('false');
+    const own = picker.querySelector<HTMLElement>('.ed-slots-list > .ed-cap-row > .ed-cap-slot')!;
+    expect((own.parentElement as HTMLElement).dataset.shown).toBe('false');
     expect((own as HTMLButtonElement).disabled).toBe(true);
     // Bank 2 slot 5, then › goes on to bank 3 slot 1 (the list follows), ‹ back.
     tap(slots()[4]!);
@@ -255,7 +256,42 @@ describe('edit gestures', () => {
     tap(prev!);
     await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 2 && store.get().captureSlot.value === 5);
     expect(label.textContent).toBe('Bank 2 · Slot 5');
+    // « » : the same slot a bank on / back, wrapping.
+    tap(bankNext!);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 3 && store.get().captureSlot.value === 5);
+    tap(bankPrev!);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 2 && store.get().captureSlot.value === 5);
     tap(toggle); // closed again for the next test
+  });
+
+  it('slot list: a row\'s swap button opens the library for that slot; a capture replaces it there', async () => {
+    const { root, store, mock } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    await until(() => store.get().captureSlots.length === 25);
+    const picker = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-slots')!;
+    const toggle = picker.querySelector<HTMLElement>('.ed-slots-toggle')!;
+    if (picker.dataset.open !== 'true') tap(toggle);
+    const bank = store.get().captureBank.value!;
+    const swaps = Array.from(picker.querySelectorAll<HTMLElement>('.ed-cap-slots .ed-cap-swap'));
+    expect(swaps).toHaveLength(5);
+    tap(swaps[2]!);
+    const sheet = root.querySelector<HTMLElement>('.lib-sheet')!;
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    expect(sheet.querySelector('.sheet-sub')!.textContent).toBe(`For Bank ${bank} · Slot 3`);
+    const item = Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name')).find((n) => !n.querySelector('.ed-item-slot'))!;
+    const name = item.querySelector('.ed-item-label')!.textContent!;
+    tap(item);
+    const row = sheet.querySelector<HTMLElement>('.ed-item[data-selected="true"]')!;
+    expect(row.querySelector('.ed-load-to .ed-label')!.textContent).toBe('Replace:');
+    const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>('.ed-load-to button'));
+    expect(buttons.map((b) => b.textContent)).toEqual([`Bank ${bank} · Slot 3`, 'Move to folder']);
+    tap(buttons[0]!);
+    expect(sheet.closest('.overlay')!.classList.contains('open')).toBe(false);
+    const { EDIT_MSG } = await import('../src/protocol/edit');
+    await until(() => mock.edits.some((e) => e.type === EDIT_MSG.CAPTURE_SLOT_LOAD));
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureBank.value === bank && store.get().captureSlot.value === 3);
+    await until(() => store.get().captureSlots[(bank - 1) * 5 + 2] === name);
+    if (picker.dataset.open === 'true') tap(toggle); // closed again for the next test
   });
 
   it('library rows: a tap plays the capture; Load to: bank · slot or the preset\'s own (Save keeps it), which closes the library', async () => {
@@ -293,9 +329,9 @@ describe('edit gestures', () => {
     expect(saveBtn.hidden).toBe(false);
     const pane = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden])')!;
     expect(pane.querySelector('.ed-slots-label')!.textContent).toBe("Preset's own slot");
-    const own = pane.querySelector<HTMLElement>('.ed-slots-list > .ed-cap-slot')!;
+    const own = pane.querySelector<HTMLElement>('.ed-slots-list > .ed-cap-row > .ed-cap-slot')!;
     expect(own.dataset.active).toBe('true');
-    expect(own.dataset.shown).toBe('true');
+    expect((own.parentElement as HTMLElement).dataset.shown).toBe('true');
     expect(own.textContent).toContain(firstName);
     expect(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!.dataset.shown).toBe('true');
     tap(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!);
