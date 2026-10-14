@@ -2246,6 +2246,20 @@ button.warn {
   text-overflow: ellipsis;
   min-width: 0;
 }
+/* Under way: a spinner as tall as the text, in its colour, in front of it. */
+.card .ed-msg[data-busy='true']::before {
+  content: '';
+  display: inline-block;
+  box-sizing: border-box;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.45em;
+  vertical-align: -0.15em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ledspin 0.8s linear infinite;
+}
 .card .ed-msg[data-tone='warn'] {
   color: var(--warn);
 }

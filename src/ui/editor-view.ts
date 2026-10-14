@@ -143,6 +143,8 @@ function setMsg(node: HTMLElement, text: string, tone: "muted" | "warn" | "ok" =
   node.textContent = text;
   node.title = text;
   node.dataset.tone = tone;
+  // Something under way ("Reading…", "Waiting for the pedal…"): a small spinner in front of the text.
+  node.dataset.busy = String(text.endsWith("…"));
 }
 
 /** A 0..max slider whose value is not overwritten while the user drags it. */
