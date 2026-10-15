@@ -2356,9 +2356,10 @@ button.warn {
   background: var(--panel);
   z-index: 2;
 }
-/* Held upright, the head stays at the top while the sheet scrolls (long parameter lists, the libraries); sideways
-   it scrolls away with the rest, so the short screen shows more of the parameters. */
-@media (orientation: portrait) {
+/* Upright, or on a tall screen (a tablet sideways), the head stays at the top while the sheet scrolls (long
+   parameter lists, the libraries); on a short one (a phone sideways) it scrolls away with the rest, so the
+   parameters get the room. */
+@media (orientation: portrait), (min-height: 520px) {
   .sheet-head {
     position: sticky;
   }
