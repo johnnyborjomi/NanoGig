@@ -35,6 +35,7 @@ import {
   Pencil,
   Power,
   RefreshCw,
+  RotateCwSquare,
   Save,
   ScrollText,
   Settings,
@@ -48,6 +49,8 @@ import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { STRIP_COUNT, watchLayout, type GigLayout } from "./layout";
 import { EditorView } from "./editor-view";
 import { onHold } from "./hold";
+import { canLockOrientation, lockOrientation, saveOrientation, savedOrientation, type AppOrientation } from "./orientation";
+import { isStandalone } from "../pwa";
 import { presetLabelEls, renderPresetLabel } from "./preset-label";
 export { HOLD_MS } from "./hold";
 import type { EditController } from "../sync/editor";
@@ -285,6 +288,9 @@ export class GigView {
   private updateDismissed = false;
   private readonly disconnectBtn = el("button", "ghost", "Disconnect");
   private readonly fullscreenBtn = el("button", "ghost icon-btn", "");
+  /** Installed app only: turns the screen between landscape and portrait (in place of Fullscreen). */
+  private readonly rotateBtn = el("button", "ghost icon-btn", "");
+  private orientation: AppOrientation = savedOrientation();
   private readonly consoleBtn = el("button", "ghost", "Log");
   private readonly refreshBtn = el("button", "ghost", "Refresh");
   private readonly writesBtn = el("button", "ghost", "");
@@ -459,6 +465,15 @@ export class GigView {
       lucideElement(Maximize, { "aria-hidden": "true" }),
     );
     this.fullscreenBtn.hidden = typeof document.documentElement.requestFullscreen !== "function";
+    // Installed app: it already runs fullscreen, so the slot turns the screen instead.
+    const installed = isStandalone();
+    this.rotateBtn.setAttribute("aria-label", "Rotate");
+    this.rotateBtn.append(lucideElement(RotateCwSquare, { "aria-hidden": "true" }));
+    this.rotateBtn.hidden = !(installed && canLockOrientation());
+    this.rotateBtn.addEventListener("click", () => this.rotate());
+    this.renderRotateTitle();
+    if (installed) this.fullscreenBtn.hidden = true;
+    if (!this.rotateBtn.hidden) this.applyOrientation(this.orientation, false);
     document.addEventListener("fullscreenchange", () => {
       this.fullscreenBtn.replaceChildren(
         lucideElement(document.fullscreenElement ? Minimize : Maximize, {
@@ -558,6 +573,7 @@ export class GigView {
       this.editBtn,
       this.writesBtn,
       this.fullscreenBtn,
+      this.rotateBtn,
       menuWrap,
     );
     top.append(status, actions);
@@ -1092,7 +1108,7 @@ export class GigView {
       el(
         "span",
         "",
-        " Launches fullscreen in landscape with no browser bars, keeps working when the venue has no Wi-Fi, and reconnects to your pedal on launch.",
+        " Launches fullscreen in landscape (a button turns it upright) with no browser bars, keeps working when the venue has no Wi-Fi, and reconnects to your pedal on launch.",
       ),
     );
     this.installBlock.append(this.installBtn, installText);
@@ -1465,6 +1481,29 @@ export class GigView {
     } catch (err) {
       this.toast(err);
     }
+  }
+
+  private rotate() {
+    this.applyOrientation(this.orientation === "landscape" ? "portrait" : "landscape", true);
+  }
+
+  /** Lock the screen to `o`; on success it becomes the remembered choice. */
+  private applyOrientation(o: AppOrientation, fromTap: boolean) {
+    lockOrientation(o)
+      .then(() => {
+        this.orientation = o;
+        saveOrientation(o);
+        this.renderRotateTitle();
+      })
+      .catch((err: unknown) => {
+        // The browser has the API but will not lock here: the button cannot do anything.
+        if ((err as { name?: string } | null)?.name === "NotSupportedError") this.rotateBtn.hidden = true;
+        if (fromTap) this.toast(err);
+      });
+  }
+
+  private renderRotateTitle() {
+    this.rotateBtn.title = this.orientation === "landscape" ? "Rotate to portrait" : "Rotate to landscape";
   }
 
   async requestWakeLock(): Promise<void> {
