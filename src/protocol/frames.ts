@@ -279,13 +279,23 @@ export function midiStrategyById(id: string | null | undefined): MidiStrategy | 
   return MIDI_STRATEGIES.find((s) => s.id === id) ?? null;
 }
 
-/** Mvave Chocolate style is the default: 4 presets per bank, shown as "1B" (bank number + preset letter). */
+/** 4 presets per bank, as the Mvave Chocolate ("1B": bank number + preset letter) when a bank style is chosen. */
 export const DEFAULT_PRESETS_PER_BANK = 4;
 export const PRESETS_PER_BANK_CHOICES = [2, 3, 4, 5, 6, 8] as const;
 
-/** "number-letter" = 1B (Mvave Chocolate); "letter-number" = A2 (Nano Cortex A–H). */
-export type PresetLabelStyle = "number-letter" | "letter-number";
-export const DEFAULT_LABEL_STYLE: PresetLabelStyle = "number-letter";
+/**
+ * "number-letter" = 1B (Mvave Chocolate); "letter-number" = A2 (other MIDI controllers); "numeric" = 10, the
+ * pedal's own preset number (as on the Nano Cortex): no banks at all.
+ */
+export type PresetLabelStyle = "number-letter" | "letter-number" | "numeric";
+/** Numeric by default: most players switch presets on the pedal itself, with no MIDI controller. */
+export const DEFAULT_LABEL_STYLE: PresetLabelStyle = "numeric";
+export const PRESET_LABEL_STYLES: readonly PresetLabelStyle[] = ["numeric", "number-letter", "letter-number"];
+
+/** The label shows banks (1B, A2), so the strip pages a bank at a time; "numeric" has none. */
+export function labelHasBanks(style: PresetLabelStyle | undefined): boolean {
+  return (style ?? DEFAULT_LABEL_STYLE) !== "numeric";
+}
 
 export interface PresetLabelOptions {
   presetsPerBank?: number;
@@ -307,7 +317,8 @@ export function bankName(bank: number): string {
  * Human label for a zero-based preset index as bank + slot. The pedal has no
  * real banks; this mirrors the user's MIDI controller layout:
  *   index 9, 4 per bank, number-letter → "3B"  (Mvave Chocolate)
- *   index 9, 8 per bank, letter-number → "B2"  (Nano Cortex A–H)
+ *   index 9, 8 per bank, letter-number → "B2"
+ *   index 9, numeric                   → "10"  (Nano Cortex; no slot)
  */
 export interface PresetLabelParts {
   /** First figure: bank ("3" or "B"). */
@@ -324,6 +335,7 @@ export function presetLabelParts(presetIndex: number, opts: PresetLabelOptions =
   const style = opts.style ?? DEFAULT_LABEL_STYLE;
   const bank = Math.floor(presetIndex / per);
   const slot = presetIndex % per;
+  if (style === "numeric") return { bank: String(presetIndex + 1), slot: "", slotIndex: slot };
   return style === "number-letter"
     ? { bank: String(bank + 1), slot: bankName(slot), slotIndex: slot }
     : { bank: bankName(bank), slot: String(slot + 1), slotIndex: slot };

@@ -7,7 +7,7 @@ import { CapacitorBleTransport } from './transport/ble-capacitor';
 import { MockTransport } from './transport/mock';
 import type { Transport } from './transport/types';
 import { Store } from './state/store';
-import type { PresetLabelStyle } from './protocol/frames';
+import { PRESET_LABEL_STYLES, type PresetLabelStyle } from './protocol/frames';
 import { WebMidiOut } from './transport/webmidi';
 import { SyncEngine } from './sync/engine';
 import { localMetadataCache } from './sync/metadata-cache';
@@ -49,7 +49,7 @@ function loadSettings(): Partial<Settings> {
     const parsed = JSON.parse(raw) as Partial<Settings>;
     const out: Partial<Settings> = {};
     if (typeof parsed.presetsPerBank === 'number' && parsed.presetsPerBank >= 1 && parsed.presetsPerBank <= 64) out.presetsPerBank = parsed.presetsPerBank;
-    if (parsed.labelStyle === 'number-letter' || parsed.labelStyle === 'letter-number') out.labelStyle = parsed.labelStyle;
+    if (PRESET_LABEL_STYLES.includes(parsed.labelStyle as PresetLabelStyle)) out.labelStyle = parsed.labelStyle as PresetLabelStyle;
     if (typeof parsed.showPresetNumber === 'boolean') out.showPresetNumber = parsed.showPresetNumber;
     if (typeof parsed.showFootswitches === 'boolean') out.showFootswitches = parsed.showFootswitches;
     if (typeof parsed.showPresetStrip === 'boolean') out.showPresetStrip = parsed.showPresetStrip;

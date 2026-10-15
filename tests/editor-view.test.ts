@@ -659,6 +659,15 @@ describe('presets list', () => {
     expect(row.querySelector<HTMLElement>('.fs-badge')!.dataset.fs).toBe('ia');
     const strip = root.querySelector<HTMLElement>('.pbtn .slot-slot')!;
     expect(strip.dataset.slot).not.toBe('');
+    // The first preset of each bank starts with a brighter line; numeric labels have no banks.
+    store.patch({ labelStyle: 'number-letter' });
+    const starts = () => Array.from(root.querySelectorAll<HTMLElement>('.ed-preset-row')).flatMap((r, i) => (r.dataset.bankStart === 'true' ? [i] : []));
+    expect(starts().slice(0, 3)).toEqual([4, 8, 12]);
+    expect(starts()).toHaveLength(15);
+    store.patch({ presetsPerBank: 6 });
+    expect(starts().slice(0, 2)).toEqual([6, 12]);
+    store.patch({ labelStyle: 'numeric' });
+    expect(starts()).toEqual([]);
   });
 });
 

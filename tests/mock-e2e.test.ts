@@ -54,7 +54,7 @@ describe('mock mode end-to-end', () => {
 
     expect(root.querySelector('.overlay.connect')?.classList.contains('open')).toBe(false);
     expect(text('.preset-name')).toBe('Clean Chief'); // field 13 = 7 in the real dump
-    expect(text('.slot-label')).toContain('2D'); // index 7 in the default 4-per-bank Mvave layout
+    expect(text('.slot-label')).toContain('8'); // index 7: the pedal's own number by default
     expect(root.querySelector<HTMLElement>('.src')!.hidden).toBe(true); // dump source: no tag
     expect(text('.capture')).toBe('NoMatch Chief 1');
     expect(text('.ir')).toContain('110 US PRN C10R');
@@ -71,7 +71,7 @@ describe('mock mode end-to-end', () => {
     mock.pressFootswitch(4);
     await wait(0);
     expect(text('.preset-name')).toBe('Rectified');
-    expect(text('.slot-label')).toContain('2A'); // index 4 in the default 4-per-bank Mvave layout
+    expect(text('.slot-label')).toContain('5'); // index 4: the pedal's own number by default
     expect(text('.src')).toBe('live'); // until the dump confirms it, which the bypass-changed notice asks for at once
     await wait(400);
     expect(text('.capture')).toBe('Cali Recto Modern');
@@ -84,8 +84,10 @@ describe('mock mode end-to-end', () => {
     expect(tile('pre1')).toBe('true');
     expect(store.get().fxOn.source).toBe('dump');
 
-    // Preset strip: active preset sits in the middle (4th of 7); the 5th button is the next preset → MIDI PC path.
-    const strip = root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn');
+    // Preset strip (numeric labels, no banks): the active preset in the middle (4th of 7); the 5th is the next
+    // preset → MIDI PC path.
+    const strip = root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn:not([hidden])');
+    expect(strip).toHaveLength(7);
     expect(strip[3]!.dataset.active).toBe('true');
     strip[4]!.click();
     await wait(500);

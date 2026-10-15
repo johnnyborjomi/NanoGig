@@ -34,7 +34,7 @@ import {
   type LibraryKind,
   type LibraryList,
 } from "../protocol/edit";
-import { CAB_SLOT_COUNT, PRESET_COUNT, presetLabel, type FxSlot } from "../protocol/frames";
+import { CAB_SLOT_COUNT, labelHasBanks, PRESET_COUNT, presetLabel, type FxSlot } from "../protocol/frames";
 import { lookupFxModel } from "../protocol/models";
 import type { GigState, Store } from "../state/store";
 import type { EditController } from "../sync/editor";
@@ -1132,7 +1132,7 @@ export class EditorView {
     const name = s.presetNames.value[i] ?? "";
     const mode = this.presetMode(i);
     const active = s.activePreset.value === i;
-    this.presetSheet.sub.textContent = `${presetLabel(i, { presetsPerBank: s.presetsPerBank, style: s.labelStyle })} · preset ${i + 1}`;
+    this.presetSheet.sub.textContent = labelHasBanks(s.labelStyle) ? `${presetLabel(i, { presetsPerBank: s.presetsPerBank, style: s.labelStyle })} · preset ${i + 1}` : `Preset ${i + 1}`;
     this.presetSheet.title.textContent = name || "Empty";
     this.presetIntro.textContent =
       mode === "create"
@@ -1900,12 +1900,14 @@ export class EditorView {
   private renderList() {
     if (!this.listSheet.isOpen) return;
     const s = this.s;
+    const banked = labelHasBanks(s.labelStyle);
     this.listRows.forEach((r, i) => {
       renderPresetLabel(r.label, i, s, { footswitch: true });
       const name = s.presetNames.value[i] ?? "";
       r.name.textContent = name || "Empty";
       r.root.dataset.empty = String(!name);
       r.root.dataset.active = String(s.activePreset.value === i);
+      r.root.dataset.bankStart = String(banked && i > 0 && i % s.presetsPerBank === 0);
       r.more.hidden = !this.canEdit;
     });
   }

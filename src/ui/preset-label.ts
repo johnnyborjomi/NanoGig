@@ -3,7 +3,7 @@
  * its colour (`.slot-slot[data-slot]`), the pedal's number, and the footswitch it sits on (`.fs-badge[data-fs]`).
  */
 import type { FootswitchAssignments } from "../protocol/decode";
-import { presetLabelParts, type PresetLabelParts } from "../protocol/frames";
+import { labelHasBanks, presetLabelParts, type PresetLabelParts } from "../protocol/frames";
 import type { GigState } from "../state/store";
 
 export type FootswitchName = "IA" | "IB" | "IIA" | "IIB";
@@ -48,7 +48,8 @@ export function renderPresetLabel(els: PresetLabelEls, index: number | null, s: 
   els.slot.textContent = parts ? parts.slot : "";
   els.slot.dataset.slot = parts ? String(parts.slotIndex) : "";
   if (els.num) {
-    els.num.textContent = parts && index !== null && s.showPresetNumber ? `·${index + 1}` : "";
+    // The numeric label is the pedal's number already.
+    els.num.textContent = parts && index !== null && s.showPresetNumber && labelHasBanks(s.labelStyle) ? `·${index + 1}` : "";
     els.num.hidden = els.num.textContent === "";
   }
   if (els.fs) {
