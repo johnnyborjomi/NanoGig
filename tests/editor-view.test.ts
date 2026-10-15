@@ -220,14 +220,7 @@ describe('edit gestures', () => {
     expect(open('preset-sheet')).toBe(true);
     const input = root.querySelector<HTMLInputElement>('.preset-sheet .ed-input')!;
     expect(input.value).toBe(store.get().presetNames.value[store.get().activePreset.value!]);
-    // Save now: the preset playing stored with the save light off too (the create frame under its own name).
-    const force = root.querySelector<HTMLButtonElement>('.preset-sheet .ed-force-save')!;
-    expect(force.disabled).toBe(false);
-    const sent = mock.edits.length;
-    tap(force);
-    await until(() => mock.edits.length > sent);
-    expect(mock.edits.at(-1)!.type).toBe(EDIT_MSG.PRESET_CREATE);
-    await until(() => store.get().edit.preset.busy === null);
+    expect(root.querySelector('.preset-sheet .ed-force-save')).toBeNull();
   });
 
   it('capture tab: ‹ what plays › steps through every slot over the banks; the middle opens the bank playing; a tap plays a slot', async () => {

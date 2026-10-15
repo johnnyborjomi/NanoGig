@@ -950,3 +950,87 @@ describe('GigView Edit button', () => {
     expect(edit.getAttribute('aria-pressed')).toBe('false');
   });
 });
+
+describe('GigView rotate (installed app)', () => {
+  function withScreen(standalone: boolean, lock: ((o: string) => Promise<void>) | undefined, run: () => Promise<void> | void) {
+    const savedMatch = window.matchMedia;
+    const desc = Object.getOwnPropertyDescriptor(screen, 'orientation');
+    window.matchMedia = ((q: string) =>
+      ({ matches: standalone && q === '(display-mode: fullscreen)', addEventListener: () => undefined }) as unknown as MediaQueryList) as typeof window.matchMedia;
+    Object.defineProperty(screen, 'orientation', { configurable: true, value: lock ? { lock } : {} });
+    localStorage.removeItem('nanogig.orientation');
+    return Promise.resolve(run()).finally(() => {
+      window.matchMedia = savedMatch;
+      if (desc) Object.defineProperty(screen, 'orientation', desc);
+      else delete (screen as { orientation?: unknown }).orientation;
+      localStorage.removeItem('nanogig.orientation');
+    });
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  const locks: string[] = [];
+
+  it('replaces Fullscreen with Rotate, turns the screen and remembers it for the next launch', () =>
+    withScreen(true, async (o) => void locks.push(o), async () => {
+      const root = document.createElement('div');
+      document.body.append(root);
+      new GigView(root, new Store(), noopActions(), { bluetoothAvailable: true, showMockButton: false });
+      const rotate = root.querySelector<HTMLButtonElement>('button[aria-label="Rotate"]')!;
+      const full = root.querySelector<HTMLButtonElement>('button[aria-label="Fullscreen"]')!;
+      expect(rotate.hidden).toBe(false);
+      expect(full.hidden).toBe(true);
+      await flush();
+      expect(locks).toEqual(['landscape']); // the default, as the manifest
+      expect(rotate.title).toBe('Rotate to portrait');
+      rotate.click();
+      await flush();
+      expect(locks).toEqual(['landscape', 'portrait']);
+      expect(localStorage.getItem('nanogig.orientation')).toBe('portrait');
+      expect(rotate.title).toBe('Rotate to landscape');
+
+      // Next launch starts where it was left.
+      const root2 = document.createElement('div');
+      document.body.append(root2);
+      new GigView(root2, new Store(), noopActions(), { bluetoothAvailable: true, showMockButton: false });
+      await flush();
+      expect(locks.at(-1)).toBe('portrait');
+    }));
+
+  it('stays as Fullscreen in the browser, and hides Rotate where the screen cannot be locked', async () => {
+    await withScreen(false, async () => undefined, () => {
+      const root = document.createElement('div');
+      new GigView(root, new Store(), noopActions(), { bluetoothAvailable: true, showMockButton: false });
+      expect(root.querySelector<HTMLButtonElement>('button[aria-label="Rotate"]')!.hidden).toBe(true);
+    });
+    await withScreen(true, undefined, () => {
+      const root = document.createElement('div');
+      new GigView(root, new Store(), noopActions(), { bluetoothAvailable: true, showMockButton: false });
+      expect(root.querySelector<HTMLButtonElement>('button[aria-label="Rotate"]')!.hidden).toBe(true);
+    });
+    await withScreen(true, () => Promise.reject(Object.assign(new Error('no'), { name: 'NotSupportedError' })), async () => {
+      const root = document.createElement('div');
+      new GigView(root, new Store(), noopActions(), { bluetoothAvailable: true, showMockButton: false });
+      await flush();
+      expect(root.querySelector<HTMLButtonElement>('button[aria-label="Rotate"]')!.hidden).toBe(true);
+    });
+  });
+});
+
+describe('GigView edited dots', () => {
+  it('marks the blocks edited and not saved, while the pedal has something to save', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    const edit = { fxChanged: (slot: string) => slot === 'post2', gateChanged: () => true, captureChanged: () => false, irChanged: () => true };
+    new GigView(root, store, { ...noopActions(), edit: () => edit } as never, { bluetoothAvailable: true, showMockButton: false });
+    const dots = () => [
+      ...['pre1', 'post2', 'gate'].map((k) => root.querySelector<HTMLElement>(`.tile[data-key="${k}"]`)!.dataset.edited),
+      root.querySelector<HTMLElement>('.lbl-capture')!.dataset.edited,
+      root.querySelector<HTMLElement>('.lbl-ir')!.dataset.edited,
+    ];
+    store.patch({ connection: 'connected' });
+    store.setField('presetDirty', true, 'event');
+    expect(dots()).toEqual(['false', 'true', 'true', 'false', 'true']);
+    store.setField('presetDirty', false, 'event'); // saved, or dropped: no dots
+    expect(dots()).toEqual(['false', 'false', 'false', 'false', 'false']);
+  });
+});

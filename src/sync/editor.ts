@@ -124,6 +124,10 @@ export class EditController {
   private lastCapture: { preset: number | null; slot: number } | null = null;
   /** Coalesced writes: the newest frame per key waits for the one in flight. */
   private readonly inflight = new Set<string>();
+  /** Closed blocks' parameters as last shown, since the preset loaded or was saved (see `fxChanged`). */
+  private readonly fxLast = new Map<FxSlot, { preset: number | null; type: number; values: number[] }>();
+  /** The IR's settings as last shown, likewise (see `irDiff`). */
+  private irLast: { preset: number | null; settings: CabSettings } | null = null;
   private readonly queued = new Map<string, { frame: Uint8Array; label: string }>();
   /** FX / IR reads asked, oldest first: a reply answers the oldest (the firmware's remote_page). */
   private fxReads: Read[] = [];
@@ -219,6 +223,8 @@ export class EditController {
     this.loadingCaptureSlot = null;
     this.inflight.clear();
     this.queued.clear();
+    this.fxLast.clear();
+    this.irLast = null;
     const busy = this.store.get().edit.preset.busy;
     if (busy) this.presetAnswer(false, 'Connection to the pedal lost');
   }
@@ -269,6 +275,11 @@ export class EditController {
 
   /** After every applied state: open panels re-read when the preset, the block's model or its on / off changed. */
   onState(): void {
+    // The save light out (saved, or the edits dropped by a reload): closed blocks hold what is saved again.
+    if (this.store.get().presetDirty.value === false) {
+      this.fxLast.clear();
+      this.irLast = null;
+    }
     this.fxTick();
     this.irTick();
   }
@@ -354,6 +365,9 @@ export class EditController {
   }
 
   closeFx(): void {
+    // Its values as last shown (edits included): the block keeps its "edited" mark once its sheet is closed.
+    const fx = this.store.get().edit.fx;
+    if (fx?.values && fx.status === 'ready' && fx.type) this.fxLast.set(fx.slot, { preset: fx.preset, type: fx.type, values: fx.values.slice() });
     this.patchEdit({ fx: null });
     this.fxAsked = null;
   }
@@ -450,13 +464,17 @@ export class EditController {
     return saved && saved.preset === this.store.get().activePreset.value ? (saved.slots[slot] ?? null) : null;
   }
 
-  /** The block differs from the preset as saved: another model, or (open in the editor) other parameter values. */
+  /**
+   * The block differs from the preset as saved: another model, or other parameter values (open in the editor, or as
+   * last shown there since the preset loaded or was saved).
+   */
   fxChanged(slot: FxSlot): boolean {
     if (this.savedModelChanged(slot)) return true;
     const base = this.savedParamsOf(slot);
     const fx = this.store.get().edit.fx;
-    if (!base || fx?.slot !== slot || !fx.values || fx.type !== base.type) return false;
-    return base.values.some((v, i) => Math.abs(v - (fx.values![i] ?? v)) > 1e-4);
+    const now = fx?.slot === slot ? fx : this.fxLast.get(slot);
+    if (!base || !now?.values || now.type !== base.type || now.preset !== this.store.get().activePreset.value) return false;
+    return base.values.some((v, i) => Math.abs(v - (now.values![i] ?? v)) > 1e-4);
   }
 
   /**
@@ -500,6 +518,7 @@ export class EditController {
   }
 
   private rememberSavedModels(preset: number, models: FxModelsBySlot): void {
+    this.fxLast.clear();
     this.rememberSavedSource(preset);
     const ids = {} as SavedModels['ids'];
     for (const slot of FX_SLOTS) ids[slot] = models[slot]?.id ?? null;
@@ -512,6 +531,7 @@ export class EditController {
 
   /** The capture, IR and gate shown now, as saved (a load or a save); the IR's settings if read on this IR. */
   private rememberSavedSource(preset: number): void {
+    this.irLast = null;
     const s = this.store.get();
     const ir = s.edit.ir;
     this.patchEdit({
@@ -687,8 +707,9 @@ export class EditController {
     const settings: (keyof CabSettings)[] = [];
     if (!b) return { ir: false, settings };
     const ir = !!b.cabSlot && s.cabOn.value === true && (s.cabSlot.value !== b.cabSlot || (s.irName.value ?? '') !== (b.irName ?? ''));
-    const cur = s.edit.ir;
-    if (!ir && b.ir && cur?.status === 'ready' && cur.settings && cur.preset === b.preset && cur.settings.irName === b.ir.irName) {
+    const open = s.edit.ir;
+    const cur = open ? (open.status === 'ready' ? open : null) : this.irLast;
+    if (!ir && b.ir && cur?.settings && cur.preset === b.preset && cur.settings.irName === b.ir.irName) {
       for (const k of ['level', 'highPass', 'lowPass'] as const) if (Math.abs(cur.settings[k] - b.ir[k]) > 1e-4) settings.push(k);
       if (cur.settings.phaseInverted !== b.ir.phaseInverted) settings.push('phaseInverted');
       if (b.ir.factory && (cur.settings.mic !== b.ir.mic || cur.settings.position !== b.ir.position)) settings.push('mic');
@@ -968,6 +989,7 @@ export class EditController {
     // Its values as last shown (edits included): what it shows again while off.
     const ir = this.store.get().edit.ir;
     if (ir?.status === 'ready' && ir.settings && ir.slot !== null) this.irSeen.set(`${ir.preset}|${ir.slot}`, ir.settings);
+    if (ir?.status === 'ready' && ir.settings) this.irLast = { preset: ir.preset, settings: ir.settings };
     this.patchEdit({ ir: null });
     this.irAsked = null;
   }

@@ -1400,6 +1400,24 @@ button.warn {
 .tile {
   position: relative; /* anchors .t-exp */
 }
+/* Edited and not saved yet (what its sheet's Discard would put back): a dot on the block's corner, in Save's colour.
+   Over the corner, so it comes and goes without moving anything. */
+.preset-sub .lbl {
+  position: relative;
+}
+.tile[data-edited='true']::after,
+.preset-sub .lbl[data-edited='true']::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--on);
+  box-shadow: 0 0 0 2px var(--bg);
+  pointer-events: none;
+}
 
 /* ---------- tuner ---------- */
 .tuner-card {
@@ -2356,9 +2374,10 @@ button.warn {
   background: var(--panel);
   z-index: 2;
 }
-/* Held upright, the head stays at the top while the sheet scrolls (long parameter lists, the libraries); sideways
-   it scrolls away with the rest, so the short screen shows more of the parameters. */
-@media (orientation: portrait) {
+/* Upright, or on a tall screen (a tablet sideways), the head stays at the top while the sheet scrolls (long
+   parameter lists, the libraries); on a short one (a phone sideways) it scrolls away with the rest, so the
+   parameters get the room. */
+@media (orientation: portrait), (min-height: 520px) {
   .sheet-head {
     position: sticky;
   }
@@ -2577,6 +2596,12 @@ button.warn {
 /* The model list open: the chevron points down to it. */
 .ed-model-btn[data-open='true'] svg {
   transform: rotate(90deg);
+}
+/* The dropdowns (model, capture / IR slot) closed: framed in the sheet's colour, so they read as something to open.
+   Open, the plain frame. */
+.ed-model-btn[data-open='false'],
+.ed-slots[data-open='false'] .ed-slots-toggle {
+  border-color: var(--fx, var(--accent));
 }
 /* The FX sheet's line for the read: slimmer (its Read again too), as it sits between the model list and the
    parameters and is empty once they are read. */
@@ -2848,7 +2873,25 @@ button.warn {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  font-weight: 600;
+  font-weight: 700;
+  /* Half way to On: a tint of the block's colour, framed in it. */
+  background: color-mix(in srgb, var(--fx, var(--accent)) 18%, var(--panel-2));
+  border-color: var(--fx, var(--accent));
+}
+.ed-lib-btn:hover {
+  border-color: var(--fx, var(--accent));
+  background: color-mix(in srgb, var(--fx, var(--accent)) 26%, var(--panel-2));
+}
+.ed-lib-btn svg {
+  color: var(--fx, var(--accent));
+}
+/* Can't open (the block off): plain, as the rest of an off block. */
+.ed-lib-btn:disabled {
+  background: var(--panel-2);
+  border-color: #242b35;
+}
+.ed-lib-btn:disabled svg {
+  color: inherit;
 }
 .ed-lib-btn svg {
   width: 20px;
@@ -2994,16 +3037,14 @@ button.warn {
   outline: 2px solid var(--fx, var(--accent));
   outline-offset: 1px;
 }
-.ed-delete,
-.ed-force-save {
+.ed-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   align-self: flex-start;
 }
-.ed-delete svg,
-.ed-force-save svg {
+.ed-delete svg {
   width: 18px;
   height: 18px;
 }
