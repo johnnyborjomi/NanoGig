@@ -2578,6 +2578,15 @@ button.warn {
   text-transform: uppercase;
   margin-bottom: 6px;
 }
+/* A model list's category: its name in the category's colour (lifted a little, so the dark ones read on the
+   panel), over a line in that colour, as the libraries' letters. */
+.ed-model-group[data-cat] > .ed-group-title {
+  color: color-mix(in srgb, var(--fx) 78%, #fff);
+  font-weight: 700;
+  padding-bottom: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fx) 55%, transparent);
+  margin-bottom: 10px;
+}
 .ed-chips {
   display: flex;
   flex-wrap: wrap;

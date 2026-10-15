@@ -604,6 +604,7 @@ export class EditorView {
     this.fxModels.replaceChildren();
     for (const [category, models] of groups) {
       const g = el("div", "ed-model-group");
+      g.dataset.cat = slug(category); // the title and its line in the category's colour
       g.append(el("div", "ed-group-title", category));
       const row = el("div", "ed-chips");
       for (const m of models) {

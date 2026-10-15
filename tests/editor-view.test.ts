@@ -163,6 +163,8 @@ describe('edit gestures', () => {
     const list = root.querySelector<HTMLElement>('.fx-sheet .sheet-body > .ed-models:first-child')!;
     expect(list.hidden).toBe(false);
     expect(modelBtn.dataset.open).toBe('true');
+    // Each category's title sits in a group carrying the category (its colour).
+    expect(Array.from(list.querySelectorAll<HTMLElement>('.ed-model-group')).every((g) => !!g.dataset.cat && g.querySelector('.ed-group-title'))).toBe(true);
     const tape = Array.from(list.querySelectorAll<HTMLElement>('.ed-chip')).find((b) => b.textContent === 'Tape Delay')!;
     tap(tape);
     await until(() => store.get().fxModels.value.post2?.name === 'Tape Delay');
