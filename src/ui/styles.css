@@ -3307,6 +3307,11 @@ button.warn {
 /* A phone held upright: the sheet starts right under the top edge (no air above it) and its head sits closer to
    the top, so the list or the parameters get the room. */
 @media (max-width: 599px) and (orientation: portrait) {
+  /* Popups use the phone's width: 10 px at the sides (the safe areas still count). */
+  .overlay:not(.page) {
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
   .card.sheet {
     --sheet-top: 0px;
     padding-top: 18px;
