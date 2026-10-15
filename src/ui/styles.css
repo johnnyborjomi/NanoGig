@@ -3123,6 +3123,24 @@ button.warn {
   background: var(--panel-2);
   padding: 8px;
 }
+/* A faint line between rows (libraries, the presets list), in the 2px gap; none against an opened row. */
+.ed-list > .ed-item {
+  position: relative;
+}
+.ed-list > .ed-item + .ed-item::before {
+  content: '';
+  position: absolute;
+  top: -1.5px;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}
+.ed-list > .ed-item[data-selected='true']::before,
+.ed-list > .ed-item[data-selected='true'] + .ed-item::before {
+  display: none;
+}
 .ed-item-name {
   flex: 1 1 100%;
   min-width: 0;
