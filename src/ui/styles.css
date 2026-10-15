@@ -2365,12 +2365,20 @@ button.warn {
   height: 20px;
   flex: none;
 }
-/* Buttons left of the close button: pushed right, as tall as it. */
+/* The X (or ‹ Back) and the buttons left of it (Discard): one height, whatever the title's lines. */
+.sheet-head > .sheet-close,
+.sheet-actions > button {
+  box-sizing: border-box;
+  height: 48px;
+  min-height: 48px;
+}
+/* Buttons left of the close button: pushed right. */
 .sheet-actions {
   display: flex;
   gap: 8px;
   margin-left: auto;
-  align-self: stretch;
+  /* Up by the X at its height, also when a long title takes two lines. */
+  align-self: flex-start;
 }
 .sheet-actions:empty {
   display: none;
@@ -3159,6 +3167,15 @@ button.warn {
   background: transparent;
   border-color: transparent;
   min-height: 48px;
+}
+/* The presets list in Control's orange: its top edge, and the active preset marked as on the gig view's strip. */
+.card.sheet.list-sheet {
+  --fx: var(--warn);
+}
+.ed-item.ed-preset-row[data-active='true'] .ed-item-name {
+  border-color: var(--warn);
+  background: #232a22;
+  color: var(--text);
 }
 .ed-preset-row .ed-item-name {
   flex: 1 1 0;
