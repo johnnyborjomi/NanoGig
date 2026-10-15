@@ -16,6 +16,12 @@ describe('fitPresetRowFont', () => {
   it('falls back to the max when nothing measurable is provided', () => {
     expect(fitPresetRowFont({ availableWidth: 0, labelWidthRef: 0, nameWidthRef: 0, maxPx: 96 })).toBe(96);
   });
+  it('stacked: label and name each fit the width on their own line', () => {
+    // At 100 px: label 150 px, name 900 × 0.8 = 720 px → the name decides; slack 15 → 735 px per 100 px.
+    expect(fitPresetRowFont({ availableWidth: 1470, labelWidthRef: 150, nameWidthRef: 900, maxPx: 400, stacked: true })).toBe(Math.floor(1470 / (7.2 + 0.15))); // ≈ 200
+    // A label wider than the name decides instead.
+    expect(fitPresetRowFont({ availableWidth: 1630, labelWidthRef: 800, nameWidthRef: 100, maxPx: 400, stacked: true })).toBe(Math.floor(1630 / (8 + 0.15)));
+  });
   it('uses the multipliers mirrored from the stylesheet', () => {
     expect(REFERENCE_PX).toBe(100);
     expect(ROW_LAYOUT.nameScale).toBe(0.8);

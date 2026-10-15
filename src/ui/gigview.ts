@@ -1472,9 +1472,11 @@ export class GigView {
       parseFloat(cs.paddingLeft || "0") -
       parseFloat(cs.paddingRight || "0");
     if (!(available > 0)) return;
-    const maxPx = Math.max(24, Math.round(window.innerHeight * 0.12));
+    // Height bound: in the stack the label (1.5× the row) and the name take two lines, so each gets less.
+    const stacked = this.layout === "stack";
+    const maxPx = Math.max(24, Math.round(window.innerHeight * (stacked ? 0.065 : 0.12)));
     const names = s.presetNames.value.filter(Boolean);
-    const key = `${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}|${names.join("\u0000")}`;
+    const key = `${this.layout}|${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}|${names.join("\u0000")}`;
     if (key === this.fitKey) return;
     this.fitKey = key;
 
@@ -1530,10 +1532,11 @@ export class GigView {
       labelWidthRef,
       nameWidthRef,
       maxPx,
+      stacked,
     });
     // Before the names are read the only name is the placeholder ("Reading pedal…"): use the size the names gave
     // last time at this width, so the row does not shrink when they arrive.
-    const sizeKey = `${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}`;
+    const sizeKey = `${this.layout}|${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}`;
     const remembered = names.length ? null : GigView.rememberedFont(sizeKey);
     this.slotEl.style.fontSize = `${remembered ?? px}px`;
     if (names.length) GigView.rememberFont(sizeKey, px);
