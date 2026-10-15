@@ -3304,6 +3304,17 @@ button.warn {
 .ed-more[hidden] {
   display: none;
 }
+/* A phone held upright: the sheet starts right under the top edge (no air above it) and its head sits closer to
+   the top, so the list or the parameters get the room. */
+@media (max-width: 599px) and (orientation: portrait) {
+  .card.sheet {
+    --sheet-top: 0px;
+    padding-top: 18px;
+  }
+  .card.sheet .sheet-head {
+    --pad: 18px;
+  }
+}
 /* Short screens (a phone or iPad in landscape): a tighter sheet, so the parameters get the room. */
 @media (max-height: 560px) {
   .edit-sheet {
