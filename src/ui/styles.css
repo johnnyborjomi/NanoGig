@@ -503,6 +503,8 @@ button.warn {
   gap: 6px 12px;
   font-size: 16px;
   min-height: 44px;
+  /* The card scrolls: a row keeps its height (a wrapped select spilled over the next row when squeezed). */
+  flex-shrink: 0;
 }
 .setting-row > :first-child {
   flex: 1 1 11em;
@@ -511,6 +513,11 @@ button.warn {
 .setting-row .menu-select {
   max-width: 100%;
   margin-left: auto;
+}
+/* A select of words (the label style): fills the rest of its line, or the whole next one when it wraps, instead
+   of hanging off the right edge part-way across. */
+.setting-row .menu-select-wide {
+  flex: 1 1 12em;
 }
 /* A setting the label style makes meaningless (numeric labels: the bank size, the pedal number): greyed out. */
 .setting-row:has(:disabled) {
