@@ -398,7 +398,8 @@ export class GigView {
       lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" }),
     );
     this.writesState.dataset.on = "false";
-    this.writesBtn.append(el("span", "", "Control"), this.writesState);
+    this.writesBtn.append(el("span", "btn-label", "Control"), this.writesState);
+    this.writesBtn.setAttribute("aria-label", "Control"); // the label is hidden in the stack layout
     this.writesBtn.addEventListener("click", () => {
       const on = !this.store.get().writesEnabled;
       // Editing needs control: control off ends it.
@@ -1673,7 +1674,8 @@ export class GigView {
     // Updating names: the dot pulses (more text here would push the tempo and the tuner along).
     const busy = s.namesRefreshing && s.connection === "connected";
     this.dot.dataset.busy = String(busy);
-    this.dot.title = busy ? "Updating preset names…" : "";
+    // The stack layout shows the dot alone: its title says what the text would.
+    this.dot.title = busy ? "Updating preset names…" : this.statusText.textContent ?? "";
     // The chooser is the way out of a reconnect loop on Web Bluetooth; while "connecting" it is already open.
     this.reconnectBtn.hidden = s.connection !== "reconnecting" || !this.opts.bluetoothAvailable || s.transportName === "mock";
     {

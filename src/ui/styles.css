@@ -1832,39 +1832,36 @@ button.warn {
   grid-template-columns: minmax(0, 1fr);
   /* pre 1, pre 2 | divider | post 1-3 */
   grid-template-rows: repeat(2, minmax(0, 1fr)) 1px repeat(3, minmax(0, 1fr));
-  height: clamp(210px, 40dvh, 340px);
+  height: clamp(250px, 44dvh, 400px);
   gap: 6px;
 }
 [data-layout='stack'] .tiles > .vsep {
   width: auto;
   height: 1px;
 }
-/* Slot name in a column at the left, the tile filling the rest of the line. */
+/* The slot name on a short line of its own above its tile, so the tile has the whole width. */
 [data-layout='stack'] .tile-wrap {
-  flex-direction: row;
-  align-items: stretch;
-  gap: 10px;
+  gap: 2px;
 }
 [data-layout='stack'] .tile-wrap .t-slot,
 [data-layout='stack'] .gate-row .t-slot {
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  line-height: 1.2;
   white-space: nowrap;
   padding-left: 2px;
 }
-/* The gate's label as wide, so its button starts where the tiles do. */
-[data-layout='stack'] .tile-wrap .t-slot,
-[data-layout='stack'] .gate-row .t-slot {
-  flex: none;
-  width: 5em;
-  align-self: center;
-}
 [data-layout='stack'] .gate-row {
-  gap: 10px;
+  gap: 12px;
 }
 [data-layout='stack'] .tile.gate-btn {
   width: 64px;
   height: 32px;
+}
+/* Top bar: the dot alone tells the connection (its title has the words), Control is its power icon. */
+[data-layout='stack'] .status .status-text,
+[data-layout='stack'] .topbar .btn-label {
+  display: none;
 }
 /* One line per tile: the FX type at the left, the model at the right (the EXP bar keeps the bottom edge). */
 [data-layout='stack'] .tile {
