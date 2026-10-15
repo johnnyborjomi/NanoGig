@@ -2846,7 +2846,14 @@ button.warn {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  font-weight: 600;
+  font-weight: 700;
+  /* Filled in the block's colour, as On. */
+  background: var(--fx, var(--accent));
+  color: var(--fx-ink, var(--on-text));
+  border-color: transparent;
+}
+.ed-lib-btn:hover {
+  border-color: transparent;
 }
 .ed-lib-btn svg {
   width: 20px;
