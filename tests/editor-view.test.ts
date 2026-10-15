@@ -444,6 +444,8 @@ describe('edit gestures', () => {
     )!;
     const i = slots.findIndex((n) => n.toLowerCase() === row.querySelector('.ed-item-label')!.textContent!.toLowerCase());
     expect(row.querySelector('.ed-item-slot')!.textContent).toBe(`Bank ${Math.floor(i / 5) + 1} · Slot ${(i % 5) + 1}`);
+    // The numbers stand out (bold), the words are greyed.
+    expect(Array.from(row.querySelector('.ed-item-slot')!.querySelectorAll('b')).map((b) => b.textContent)).toEqual([String(Math.floor(i / 5) + 1), String((i % 5) + 1)]);
     // The name and its tags share one wrapping line (tags that do not fit go under the name).
     expect(row.querySelector('.ed-item-main > .ed-item-label + .ed-item-tags > .ed-item-slot')).not.toBeNull();
     // Already in a slot: Use (plays it from there, nothing written over), no load.

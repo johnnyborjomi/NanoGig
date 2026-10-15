@@ -147,6 +147,15 @@ function setMsg(node: HTMLElement, text: string, tone: "muted" | "warn" | "ok" =
   node.dataset.busy = String(text.endsWith("…"));
 }
 
+/** Where a library item sits ("Bank 2 · Slot 3"): the numbers stand out, the words are greyed. */
+function slotTag(label: string): HTMLElement {
+  const tag = el("span", "ed-item-slot");
+  for (const part of label.split(/(\d+)/)) {
+    if (part) tag.append(/^\d+$/.test(part) ? el("b", "", part) : part);
+  }
+  return tag;
+}
+
 /** Two quick taps (not drags) on `node`: pointer events, as a phone gives no dblclick on a plain element. */
 function onDoubleTap(node: HTMLElement, fn: () => void) {
   const TAP_MS = 300;
@@ -1693,7 +1702,7 @@ export class EditorView {
         const tags = el("span", "ed-item-tags");
         const inSlots = slotNames.flatMap((n, i) => (n && norm(n) === norm(it.name) ? [i] : []));
         const at = inSlots.map(slotLabel);
-        for (const label of at.slice(0, 2)) tags.append(el("span", "ed-item-slot", label));
+        for (const label of at.slice(0, 2)) tags.append(slotTag(label));
         if (at.length > 2) tags.append(el("span", "ed-item-slot", `+${at.length - 2}`));
         const fid = this.folderOf(it);
         if (q && fid !== null) tags.append(el("span", "ed-item-folder", this.folders.find(fid)?.name ?? ""));

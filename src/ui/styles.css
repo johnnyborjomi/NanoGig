@@ -3408,13 +3408,19 @@ button.warn {
   margin-left: 0;
   white-space: nowrap;
 }
+/* Where it sits on the pedal: the words greyed, the numbers a step bolder, on a pill tinted the library's colour. */
 .ed-item-slot {
   font-size: 12px;
-  color: var(--text);
-  background: #222a35;
+  font-weight: 400;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--fx, var(--accent)) 16%, #222a35);
   border-radius: 999px;
   padding: 2px 8px;
   font-variant-numeric: tabular-nums;
+}
+.ed-item-slot > b {
+  font-weight: 600;
+  color: var(--text);
 }
 /* Sorted: a letter between the groups. */
 .ed-letter {
