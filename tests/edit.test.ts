@@ -79,6 +79,9 @@ describe('FX editing frames', () => {
       for (const i of def!.order ?? []) expect(i).toBeLessThan(def!.params.length);
     }
     for (const slot of FX_SLOT_MODELS) for (const type of slot) expect(FX_MODELS.has(fxModelId(type)), String(type)).toBe(true);
+    // Transpose loads in Pre 1 only (Neural DSP's device list), not Pre 2 as the editor's export has it.
+    expect(FX_SLOT_MODELS[0]).toContain(18001);
+    expect(FX_SLOT_MODELS[1]).not.toContain(18001);
     expect(FX_DEFS.length).toBe(53);
     expect(fxSlotModels('post2').map((m) => m.name)).toContain('Analog Delay');
     expect(fxSlotModels('pre1').map((m) => m.name)).not.toContain('Analog Delay');
