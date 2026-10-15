@@ -1797,6 +1797,83 @@ button.warn {
   }
 }
 
+/* ---------- stack layout: a phone held upright ---------- */
+/* data-layout comes from ui/layout.ts: a window both narrow (< 600 px) and taller than wide — a phone upright,
+   an iPad's split-view or Slide Over window. A tablet turned upright keeps the row layout above.
+   The FX tiles become a list, one per line, and take the height the upright screen has to spare; the capture
+   and the IR get a line each instead of sharing one. */
+#app[data-layout='stack'] {
+  grid-template-rows: auto auto minmax(min-content, 1fr);
+}
+[data-layout='stack'] .preset-sub {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: clamp(15px, 4.4vw, 19px);
+}
+[data-layout='stack'] .preset-sub .sep {
+  display: none;
+}
+[data-layout='stack'] .blocks {
+  min-height: 0;
+  /* On a very tall window the list stops growing (see the rows below); it stays down by the thumb. */
+  justify-content: flex-end;
+}
+[data-layout='stack'] .tiles {
+  grid-template-columns: minmax(0, 1fr);
+  /* pre 1, pre 2 | divider | post 1-3: never too small to hit, never taller than a big button. */
+  grid-template-rows: repeat(2, minmax(52px, 150px)) 1px repeat(3, minmax(52px, 150px));
+  grid-auto-rows: auto;
+  height: auto;
+  flex: 1 1 auto;
+  align-content: end; /* rows at their tallest: the spare room goes above the list */
+  gap: 8px;
+}
+[data-layout='stack'] .tiles > .vsep {
+  width: auto;
+  height: 1px;
+}
+/* Slot name in a column at the left, the tile filling the rest of the line. */
+[data-layout='stack'] .tile-wrap {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+}
+[data-layout='stack'] .tile-wrap .t-slot,
+[data-layout='stack'] .gate-row .t-slot {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  padding-left: 2px;
+}
+/* The gate's label as wide, so its button starts where the tiles do. */
+[data-layout='stack'] .tile-wrap .t-slot,
+[data-layout='stack'] .gate-row .t-slot {
+  flex: none;
+  width: 5em;
+  align-self: center;
+}
+[data-layout='stack'] .gate-row {
+  gap: 10px;
+}
+[data-layout='stack'] .tile .t-cat,
+[data-layout='stack'] .tile.empty .t-name,
+[data-layout='stack'] .tile[data-cat='unknown'] .t-name,
+[data-layout='stack'] .tile[data-cat='none'] .t-name {
+  font-size: clamp(17px, 5.4vw, 26px);
+}
+[data-layout='stack'] .tile .t-name {
+  font-size: clamp(13px, 3.8vw, 17px);
+}
+[data-layout='stack'] .tile.gate-btn {
+  width: 64px;
+  height: 36px;
+}
+[data-layout='stack'] .preset-strip {
+  gap: 8px;
+}
+
 /* ---------- full-page connect / searching ---------- */
 /* Both screens are pages, not cards: the pedal's own connect screen is a page, and a dialog in
    the middle of an empty stage view read as an error. `.overlay.page` keeps the overlay's

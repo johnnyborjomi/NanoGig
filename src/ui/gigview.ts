@@ -41,6 +41,7 @@ import {
   createElement as lucideElement,
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
+import { STRIP_COUNT, watchLayout, type GigLayout } from "./layout";
 import { EditorView } from "./editor-view";
 import { onHold } from "./hold";
 import { presetLabelEls, renderPresetLabel } from "./preset-label";
@@ -114,7 +115,8 @@ export { footswitchFor } from "./preset-label";
 
 /** How long a press must last to count as a hold (opens an editor instead of toggling). */
 /** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
-export const PRESET_STRIP_COUNT = 7;
+/** Preset buttons built for the strip; the layout shows all of them or fewer (ui/layout.ts). */
+export const PRESET_STRIP_COUNT = Math.max(STRIP_COUNT.row, STRIP_COUNT.stack);
 
 const TILE_LABELS: Record<FxSlot | "gate" | "cab", string> = {
   gate: "GATE",
@@ -240,7 +242,9 @@ export class GigView {
   >();
   private readonly presetStrip = el("div", "preset-strip");
   private readonly presetGrid = el("div", "preset-grid");
-  /** Pages of PRESET_STRIP_COUNT the strip is shifted from the active-centred window (control mode paging). */
+  /** Row or stack (ui/layout.ts), from the window's shape. */
+  private layout: GigLayout = "row";
+  /** Pages of the shown preset count the strip is shifted from the active-centred window (control mode paging). */
   private stripPage = 0;
   private stripCentre: number | null = null;
   private readonly stripPrev = el("button", "pbtn-nav");
@@ -729,6 +733,15 @@ export class GigView {
     }
     this.presetStrip.append(el("div", "hsep"), grid);
     blocks.append(this.presetStrip);
+    // Row or stack by the window's shape; a rotation or split view re-fits the preset row and the strip.
+    watchLayout((layout) => {
+      this.layout = layout;
+      this.root.dataset.layout = layout;
+      this.stripPage = 0; // pages of the old size mean nothing now: back to the active preset
+      this.fitKey = "";
+      this.fitPresetRow();
+      if (this.lastState) this.renderPresetStrip(this.lastState);
+    });
 
     // Console --------------------------------------------------------
     const head = el("div", "c-head");
@@ -1931,7 +1944,7 @@ export class GigView {
     this.menuSync.hidden = parts.length === 0;
   }
 
-  /** Window of PRESET_STRIP_COUNT presets centred on the active one, wrapping around the 64 slots. */
+  /** Window of the shown preset count centred on the active one, wrapping around the 64 slots. */
   private pageStrip(dir: -1 | 1) {
     const s = this.store.get();
     if (!(s.writesEnabled && s.connection === "connected")) return;
@@ -1946,9 +1959,11 @@ export class GigView {
     if (centre !== this.stripCentre || !controlling) this.stripPage = 0;
     this.stripCentre = centre;
     this.stripPrev.hidden = this.stripNext.hidden = !controlling;
-    const half = Math.floor(PRESET_STRIP_COUNT / 2);
+    const count = STRIP_COUNT[this.layout];
+    const half = Math.floor(count / 2);
     this.presetBtns.forEach((b, i) => {
-      const raw = centre - half + this.stripPage * PRESET_STRIP_COUNT + i;
+      b.root.hidden = i >= count;
+      const raw = centre - half + this.stripPage * count + i;
       const idx = ((raw % PRESET_COUNT) + PRESET_COUNT) % PRESET_COUNT;
       b.index = idx;
       const label = renderPresetLabel(b, idx, s)!;
@@ -1973,8 +1988,9 @@ export class GigView {
    */
   private relayoutStripSeparators(s: GigState) {
     const children: HTMLElement[] = [this.stripPrev];
-    this.presetBtns.forEach((b, i) => {
-      const prev = this.presetBtns[i - 1];
+    const shown = this.presetBtns.filter((b) => !b.root.hidden);
+    shown.forEach((b, i) => {
+      const prev = shown[i - 1];
       if (prev && !s.showFootswitches && prev.bankNo !== b.bankNo) children.push(el("div", "vsep bank-sep"));
       children.push(b.root);
     });

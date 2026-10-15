@@ -244,6 +244,39 @@ describe('GigView preset strip', () => {
   });
 });
 
+describe('GigView layout', () => {
+  it('stacks on a narrow upright window: five presets in the strip, seven again when it turns', () => {
+    const listeners: (() => void)[] = [];
+    let matches = true;
+    const queries: string[] = [];
+    const saved = window.matchMedia;
+    window.matchMedia = ((q: string) => {
+      queries.push(q);
+      return { get matches() { return matches; }, addEventListener: (_: string, fn: () => void) => listeners.push(fn) } as unknown as MediaQueryList;
+    }) as typeof window.matchMedia;
+    try {
+      const root = document.createElement('div');
+      document.body.append(root);
+      const store = new Store();
+      new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+      expect(queries).toContain('(orientation: portrait) and (max-width: 599px)');
+      expect(root.dataset.layout).toBe('stack');
+      store.patch({ connection: 'connected', syncPhase: 'ready', writesEnabled: true });
+      store.setField('activePreset', 9, 'event');
+      const labels = () => Array.from(root.querySelectorAll<HTMLElement>('.preset-grid > *')).map((x) => (x.classList.contains('bank-sep') ? '|' : x.classList.contains('pbtn') ? x.querySelector('.p-label')!.textContent : '<>'));
+      expect(labels()).toEqual(['<>', '2D', '|', '3A', '3B', '3C', '3D', '<>']); // 3B in the middle of five
+      root.querySelector<HTMLButtonElement>('.preset-grid .pbtn-nav:last-child')!.click();
+      expect(labels()).toEqual(['<>', '4A', '4B', '4C', '4D', '|', '5A', '<>']); // pages by five
+      matches = false; // turned to landscape (or a tablet-wide window)
+      listeners.forEach((fn) => fn());
+      expect(root.dataset.layout).toBe('row');
+      expect(labels()).toEqual(['<>', '2C', '2D', '|', '3A', '3B', '3C', '3D', '|', '4A', '<>']);
+    } finally {
+      window.matchMedia = saved;
+    }
+  });
+});
+
 describe('GigView writes toggle and reconnect button', () => {
   it('shows the Control button when connected, the Connect… button only while reconnecting', () => {
     const root = document.createElement('div');
