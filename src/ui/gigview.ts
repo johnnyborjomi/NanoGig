@@ -41,6 +41,7 @@ import {
   Star,
   Undo2,
   VolumeX,
+  X,
   createElement as lucideElement,
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
@@ -801,7 +802,18 @@ export class GigView {
     // Settings overlay --------------------------------------------------
     {
       const card = el("div", "card");
-      card.append(el("h1", "", "Settings"));
+      // A head as on the other popups: the title, and an X that stays at the top (no scrolling down to Done).
+      const head = el("div", "sheet-head");
+      const titles = el("div", "sheet-titles");
+      titles.append(el("h1", "", "Settings"));
+      const x = el("button", "ghost icon-btn sheet-close");
+      x.type = "button";
+      x.title = "Close";
+      x.setAttribute("aria-label", "Close");
+      x.append(lucideElement(X, { "stroke-width": 2.25, "aria-hidden": "true" }));
+      x.addEventListener("click", () => this.settingsOverlay.classList.remove("open"));
+      head.append(titles, x);
+      card.append(head);
       card.append(
         el(
           "p",

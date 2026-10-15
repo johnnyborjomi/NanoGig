@@ -387,6 +387,12 @@ describe('GigView writes toggle and reconnect button', () => {
     const style = settings.querySelectorAll('select')[1]!;
     expect(style.value).toBe('numeric');
     expect(style.querySelectorAll('option')[0]!.value).toBe('numeric'); // first in the list
+    // The X at the top closes it, as Done at the bottom does.
+    const x = settings.querySelector<HTMLButtonElement>('.sheet-head > .sheet-close')!;
+    expect(x.getAttribute('aria-label')).toBe('Close');
+    x.click();
+    expect(settings.classList.contains('open')).toBe(false);
+    settings.classList.add('open');
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
     expect(root.querySelector('.badge')).toBeNull();
