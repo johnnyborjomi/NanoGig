@@ -2579,6 +2579,12 @@ button.warn {
 .ed-model-btn[data-open='true'] svg {
   transform: rotate(90deg);
 }
+/* The dropdowns (model, capture / IR slot) closed: framed in the sheet's colour, so they read as something to open.
+   Open, the plain frame. */
+.ed-model-btn[data-open='false'],
+.ed-slots[data-open='false'] .ed-slots-toggle {
+  border-color: var(--fx, var(--accent));
+}
 /* The FX sheet's line for the read: slimmer (its Read again too), as it sits between the model list and the
    parameters and is empty once they are read. */
 .ed-msg-row.ed-msg-row-slim {
