@@ -2847,13 +2847,24 @@ button.warn {
   justify-content: center;
   gap: 10px;
   font-weight: 700;
-  /* Filled in the block's colour, as On. */
-  background: var(--fx, var(--accent));
-  color: var(--fx-ink, var(--on-text));
-  border-color: transparent;
+  /* Half way to On: a tint of the block's colour, framed in it. */
+  background: color-mix(in srgb, var(--fx, var(--accent)) 18%, var(--panel-2));
+  border-color: var(--fx, var(--accent));
 }
 .ed-lib-btn:hover {
-  border-color: transparent;
+  border-color: var(--fx, var(--accent));
+  background: color-mix(in srgb, var(--fx, var(--accent)) 26%, var(--panel-2));
+}
+.ed-lib-btn svg {
+  color: var(--fx, var(--accent));
+}
+/* Can't open (the block off): plain, as the rest of an off block. */
+.ed-lib-btn:disabled {
+  background: var(--panel-2);
+  border-color: #242b35;
+}
+.ed-lib-btn:disabled svg {
+  color: inherit;
 }
 .ed-lib-btn svg {
   width: 20px;
