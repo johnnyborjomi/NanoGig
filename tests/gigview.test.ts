@@ -244,6 +244,39 @@ describe('GigView preset strip', () => {
   });
 });
 
+describe('GigView layout', () => {
+  it('stacks on a narrow upright window: five presets in the strip, seven again when it turns', () => {
+    const listeners: (() => void)[] = [];
+    let matches = true;
+    const queries: string[] = [];
+    const saved = window.matchMedia;
+    window.matchMedia = ((q: string) => {
+      queries.push(q);
+      return { get matches() { return matches; }, addEventListener: (_: string, fn: () => void) => listeners.push(fn) } as unknown as MediaQueryList;
+    }) as typeof window.matchMedia;
+    try {
+      const root = document.createElement('div');
+      document.body.append(root);
+      const store = new Store();
+      new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
+      expect(queries).toContain('(orientation: portrait) and (max-width: 599px)');
+      expect(root.dataset.layout).toBe('stack');
+      store.patch({ connection: 'connected', syncPhase: 'ready', writesEnabled: true });
+      store.setField('activePreset', 9, 'event');
+      const labels = () => Array.from(root.querySelectorAll<HTMLElement>('.preset-grid > *')).map((x) => (x.classList.contains('bank-sep') ? '|' : x.classList.contains('pbtn') ? x.querySelector('.p-label')!.textContent : '<>'));
+      expect(labels()).toEqual(['<>', '2D', '|', '3A', '3B', '3C', '3D', '<>']); // 3B in the middle of five
+      root.querySelector<HTMLButtonElement>('.preset-grid .pbtn-nav:last-child')!.click();
+      expect(labels()).toEqual(['<>', '4A', '4B', '4C', '4D', '|', '5A', '<>']); // pages by five
+      matches = false; // turned to landscape (or a tablet-wide window)
+      listeners.forEach((fn) => fn());
+      expect(root.dataset.layout).toBe('row');
+      expect(labels()).toEqual(['<>', '2C', '2D', '|', '3A', '3B', '3C', '3D', '|', '4A', '<>']);
+    } finally {
+      window.matchMedia = saved;
+    }
+  });
+});
+
 describe('GigView writes toggle and reconnect button', () => {
   it('shows the Control button when connected, the Connect… button only while reconnecting', () => {
     const root = document.createElement('div');
@@ -258,6 +291,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const control = btn(/^Control$/);
     expect(control.hidden).toBe(false);
     expect(control.querySelector<HTMLElement>('.btn-state')?.dataset.on).toBe('false');
+    expect(control.querySelector('svg')?.dataset.icon).toBe('lock'); // off: locked
     expect(btn(/^Pick from the list…$/).hidden).toBe(true);
     control.click();
     expect(calls).toEqual(['writes:true']);
@@ -265,6 +299,7 @@ describe('GigView writes toggle and reconnect button', () => {
     store.patch({ writesEnabled: true });
     expect(control.querySelector<HTMLElement>('.btn-state')?.dataset.on).toBe('true');
     expect(control.getAttribute('aria-pressed')).toBe('true');
+    expect(control.querySelector('svg')?.dataset.icon).toBe('lock-open'); // on: unlocked
     expect(root.querySelector('.badge')).toBeNull(); // no separate "control on" badge
     expect(root.querySelector('.preset-strip')?.classList.contains('writable')).toBe(true);
 

@@ -33,16 +33,21 @@ export interface FitInput {
   maxPx: number;
   /** Lower bound so the row never becomes unreadable, px. */
   minPx?: number;
+  /**
+   * Stack layout (ui/layout.ts): the label on a line of its own above the name, so each only has to fit the
+   * width by itself. The label's own scale there is in `labelWidthRef` already (measured with the real CSS).
+   */
+  stacked?: boolean;
 }
 
 /** Largest row font-size (px) at which label + gaps + name fit `availableWidth`. */
 export function fitPresetRowFont(input: FitInput): number {
   const minPx = input.minPx ?? 24;
-  const perPx =
-    input.labelWidthRef / REFERENCE_PX +
-    (input.nameWidthRef / REFERENCE_PX) * ROW_LAYOUT.nameScale +
-    ROW_LAYOUT.gapsEm +
-    ROW_LAYOUT.slackEm;
+  const label = input.labelWidthRef / REFERENCE_PX;
+  const name = (input.nameWidthRef / REFERENCE_PX) * ROW_LAYOUT.nameScale;
+  const perPx = input.stacked
+    ? Math.max(label, name) + ROW_LAYOUT.slackEm
+    : label + name + ROW_LAYOUT.gapsEm + ROW_LAYOUT.slackEm;
   if (!(perPx > 0) || !(input.availableWidth > 0)) return input.maxPx;
   const fit = input.availableWidth / perPx;
   return Math.max(minPx, Math.min(input.maxPx, Math.floor(fit)));

@@ -147,6 +147,15 @@ function setMsg(node: HTMLElement, text: string, tone: "muted" | "warn" | "ok" =
   node.dataset.busy = String(text.endsWith("…"));
 }
 
+/** Where a library item sits ("Bank 2 · Slot 3"): the numbers stand out, the words are greyed. */
+function slotTag(label: string): HTMLElement {
+  const tag = el("span", "ed-item-slot");
+  for (const part of label.split(/(\d+)/)) {
+    if (part) tag.append(/^\d+$/.test(part) ? el("b", "", part) : part);
+  }
+  return tag;
+}
+
 /** Two quick taps (not drags) on `node`: pointer events, as a phone gives no dblclick on a plain element. */
 function onDoubleTap(node: HTMLElement, fn: () => void) {
   const TAP_MS = 300;
@@ -325,6 +334,7 @@ class SlotPicker {
       this.bankNext = iconButton(ChevronsRight, "Next bank", "ed-step-btn ed-bank-btn");
       this.bankPrev.addEventListener("click", () => onBank(-1));
       this.bankNext.addEventListener("click", () => onBank(1));
+      head.classList.add("ed-slots-banks");
       head.append(this.bankPrev, this.prev, this.toggle, this.next, this.bankNext);
     } else head.append(this.prev, this.toggle, this.next);
     const swap = (target: () => SlotTarget) => {
@@ -535,6 +545,7 @@ export class EditorView {
     if (!this.canEdit) return;
     this.fxSlot = slot;
     this.fxModels.hidden = true;
+    this.fxModelBtn.dataset.open = "false";
     this.fxParamsKey = "";
     this.run(() => this.edit().openFx(slot));
     this.fxSheet.open();
@@ -553,16 +564,20 @@ export class EditorView {
     });
     this.fxModelBtn.addEventListener("click", () => {
       this.fxModels.hidden = !this.fxModels.hidden;
+      this.fxModelBtn.dataset.open = String(!this.fxModels.hidden);
       this.fxModelsKey = "";
       this.renderFxModels();
     });
     this.fxRetry.addEventListener("click", () => this.run(() => this.edit().retryFx()));
     sh.actions.append(this.fxDiscard);
-    const top = el("div", "ed-row");
+    // The model and on / off in the sheet's head (it stays at the top while the parameters scroll, held upright);
+    // the model list opens right under them, then the line for the read, then the parameters.
+    const top = el("div", "ed-row ed-head-row");
     top.append(this.fxModelBtn, this.fxPower);
-    const status = el("div", "ed-msg-row");
+    sh.head.append(top);
+    const status = el("div", "ed-msg-row ed-msg-row-slim");
     status.append(this.fxStatus, this.fxRetry);
-    sh.body.append(top, status, this.fxModels, this.fxParams);
+    sh.body.append(this.fxModels, status, this.fxParams);
   }
 
   private fxModelsKey = "";
@@ -639,7 +654,7 @@ export class EditorView {
     // One line that is always there: its text changes, the layout does not.
     const msg: Record<string, string> = {
       loading: "Reading the parameters…",
-      ready: on === false ? "Off: heard once it is on · Save keeps it" : "Live: Save keeps it",
+      ready: "",
       empty: "No model in this slot",
       unknown: "No parameter table for this model",
       error: "No answer from the pedal",
@@ -932,7 +947,7 @@ export class EditorView {
             ? "Off: turn it on to read its settings and open the library"
             : on === false
               ? "Off: turn it on to hear it or open the library"
-              : "Live: Save keeps it",
+              : "",
       status === "error" ? "warn" : "muted",
     );
     this.irRetry.dataset.shown = String(status === "error");
@@ -992,10 +1007,12 @@ export class EditorView {
     sh.title.textContent = "Gate";
     this.gatePower.append(icon(Power), el("span", "", ""));
     this.gatePower.addEventListener("click", () => this.run(this.actions.toggleGate()));
-    const row = el("div", "ed-row");
+    // On / off in the sheet's head, as the FX sheet's.
+    const row = el("div", "ed-row ed-head-row");
     row.append(this.gatePower);
     sh.actions.append(this.gateDiscard);
-    sh.body.append(row, this.gateThreshold.root, el("p", "hint", "A live edit, like Cortex Cloud's slider: Save keeps it."));
+    sh.head.append(row);
+    sh.body.append(this.gateThreshold.root);
   }
 
   private renderGate() {
@@ -1132,7 +1149,7 @@ export class EditorView {
     if (busy) setMsg(this.presetMsg, "Waiting for the pedal…");
     else if (!unchanged && problem) setMsg(this.presetMsg, problem, "warn");
     else if (answer && answer.at >= this.nameTypedAt) setMsg(this.presetMsg, answer.ok ? `${answer.kind === "delete" ? "Deleted" : "Saved"}.` : answer.message, answer.ok ? "ok" : "warn");
-    else setMsg(this.presetMsg, "4–31 characters, no two presets with the same name");
+    else setMsg(this.presetMsg, "4–31 characters, a name no other preset has");
     const fs = s.footswitches.value;
     for (const b of Array.from(this.fsRow.children) as HTMLButtonElement[]) {
       const key = b.dataset.fs as Footswitch;
@@ -1373,7 +1390,7 @@ export class EditorView {
     this.slotBankBtns.push(bankPrev, bankNext);
     const middle = el("div", "ed-slots-toggle ed-slot-choice");
     middle.append(this.slotLabel);
-    const head = el("div", "ed-row ed-step ed-slots-head");
+    const head = el("div", "ed-row ed-step ed-slots-head ed-slots-banks");
     head.append(bankPrev, prev, middle, next, bankNext);
     const list = el("div", "ed-cap-slots");
     for (let i = 0; i < Math.max(CAPTURE_SELECT_SLOTS, CAB_SLOT_COUNT); i++) {
@@ -1569,7 +1586,8 @@ export class EditorView {
     if (mode === "move" && this.libMoving) this.barTitle.append(el("span", "", "Move "), el("strong", "", this.libMoving.name), el("span", "", " to:"));
     else if (mode === "pick" && folder) this.barTitle.append(el("span", "", "Add to "), el("strong", "", folder.name));
     else if (folder) this.barTitle.append(icon(FolderOpen), el("strong", "", folder.name));
-    else this.barTitle.textContent = items.length ? `Hold a ${noun} to move it${HAS_HOVER ? " (or drag it)" : ""}` : "";
+    // Short: beside New folder and the sort, a phone leaves the hint a narrow column (two lines at most).
+    else this.barTitle.textContent = items.length ? `Hold one to move it${HAS_HOVER ? " (or drag)" : ""}` : "";
     this.barTitle.title = this.barTitle.textContent ?? "";
     this.barRename.hidden = this.barDelete.hidden = naming || cancel || !folder;
     // + in a folder; picking: Add n (nothing ticked: off).
@@ -1635,12 +1653,14 @@ export class EditorView {
         b.setAttribute("aria-pressed", String(picked));
         const box = icon(picked ? SquareCheck : Square);
         box.classList.add("ed-pick-box");
-        b.append(box, el("span", "ed-item-index", String(it.index + 1)), el("span", "ed-item-label", it.name || "(no name)"));
+        const main = el("span", "ed-item-main");
+        main.append(el("span", "ed-item-label", it.name || "(no name)"));
+        b.append(box, el("span", "ed-item-index", String(it.index + 1)), main);
         const fid = this.folderOf(it);
         if (fid !== null) {
           const tags = el("span", "ed-item-tags");
           tags.append(el("span", "ed-item-folder", this.folders.find(fid)?.name ?? ""));
-          b.append(tags);
+          main.append(tags);
         }
         b.addEventListener("click", () => {
           if (this.libPicked.has(it.name)) this.libPicked.delete(it.name);
@@ -1675,16 +1695,19 @@ export class EditorView {
         row.dataset.saved = String(!!saved && norm(it.name) === saved);
         row.dataset.selected = String(this.libSelected === key);
         const name = el("button", "ed-item-name");
-        name.append(el("span", "ed-item-index", String(it.index + 1)), el("span", "ed-item-label", it.name || "(no name)"));
+        // The name and its tags share a wrapping line: tags that do not fit go under the name.
+        const main = el("span", "ed-item-main");
+        main.append(el("span", "ed-item-label", it.name || "(no name)"));
+        name.append(el("span", "ed-item-index", String(it.index + 1)), main);
         const tags = el("span", "ed-item-tags");
         const inSlots = slotNames.flatMap((n, i) => (n && norm(n) === norm(it.name) ? [i] : []));
         const at = inSlots.map(slotLabel);
-        for (const label of at.slice(0, 2)) tags.append(el("span", "ed-item-slot", label));
+        for (const label of at.slice(0, 2)) tags.append(slotTag(label));
         if (at.length > 2) tags.append(el("span", "ed-item-slot", `+${at.length - 2}`));
         const fid = this.folderOf(it);
         if (q && fid !== null) tags.append(el("span", "ed-item-folder", this.folders.find(fid)?.name ?? ""));
         if (row.dataset.saved === "true") tags.append(el("span", "ed-item-saved", "saved"));
-        if (tags.childElementCount) name.append(tags);
+        if (tags.childElementCount) main.append(tags);
         // A tap opens the row; a capture plays at once (Cortex Cloud's preview, in the preset's own place) for
         // listening, until another is tapped, it is loaded, or the library closes.
         const playing = irs ? irPreview?.name === it.name : preview?.name === it.name;

@@ -23,6 +23,8 @@ import {
   Copy,
   Download,
   ListOrdered,
+  Lock,
+  LockOpen,
   Metronome,
   LogOut,
   Maximize,
@@ -41,6 +43,7 @@ import {
   createElement as lucideElement,
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
+import { STRIP_COUNT, watchLayout, type GigLayout } from "./layout";
 import { EditorView } from "./editor-view";
 import { onHold } from "./hold";
 import { presetLabelEls, renderPresetLabel } from "./preset-label";
@@ -114,7 +117,8 @@ export { footswitchFor } from "./preset-label";
 
 /** How long a press must last to count as a hold (opens an editor instead of toggling). */
 /** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
-export const PRESET_STRIP_COUNT = 7;
+/** Preset buttons built for the strip; the layout shows all of them or fewer (ui/layout.ts). */
+export const PRESET_STRIP_COUNT = Math.max(STRIP_COUNT.row, STRIP_COUNT.stack);
 
 const TILE_LABELS: Record<FxSlot | "gate" | "cab", string> = {
   gate: "GATE",
@@ -240,7 +244,9 @@ export class GigView {
   >();
   private readonly presetStrip = el("div", "preset-strip");
   private readonly presetGrid = el("div", "preset-grid");
-  /** Pages of PRESET_STRIP_COUNT the strip is shifted from the active-centred window (control mode paging). */
+  /** Row or stack (ui/layout.ts), from the window's shape. */
+  private layout: GigLayout = "row";
+  /** Pages of the shown preset count the strip is shifted from the active-centred window (control mode paging). */
   private stripPage = 0;
   private stripCentre: number | null = null;
   private readonly stripPrev = el("button", "pbtn-nav");
@@ -390,11 +396,10 @@ export class GigView {
     );
     this.writesBtn.title =
       "Control mode: tap tiles to toggle blocks, ◀ ▶ to switch presets. Changes go to the real pedal.";
-    this.writesState.append(
-      lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" }),
-    );
     this.writesState.dataset.on = "false";
-    this.writesBtn.append(el("span", "", "Control"), this.writesState);
+    this.renderWritesIcon(false);
+    this.writesBtn.append(el("span", "btn-label", "Control"), this.writesState);
+    this.writesBtn.setAttribute("aria-label", "Control"); // the label is hidden in the stack layout
     this.writesBtn.addEventListener("click", () => {
       const on = !this.store.get().writesEnabled;
       // Editing needs control: control off ends it.
@@ -536,8 +541,9 @@ export class GigView {
     this.exitDemoBtn.title = "Leave demo mode and return to the connect screen";
     this.exitDemoBtn.append(
       lucideElement(LogOut, { "aria-hidden": "true" }),
-      el("span", "", "Exit demo"),
+      el("span", "btn-label", "Exit demo"),
     );
+    this.exitDemoBtn.setAttribute("aria-label", "Exit demo");
     this.exitDemoBtn.addEventListener(
       "click",
       () => void this.actions.disconnect(),
@@ -729,6 +735,15 @@ export class GigView {
     }
     this.presetStrip.append(el("div", "hsep"), grid);
     blocks.append(this.presetStrip);
+    // Row or stack by the window's shape; a rotation or split view re-fits the preset row and the strip.
+    watchLayout((layout) => {
+      this.layout = layout;
+      this.root.dataset.layout = layout;
+      this.stripPage = 0; // pages of the old size mean nothing now: back to the active preset
+      this.fitKey = "";
+      this.fitPresetRow();
+      if (this.lastState) this.renderPresetStrip(this.lastState);
+    });
 
     // Console --------------------------------------------------------
     const head = el("div", "c-head");
@@ -1413,6 +1428,11 @@ export class GigView {
     }, 5000);
   }
 
+  /** Control's icon: a closed lock while off (taps only show), an open one while on (taps go to the pedal). */
+  private renderWritesIcon(on: boolean) {
+    this.writesState.replaceChildren(lucideElement(on ? LockOpen : Lock, { "stroke-width": 2.5, "aria-hidden": "true", "data-icon": on ? "lock-open" : "lock" }));
+  }
+
   private toggleFullscreen() {
     // Must run synchronously inside the click (user activation); no awaits before the call.
     const root = document.documentElement;
@@ -1459,9 +1479,11 @@ export class GigView {
       parseFloat(cs.paddingLeft || "0") -
       parseFloat(cs.paddingRight || "0");
     if (!(available > 0)) return;
-    const maxPx = Math.max(24, Math.round(window.innerHeight * 0.12));
+    // Height bound: in the stack the label (1.5× the row) and the name take two lines, so each gets less.
+    const stacked = this.layout === "stack";
+    const maxPx = Math.max(24, Math.round(window.innerHeight * (stacked ? 0.065 : 0.12)));
     const names = s.presetNames.value.filter(Boolean);
-    const key = `${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}|${names.join("\u0000")}`;
+    const key = `${this.layout}|${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}|${names.join("\u0000")}`;
     if (key === this.fitKey) return;
     this.fitKey = key;
 
@@ -1517,10 +1539,11 @@ export class GigView {
       labelWidthRef,
       nameWidthRef,
       maxPx,
+      stacked,
     });
     // Before the names are read the only name is the placeholder ("Reading pedal…"): use the size the names gave
     // last time at this width, so the row does not shrink when they arrive.
-    const sizeKey = `${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}`;
+    const sizeKey = `${this.layout}|${Math.round(available)}|${maxPx}|${s.presetsPerBank}|${s.labelStyle}|${s.showPresetNumber ? 1 : 0}|${s.showFootswitches ? 1 : 0}`;
     const remembered = names.length ? null : GigView.rememberedFont(sizeKey);
     this.slotEl.style.fontSize = `${remembered ?? px}px`;
     if (names.length) GigView.rememberFont(sizeKey, px);
@@ -1642,6 +1665,7 @@ export class GigView {
       else this.renderTempo(s);
     }
     this.menuBtn.hidden = s.connection === "disconnected";
+    if (this.writesState.dataset.on !== String(s.writesEnabled)) this.renderWritesIcon(s.writesEnabled);
     this.writesState.dataset.on = s.writesEnabled ? "true" : "false";
     this.writesBtn.classList.toggle("warn", s.writesEnabled);
     this.writesBtn.setAttribute(
@@ -1657,7 +1681,8 @@ export class GigView {
     // Updating names: the dot pulses (more text here would push the tempo and the tuner along).
     const busy = s.namesRefreshing && s.connection === "connected";
     this.dot.dataset.busy = String(busy);
-    this.dot.title = busy ? "Updating preset names…" : "";
+    // The stack layout shows the dot alone: its title says what the text would.
+    this.dot.title = busy ? "Updating preset names…" : this.statusText.textContent ?? "";
     // The chooser is the way out of a reconnect loop on Web Bluetooth; while "connecting" it is already open.
     this.reconnectBtn.hidden = s.connection !== "reconnecting" || !this.opts.bluetoothAvailable || s.transportName === "mock";
     {
@@ -1931,7 +1956,7 @@ export class GigView {
     this.menuSync.hidden = parts.length === 0;
   }
 
-  /** Window of PRESET_STRIP_COUNT presets centred on the active one, wrapping around the 64 slots. */
+  /** Window of the shown preset count centred on the active one, wrapping around the 64 slots. */
   private pageStrip(dir: -1 | 1) {
     const s = this.store.get();
     if (!(s.writesEnabled && s.connection === "connected")) return;
@@ -1946,9 +1971,11 @@ export class GigView {
     if (centre !== this.stripCentre || !controlling) this.stripPage = 0;
     this.stripCentre = centre;
     this.stripPrev.hidden = this.stripNext.hidden = !controlling;
-    const half = Math.floor(PRESET_STRIP_COUNT / 2);
+    const count = STRIP_COUNT[this.layout];
+    const half = Math.floor(count / 2);
     this.presetBtns.forEach((b, i) => {
-      const raw = centre - half + this.stripPage * PRESET_STRIP_COUNT + i;
+      b.root.hidden = i >= count;
+      const raw = centre - half + this.stripPage * count + i;
       const idx = ((raw % PRESET_COUNT) + PRESET_COUNT) % PRESET_COUNT;
       b.index = idx;
       const label = renderPresetLabel(b, idx, s)!;
@@ -1973,8 +2000,9 @@ export class GigView {
    */
   private relayoutStripSeparators(s: GigState) {
     const children: HTMLElement[] = [this.stripPrev];
-    this.presetBtns.forEach((b, i) => {
-      const prev = this.presetBtns[i - 1];
+    const shown = this.presetBtns.filter((b) => !b.root.hidden);
+    shown.forEach((b, i) => {
+      const prev = shown[i - 1];
       if (prev && !s.showFootswitches && prev.bankNo !== b.bankNo) children.push(el("div", "vsep bank-sep"));
       children.push(b.root);
     });
