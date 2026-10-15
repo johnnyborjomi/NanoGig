@@ -541,8 +541,9 @@ export class GigView {
     this.exitDemoBtn.title = "Leave demo mode and return to the connect screen";
     this.exitDemoBtn.append(
       lucideElement(LogOut, { "aria-hidden": "true" }),
-      el("span", "", "Exit demo"),
+      el("span", "btn-label", "Exit demo"),
     );
+    this.exitDemoBtn.setAttribute("aria-label", "Exit demo");
     this.exitDemoBtn.addEventListener(
       "click",
       () => void this.actions.disconnect(),

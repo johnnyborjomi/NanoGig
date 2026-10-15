@@ -325,6 +325,7 @@ class SlotPicker {
       this.bankNext = iconButton(ChevronsRight, "Next bank", "ed-step-btn ed-bank-btn");
       this.bankPrev.addEventListener("click", () => onBank(-1));
       this.bankNext.addEventListener("click", () => onBank(1));
+      head.classList.add("ed-slots-banks");
       head.append(this.bankPrev, this.prev, this.toggle, this.next, this.bankNext);
     } else head.append(this.prev, this.toggle, this.next);
     const swap = (target: () => SlotTarget) => {
@@ -1132,7 +1133,7 @@ export class EditorView {
     if (busy) setMsg(this.presetMsg, "Waiting for the pedal…");
     else if (!unchanged && problem) setMsg(this.presetMsg, problem, "warn");
     else if (answer && answer.at >= this.nameTypedAt) setMsg(this.presetMsg, answer.ok ? `${answer.kind === "delete" ? "Deleted" : "Saved"}.` : answer.message, answer.ok ? "ok" : "warn");
-    else setMsg(this.presetMsg, "4–31 characters, no two presets with the same name");
+    else setMsg(this.presetMsg, "4–31 characters, a name no other preset has");
     const fs = s.footswitches.value;
     for (const b of Array.from(this.fsRow.children) as HTMLButtonElement[]) {
       const key = b.dataset.fs as Footswitch;
@@ -1373,7 +1374,7 @@ export class EditorView {
     this.slotBankBtns.push(bankPrev, bankNext);
     const middle = el("div", "ed-slots-toggle ed-slot-choice");
     middle.append(this.slotLabel);
-    const head = el("div", "ed-row ed-step ed-slots-head");
+    const head = el("div", "ed-row ed-step ed-slots-head ed-slots-banks");
     head.append(bankPrev, prev, middle, next, bankNext);
     const list = el("div", "ed-cap-slots");
     for (let i = 0; i < Math.max(CAPTURE_SELECT_SLOTS, CAB_SLOT_COUNT); i++) {
@@ -1569,7 +1570,8 @@ export class EditorView {
     if (mode === "move" && this.libMoving) this.barTitle.append(el("span", "", "Move "), el("strong", "", this.libMoving.name), el("span", "", " to:"));
     else if (mode === "pick" && folder) this.barTitle.append(el("span", "", "Add to "), el("strong", "", folder.name));
     else if (folder) this.barTitle.append(icon(FolderOpen), el("strong", "", folder.name));
-    else this.barTitle.textContent = items.length ? `Hold a ${noun} to move it${HAS_HOVER ? " (or drag it)" : ""}` : "";
+    // Short: beside New folder and the sort, a phone leaves the hint a narrow column (two lines at most).
+    else this.barTitle.textContent = items.length ? `Hold one to move it${HAS_HOVER ? " (or drag)" : ""}` : "";
     this.barTitle.title = this.barTitle.textContent ?? "";
     this.barRename.hidden = this.barDelete.hidden = naming || cancel || !folder;
     // + in a folder; picking: Add n (nothing ticked: off).
@@ -1635,12 +1637,14 @@ export class EditorView {
         b.setAttribute("aria-pressed", String(picked));
         const box = icon(picked ? SquareCheck : Square);
         box.classList.add("ed-pick-box");
-        b.append(box, el("span", "ed-item-index", String(it.index + 1)), el("span", "ed-item-label", it.name || "(no name)"));
+        const main = el("span", "ed-item-main");
+        main.append(el("span", "ed-item-label", it.name || "(no name)"));
+        b.append(box, el("span", "ed-item-index", String(it.index + 1)), main);
         const fid = this.folderOf(it);
         if (fid !== null) {
           const tags = el("span", "ed-item-tags");
           tags.append(el("span", "ed-item-folder", this.folders.find(fid)?.name ?? ""));
-          b.append(tags);
+          main.append(tags);
         }
         b.addEventListener("click", () => {
           if (this.libPicked.has(it.name)) this.libPicked.delete(it.name);
@@ -1675,7 +1679,10 @@ export class EditorView {
         row.dataset.saved = String(!!saved && norm(it.name) === saved);
         row.dataset.selected = String(this.libSelected === key);
         const name = el("button", "ed-item-name");
-        name.append(el("span", "ed-item-index", String(it.index + 1)), el("span", "ed-item-label", it.name || "(no name)"));
+        // The name and its tags share a wrapping line: tags that do not fit go under the name.
+        const main = el("span", "ed-item-main");
+        main.append(el("span", "ed-item-label", it.name || "(no name)"));
+        name.append(el("span", "ed-item-index", String(it.index + 1)), main);
         const tags = el("span", "ed-item-tags");
         const inSlots = slotNames.flatMap((n, i) => (n && norm(n) === norm(it.name) ? [i] : []));
         const at = inSlots.map(slotLabel);
@@ -1684,7 +1691,7 @@ export class EditorView {
         const fid = this.folderOf(it);
         if (q && fid !== null) tags.append(el("span", "ed-item-folder", this.folders.find(fid)?.name ?? ""));
         if (row.dataset.saved === "true") tags.append(el("span", "ed-item-saved", "saved"));
-        if (tags.childElementCount) name.append(tags);
+        if (tags.childElementCount) main.append(tags);
         // A tap opens the row; a capture plays at once (Cortex Cloud's preview, in the preset's own place) for
         // listening, until another is tapped, it is loaded, or the library closes.
         const playing = irs ? irPreview?.name === it.name : preview?.name === it.name;
