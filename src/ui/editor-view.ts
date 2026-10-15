@@ -536,6 +536,7 @@ export class EditorView {
     if (!this.canEdit) return;
     this.fxSlot = slot;
     this.fxModels.hidden = true;
+    this.fxModelBtn.dataset.open = "false";
     this.fxParamsKey = "";
     this.run(() => this.edit().openFx(slot));
     this.fxSheet.open();
@@ -554,16 +555,20 @@ export class EditorView {
     });
     this.fxModelBtn.addEventListener("click", () => {
       this.fxModels.hidden = !this.fxModels.hidden;
+      this.fxModelBtn.dataset.open = String(!this.fxModels.hidden);
       this.fxModelsKey = "";
       this.renderFxModels();
     });
     this.fxRetry.addEventListener("click", () => this.run(() => this.edit().retryFx()));
     sh.actions.append(this.fxDiscard);
-    const top = el("div", "ed-row");
+    // The model and on / off in the sheet's head (it stays at the top while the parameters scroll, held upright);
+    // the model list opens right under them, then the line for the read, then the parameters.
+    const top = el("div", "ed-row ed-head-row");
     top.append(this.fxModelBtn, this.fxPower);
-    const status = el("div", "ed-msg-row");
+    sh.head.append(top);
+    const status = el("div", "ed-msg-row ed-msg-row-slim");
     status.append(this.fxStatus, this.fxRetry);
-    sh.body.append(top, status, this.fxModels, this.fxParams);
+    sh.body.append(this.fxModels, status, this.fxParams);
   }
 
   private fxModelsKey = "";
@@ -640,7 +645,7 @@ export class EditorView {
     // One line that is always there: its text changes, the layout does not.
     const msg: Record<string, string> = {
       loading: "Reading the parameters…",
-      ready: on === false ? "Off: heard once it is on · Save keeps it" : "Live: Save keeps it",
+      ready: "",
       empty: "No model in this slot",
       unknown: "No parameter table for this model",
       error: "No answer from the pedal",
@@ -933,7 +938,7 @@ export class EditorView {
             ? "Off: turn it on to read its settings and open the library"
             : on === false
               ? "Off: turn it on to hear it or open the library"
-              : "Live: Save keeps it",
+              : "",
       status === "error" ? "warn" : "muted",
     );
     this.irRetry.dataset.shown = String(status === "error");
@@ -993,10 +998,12 @@ export class EditorView {
     sh.title.textContent = "Gate";
     this.gatePower.append(icon(Power), el("span", "", ""));
     this.gatePower.addEventListener("click", () => this.run(this.actions.toggleGate()));
-    const row = el("div", "ed-row");
+    // On / off in the sheet's head, as the FX sheet's.
+    const row = el("div", "ed-row ed-head-row");
     row.append(this.gatePower);
     sh.actions.append(this.gateDiscard);
-    sh.body.append(row, this.gateThreshold.root, el("p", "hint", "A live edit, like Cortex Cloud's slider: Save keeps it."));
+    sh.head.append(row);
+    sh.body.append(this.gateThreshold.root);
   }
 
   private renderGate() {

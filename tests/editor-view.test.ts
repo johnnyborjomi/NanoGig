@@ -155,9 +155,14 @@ describe('edit gestures', () => {
   it('the model list stays open after a pick; the mark moves to the new model', async () => {
     const { root, store } = await setup(true);
     await hold(root.querySelector('.tile[data-key="post2"]')!);
-    tap(root.querySelector('.fx-sheet .ed-model-btn')!);
-    const list = root.querySelector<HTMLElement>('.fx-sheet .ed-models')!;
+    // The model and on / off sit in the sheet's head; the list opens first in the body, right under them.
+    const modelBtn = root.querySelector<HTMLElement>('.fx-sheet .sheet-head .ed-model-btn')!;
+    expect(root.querySelector('.fx-sheet .sheet-head .ed-power')).not.toBeNull();
+    expect(modelBtn.dataset.open).toBe('false');
+    tap(modelBtn);
+    const list = root.querySelector<HTMLElement>('.fx-sheet .sheet-body > .ed-models:first-child')!;
     expect(list.hidden).toBe(false);
+    expect(modelBtn.dataset.open).toBe('true');
     const tape = Array.from(list.querySelectorAll<HTMLElement>('.ed-chip')).find((b) => b.textContent === 'Tape Delay')!;
     tap(tape);
     await until(() => store.get().fxModels.value.post2?.name === 'Tape Delay');

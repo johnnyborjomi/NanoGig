@@ -2298,8 +2298,6 @@ button.warn {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  /* Stays at the top while the sheet scrolls (long parameter lists, the presets list). */
-  position: sticky;
   --pad: clamp(18px, 4vh, 32px);
   top: calc(-1 * var(--pad));
   margin-top: calc(-1 * var(--pad));
@@ -2307,7 +2305,16 @@ button.warn {
   background: var(--panel);
   z-index: 2;
 }
+/* Held upright, the head stays at the top while the sheet scrolls (long parameter lists, the libraries); sideways
+   it scrolls away with the rest, so the short screen shows more of the parameters. */
+@media (orientation: portrait) {
+  .sheet-head {
+    position: sticky;
+  }
+}
 .sheet-titles {
+  /* Takes the room left of the buttons and gives way (a long title wraps), so the X stays up on the right. */
+  flex: 1 1 0;
   min-width: 0;
 }
 /* What stays at the top with the title (amp & cab: its tabs, the name and on / off; the libraries: the search and
@@ -2318,7 +2325,8 @@ button.warn {
 }
 .sheet-head > .ed-tabs,
 .sheet-head > .ed-search,
-.sheet-head > .ed-name-row {
+.sheet-head > .ed-name-row,
+.sheet-head > .ed-head-row {
   flex: 1 0 100%;
 }
 .sheet-head > .ed-name-row[hidden] {
@@ -2483,6 +2491,42 @@ button.warn {
   width: 18px;
   height: 18px;
   color: var(--muted);
+  transition: transform 150ms ease;
+}
+/* Model and on / off on one row in the head (it stays at the top held upright): the model's name gives way. */
+.ed-head-row {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.ed-head-row > .ed-model-btn {
+  min-width: 0;
+}
+.ed-head-row > .ed-model-btn > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-head-row > .ed-power {
+  flex: none;
+}
+@media (max-width: 440px) {
+  .ed-head-row > .ed-model-btn > .ed-label {
+    display: none;
+  }
+}
+/* The model list open: the chevron points down to it. */
+.ed-model-btn[data-open='true'] svg {
+  transform: rotate(90deg);
+}
+/* The FX sheet's line for the read: slimmer (its Read again too), as it sits between the model list and the
+   parameters and is empty once they are read. */
+.ed-msg-row.ed-msg-row-slim {
+  height: 30px;
+}
+.ed-msg-row-slim .ed-retry {
+  min-height: 28px;
+  padding: 2px 12px;
 }
 .ed-label {
   color: var(--muted);
