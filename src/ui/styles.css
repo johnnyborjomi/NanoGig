@@ -1812,9 +1812,13 @@ button.warn {
    an iPad's split-view or Slide Over window. A tablet turned upright keeps the row layout above.
    Everything still fits one screen: the FX tiles become a compact list (about 40 % of the height, one line
    each), the bank / slot gets a line of its own above the preset name, the capture and the IR a line each. */
+/* Air between the bank / slot, the name and the capture / IR: the stack leaves the preset room enough. */
+[data-layout='stack'] .preset {
+  gap: 16px;
+}
 [data-layout='stack'] .preset-row {
   flex-wrap: wrap;
-  row-gap: 0.04em;
+  row-gap: 0.14em;
 }
 /* 1.5× the row: ui/fit.ts measures it with this rule in place (the probe sits in the same container). */
 [data-layout='stack'] .slot-label {
@@ -1828,8 +1832,8 @@ button.warn {
 [data-layout='stack'] .preset-sub {
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
-  padding: 5px 10px;
+  gap: 8px;
+  padding: 8px 10px;
   font-size: clamp(15px, 4.4vw, 19px);
 }
 [data-layout='stack'] .preset-sub .sep {
@@ -1955,7 +1959,14 @@ button.warn {
   [data-layout='stack'] .blocks {
     gap: 6px;
   }
+  [data-layout='stack'] .preset {
+    gap: 8px;
+  }
+  [data-layout='stack'] .preset-row {
+    row-gap: 0.04em;
+  }
   [data-layout='stack'] .preset-sub {
+    padding: 5px 10px;
     flex-direction: row;
     gap: 10px;
     font-size: 15px;
