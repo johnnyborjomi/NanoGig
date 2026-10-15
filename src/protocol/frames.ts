@@ -279,7 +279,7 @@ export function midiStrategyById(id: string | null | undefined): MidiStrategy | 
   return MIDI_STRATEGIES.find((s) => s.id === id) ?? null;
 }
 
-/** Mvave Chocolate style is the default: 4 presets per bank, shown as "1B" (bank number + preset letter). */
+/** 4 presets per bank, as the Mvave Chocolate ("1B": bank number + preset letter) when a bank style is chosen. */
 export const DEFAULT_PRESETS_PER_BANK = 4;
 export const PRESETS_PER_BANK_CHOICES = [2, 3, 4, 5, 6, 8] as const;
 
@@ -288,8 +288,9 @@ export const PRESETS_PER_BANK_CHOICES = [2, 3, 4, 5, 6, 8] as const;
  * pedal's own preset number (as on the Nano Cortex): no banks at all.
  */
 export type PresetLabelStyle = "number-letter" | "letter-number" | "numeric";
-export const DEFAULT_LABEL_STYLE: PresetLabelStyle = "number-letter";
-export const PRESET_LABEL_STYLES: readonly PresetLabelStyle[] = ["number-letter", "letter-number", "numeric"];
+/** Numeric by default: most players switch presets on the pedal itself, with no MIDI controller. */
+export const DEFAULT_LABEL_STYLE: PresetLabelStyle = "numeric";
+export const PRESET_LABEL_STYLES: readonly PresetLabelStyle[] = ["numeric", "number-letter", "letter-number"];
 
 /** The label shows banks (1B, A2), so the strip pages a bank at a time; "numeric" has none. */
 export function labelHasBanks(style: PresetLabelStyle | undefined): boolean {

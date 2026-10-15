@@ -41,7 +41,9 @@ describe('GigView', () => {
 
     expect(root.querySelector('.overlay.connect')?.classList.contains('open')).toBe(false);
     expect(root.querySelector('.preset-name')?.textContent).toBe('Big Lead Tone');
-    expect(root.querySelector('.slot-label')?.textContent).toBe('3B'); // index 9, default Mvave layout, no number
+    expect(root.querySelector('.slot-label')?.textContent).toBe('10'); // index 9: the pedal's number by default
+    store.patch({ labelStyle: 'number-letter' }); // Mvave layout
+    expect(root.querySelector('.slot-label')?.textContent).toBe('3B');
     expect(root.querySelector<HTMLElement>('.slot-slot')?.dataset.slot).toBe('1');
     store.patch({ showPresetNumber: true });
     expect(root.querySelector('.slot-label')?.textContent).toBe('3B·10');
@@ -169,6 +171,7 @@ describe('GigView preset strip', () => {
     const strip = () => root.querySelector<HTMLElement>('.preset-strip')!;
     const btns = () => Array.from(root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn:not([hidden])'));
     const labels = () => btns().map((x) => x.querySelector('.p-label')?.textContent);
+    store.patch({ labelStyle: 'number-letter' }); // banks (the default is numeric, further down)
 
     store.patch({ connection: 'connected', syncPhase: 'ready' });
     store.setField('presetNames', Array.from({ length: 64 }, (_, i) => (i === 9 ? 'Big Lead Tone' : '')), 'metadata');
@@ -291,7 +294,7 @@ describe('GigView layout', () => {
       new GigView(root, store, noopActions(), { bluetoothAvailable: true, showMockButton: false });
       expect(queries).toContain('(orientation: portrait) and (max-width: 599px)');
       expect(root.dataset.layout).toBe('stack');
-      store.patch({ connection: 'connected', syncPhase: 'ready', writesEnabled: true });
+      store.patch({ connection: 'connected', syncPhase: 'ready', writesEnabled: true, labelStyle: 'number-letter' });
       store.setField('activePreset', 9, 'event');
       const labels = () => Array.from(root.querySelectorAll<HTMLElement>('.preset-grid .pbtn-nav, .preset-grid .pbtn:not([hidden])')).map((x) => (x.classList.contains('pbtn') ? x.querySelector('.p-label')!.textContent : '<>'));
       const cols = () => root.querySelector<HTMLElement>('.preset-cells')!.style.getPropertyValue('--cols');
@@ -380,7 +383,10 @@ describe('GigView writes toggle and reconnect button', () => {
     expect(settings.classList.contains('open')).toBe(true);
     expect(settings.querySelectorAll('select').length).toBe(2);
     expect(settings.querySelectorAll('input[type="checkbox"]').length).toBe(7); // preset number, footswitch labels, preset list, auto names, outputs mute, live tuner, expression values (Edit is a top-bar button)
-    expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1A');
+    expect(settings.querySelector('.hint')?.textContent).toContain('preset 1 → 1,'); // numeric by default
+    const style = settings.querySelectorAll('select')[1]!;
+    expect(style.value).toBe('numeric');
+    expect(style.querySelectorAll('option')[0]!.value).toBe('numeric'); // first in the list
     Array.from(settings.querySelectorAll('button')).find((b) => b.textContent === 'Done')!.click();
     expect(settings.classList.contains('open')).toBe(false);
     expect(root.querySelector('.badge')).toBeNull();

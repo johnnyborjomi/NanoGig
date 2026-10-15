@@ -827,9 +827,9 @@ export class GigView {
       const styleRow = el("label", "setting-row");
       styleRow.append(el("span", "", "Label style"));
       for (const [value, text] of [
+        ["numeric", "1–64 — preset number, as on the Nano"],
         ["number-letter", "1B — bank number, preset letter (Mvave Chocolate)"],
         ["letter-number", "A2 — bank letter, preset number (other MIDI controllers)"],
-        ["numeric", "1–64 — preset number, as on the Nano"],
       ] as const) {
         const opt = document.createElement("option");
         opt.value = value;

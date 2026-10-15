@@ -115,13 +115,18 @@ describe('MIDI program change', () => {
 });
 
 describe('presetLabel', () => {
-  it('defaults to the Mvave Chocolate layout: 4 per bank, bank number + preset letter', () => {
-    expect(presetLabel(0)).toBe('1A');
-    expect(presetLabel(1)).toBe('1B');
-    expect(presetLabel(4)).toBe('2A');
-    expect(presetLabel(9)).toBe('3B');
-    expect(presetLabel(63)).toBe('16D');
+  it('defaults to the pedal\'s own number (most players have no MIDI controller)', () => {
+    expect(presetLabel(0)).toBe('1');
+    expect(presetLabel(63)).toBe('64');
     expect(presetLabel(64)).toBe('—');
+  });
+  it('supports the Mvave Chocolate layout: bank number + preset letter', () => {
+    const mvave = { presetsPerBank: 4, style: 'number-letter' as const };
+    expect(presetLabel(0, mvave)).toBe('1A');
+    expect(presetLabel(1, mvave)).toBe('1B');
+    expect(presetLabel(4, mvave)).toBe('2A');
+    expect(presetLabel(9, mvave)).toBe('3B');
+    expect(presetLabel(63, mvave)).toBe('16D');
   });
   it('supports the Nano Cortex A–H layout', () => {
     const nano = { presetsPerBank: 8, style: 'letter-number' as const };
@@ -139,10 +144,10 @@ describe('presetLabel', () => {
     expect(presetLabelParts(9, numeric)).toEqual({ bank: '10', slot: '', slotIndex: 1 });
     expect(labelHasBanks('numeric')).toBe(false);
     expect(labelHasBanks('letter-number')).toBe(true);
-    expect(labelHasBanks(undefined)).toBe(true);
+    expect(labelHasBanks(undefined)).toBe(false); // the default
   });
   it('exposes the two figures separately for colouring', () => {
-    expect(presetLabelParts(9)).toEqual({ bank: '3', slot: 'B', slotIndex: 1 });
+    expect(presetLabelParts(9, { style: 'number-letter' })).toEqual({ bank: '3', slot: 'B', slotIndex: 1 });
     expect(presetLabelParts(9, { presetsPerBank: 8, style: 'letter-number' })).toEqual({ bank: 'B', slot: '2', slotIndex: 1 });
     expect(presetLabelParts(64)).toBeNull();
     expect(PRESET_NAME_MAX_LENGTH).toBe(20);
@@ -150,7 +155,7 @@ describe('presetLabel', () => {
   it('handles other bank sizes and falls back on invalid ones', () => {
     expect(presetLabel(9, { presetsPerBank: 4, style: 'letter-number' })).toBe('C2');
     expect(presetLabel(63, { presetsPerBank: 2, style: 'letter-number' })).toBe('AF2'); // letters continue past Z
-    expect(presetLabel(5, { presetsPerBank: 0 })).toBe('2B'); // invalid size falls back to 4
+    expect(presetLabel(5, { presetsPerBank: 0, style: 'number-letter' })).toBe('2B'); // invalid size falls back to 4
   });
 });
 
