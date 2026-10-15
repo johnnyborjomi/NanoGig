@@ -169,9 +169,9 @@ export interface GigState {
   syncPhase: SyncPhase;
   lastError: string | null;
   writesEnabled: boolean;
-  /** User setting: how many presets one bank of their MIDI controller spans (label only). */
+  /** User setting: how many presets one bank of their MIDI controller spans (the label, and a page of the strip). */
   presetsPerBank: number;
-  /** User setting: "number-letter" (1B, Mvave) or "letter-number" (A2, Nano). */
+  /** User setting: "number-letter" (1B, Mvave), "letter-number" (A2) or "numeric" (10, as on the Nano). */
   labelStyle: PresetLabelStyle;
   /** User setting: show the pedal's absolute preset number (1–64) after the bank label. */
   showPresetNumber: boolean;

@@ -512,6 +512,14 @@ button.warn {
   max-width: 100%;
   margin-left: auto;
 }
+/* A setting the label style makes meaningless (numeric labels: the bank size, the pedal number): greyed out. */
+.setting-row:has(:disabled) {
+  color: var(--muted);
+}
+.setting-row :disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 /* Experimental settings: the checkbox and its tag go warning-yellow while on. */
 .setting-row .experimental {
   font-style: normal;
@@ -966,20 +974,24 @@ button.warn {
 .preset-strip.visible {
   display: flex;
 }
-/* Seven equal columns; minmax(0, 1fr) lets a button shrink below its text so the row always fits. */
+/* The arrows, and between them the page's presets (a bank, or the numeric window). */
 .preset-grid {
   display: flex;
   align-items: stretch;
   gap: 4px;
   min-width: 0;
 }
-/* Seven equal buttons; arrows and bank separators take only their own width. */
-.preset-grid .pbtn {
+/* Equal columns, as many as the page has (--cols, set with it), so a short last bank leaves its cells empty
+   instead of widening the rest; minmax(0, 1fr) lets a button shrink below its text so the row always fits. */
+.preset-cells {
   flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 7), minmax(0, 1fr));
+  gap: 4px;
 }
-.preset-grid .bank-sep {
-  flex: none;
-  margin: 0 2px;
+.preset-cells > .pbtn[hidden] {
+  display: none;
 }
 .pbtn-nav {
   display: inline-flex;
@@ -1842,8 +1854,12 @@ button.warn {
   grid-template-columns: minmax(0, 1fr);
   /* pre 1, pre 2 | divider | post 1-3 */
   grid-template-rows: repeat(2, minmax(0, 1fr)) 1px repeat(3, minmax(0, 1fr));
-  height: clamp(200px, 40dvh, 400px);
+  height: calc(clamp(200px, 40dvh, 400px) - var(--strip-extra, 0px));
   gap: 6px;
+}
+/* A bank of 6 or 8 takes two rows of the strip: the tiles give up that row so the page still fits. */
+#app[data-layout='stack'][data-strip-rows='2'] {
+  --strip-extra: 51px;
 }
 [data-layout='stack'] .tiles > .vsep {
   width: auto;
@@ -1963,7 +1979,7 @@ button.warn {
 /* Taller still: the tiles get their room back. */
 @media (min-height: 800px) {
   [data-layout='stack'] .tiles {
-    height: clamp(200px, 44dvh, 400px);
+    height: calc(clamp(200px, 44dvh, 400px) - var(--strip-extra, 0px));
   }
 }
 /* A short upright screen (an iPhone SE in Safari): tighter spacing, the capture and IR share a line again. */
@@ -3152,6 +3168,10 @@ button.warn {
   height: 1px;
   background: rgba(255, 255, 255, 0.06);
   pointer-events: none;
+}
+/* The first preset of a bank: a brighter line, so the presets list reads in banks (not with numeric labels). */
+.ed-list > .ed-item[data-bank-start='true']::before {
+  background: rgba(255, 255, 255, 0.2);
 }
 .ed-list > .ed-item[data-selected='true']::before,
 .ed-list > .ed-item[data-selected='true'] + .ed-item::before {

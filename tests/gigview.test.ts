@@ -160,14 +160,15 @@ describe('GigView PWA install and update', () => {
 });
 
 describe('GigView preset strip', () => {
-  it('shows seven preset buttons centred on the active preset in control mode, wrapping around 64', () => {
+  it('shows the active preset\'s bank in control mode, paged a bank at a time; numeric labels a centred window', () => {
     const root = document.createElement('div');
     document.body.append(root);
     const store = new Store();
     const picked: number[] = [];
     new GigView(root, store, { ...noopActions(), selectPreset: (i: number) => { picked.push(i); return Promise.resolve(); } }, { bluetoothAvailable: true, showMockButton: false });
     const strip = () => root.querySelector<HTMLElement>('.preset-strip')!;
-    const btns = () => Array.from(root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn'));
+    const btns = () => Array.from(root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn:not([hidden])'));
+    const labels = () => btns().map((x) => x.querySelector('.p-label')?.textContent);
 
     store.patch({ connection: 'connected', syncPhase: 'ready' });
     store.setField('presetNames', Array.from({ length: 64 }, (_, i) => (i === 9 ? 'Big Lead Tone' : '')), 'metadata');
@@ -180,7 +181,7 @@ describe('GigView preset strip', () => {
     expect(strip().classList.contains('writable')).toBe(false); // ...but inert
     expect(root.querySelectorAll('.preset-strip .pbtn')[0]!.getAttribute('aria-disabled')).toBe('true');
     expect(root.querySelector('.footer')).toBeNull(); // old prev/next footer is gone
-    root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn')[6]!.click();
+    root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn')[2]!.click();
     expect(picked).toEqual([]); // click ignored while control is off
 
     store.patch({ writesEnabled: true });
@@ -188,64 +189,93 @@ describe('GigView preset strip', () => {
     expect(root.querySelectorAll('.preset-strip .pbtn')[0]!.getAttribute('aria-disabled')).toBe('false');
     expect(root.querySelector('.preset-strip > .hsep')).not.toBeNull(); // separator above the strip
     const b = btns();
-    expect(b).toHaveLength(7);
-    expect(b.map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['2C', '2D', '3A', '3B', '3C', '3D', '4A']); // 4 per bank, 1B style
-    // Vertical separators between banks: 2C 2D | 3A 3B 3C 3D | 4A; none with footswitch labels on.
-    const kinds = () => Array.from(root.querySelectorAll<HTMLElement>('.preset-grid > *')).map((x) => (x.classList.contains('bank-sep') ? '|' : x.classList.contains('pbtn') ? x.querySelector('.p-label')!.textContent : '<>'));
-    expect(kinds()).toEqual(['<>', '2C', '2D', '|', '3A', '3B', '3C', '3D', '|', '4A', '<>']);
-    store.patch({ showFootswitches: true });
-    expect(root.querySelectorAll('.preset-grid .bank-sep').length).toBe(0);
-    store.patch({ showFootswitches: false });
-    expect(b[3]!.dataset.active).toBe('true');
-    expect(b[3]!.querySelector('.p-name')?.textContent).toBe('Big Lead Tone');
-    expect(b[2]!.querySelector('.p-name')?.textContent).toBe('Preset 9'); // unnamed fallback
-    expect(b[2]!.querySelector('.p-name')?.classList.contains('empty')).toBe(true);
-    expect(b[3]!.querySelector<HTMLElement>('.slot-slot')?.dataset.slot).toBe('1'); // slot colour hook
-    expect(b[3]!.querySelector<HTMLElement>('.p-num')?.hidden).toBe(true); // pedal number off by default
+    expect(b).toHaveLength(4);
+    expect(labels()).toEqual(['3A', '3B', '3C', '3D']); // 4 per bank, 1B style: 3B's bank
+    expect(root.querySelector<HTMLElement>('.preset-cells')!.style.getPropertyValue('--cols')).toBe('4');
+    expect(root.querySelectorAll('.preset-grid .bank-sep').length).toBe(0); // one bank: no separators
+    expect(b[1]!.dataset.active).toBe('true');
+    expect(b[1]!.querySelector('.p-name')?.textContent).toBe('Big Lead Tone');
+    expect(b[0]!.querySelector('.p-name')?.textContent).toBe('Preset 9'); // unnamed fallback
+    expect(b[0]!.querySelector('.p-name')?.classList.contains('empty')).toBe(true);
+    expect(b[1]!.querySelector<HTMLElement>('.slot-slot')?.dataset.slot).toBe('1'); // slot colour hook
+    expect(b[1]!.querySelector<HTMLElement>('.p-num')?.hidden).toBe(true); // pedal number off by default
     // Nano footswitch badges: off by default, then IA/IB/IIA/IIB on the assigned presets only.
-    store.setField('footswitches', { ia: 9, ib: 12, iia: 20, iib: 6 }, 'dump');
-    expect(btns()[3]!.querySelector<HTMLElement>('.fs-badge')?.hidden).toBe(true);
+    store.setField('footswitches', { ia: 9, ib: 10, iia: 20, iib: 6 }, 'dump');
+    expect(btns()[1]!.querySelector<HTMLElement>('.fs-badge')?.hidden).toBe(true);
     expect(root.querySelector<HTMLElement>('.slot-label .fs-badge')?.hidden).toBe(true);
     store.patch({ showFootswitches: true });
     expect(root.querySelector<HTMLElement>('.slot-label .fs-badge')?.textContent).toBe('IA'); // active preset 9
     expect(root.querySelector<HTMLElement>('.slot-label .fs-badge')?.dataset.fs).toBe('ia');
-    expect(btns().map((x) => x.querySelector<HTMLElement>('.fs-badge')!).map((e) => (e.hidden ? '' : e.textContent))).toEqual(['IIB', '', '', 'IA', '', '', 'IB']);
+    expect(btns().map((x) => x.querySelector<HTMLElement>('.fs-badge')!).map((e) => (e.hidden ? '' : e.textContent))).toEqual(['', 'IA', 'IB', '']);
     store.patch({ showFootswitches: false });
     store.patch({ showPresetNumber: true });
-    expect(btns()[3]!.querySelector<HTMLElement>('.p-num')?.textContent).toBe('·10');
-    expect(btns()[3]!.querySelector<HTMLElement>('.p-num')?.hidden).toBe(false);
+    expect(btns()[1]!.querySelector<HTMLElement>('.p-num')?.textContent).toBe('·10');
+    expect(btns()[1]!.querySelector<HTMLElement>('.p-num')?.hidden).toBe(false);
     store.patch({ showPresetNumber: false });
 
-    b[6]!.click();
-    expect(picked).toEqual([12]);
+    b[3]!.click();
+    expect(picked).toEqual([11]);
 
     store.setField('activePreset', 0, 'event');
-    expect(btns().map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['16B', '16C', '16D', '1A', '1B', '1C', '1D']); // wraps
-    expect(btns()[3]!.dataset.active).toBe('true');
+    expect(labels()).toEqual(['1A', '1B', '1C', '1D']);
+    expect(btns()[0]!.dataset.active).toBe('true');
 
-    // Arrows page the window by 7 without selecting; a preset change re-centres.
-    const prev = root.querySelector<HTMLButtonElement>('.preset-grid .pbtn-nav:first-child')!;
-    const next = root.querySelector<HTMLButtonElement>('.preset-grid .pbtn-nav:last-child')!;
+    // Arrows page a bank at a time without selecting, wrapping; a preset change goes back to its bank.
+    const prev = root.querySelector<HTMLButtonElement>('.preset-grid > .pbtn-nav:first-child')!;
+    const next = root.querySelector<HTMLButtonElement>('.preset-grid > .pbtn-nav:last-child')!;
     expect(next.hidden).toBe(false);
     next.click();
-    expect(btns().map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['2A', '2B', '2C', '2D', '3A', '3B', '3C']);
+    expect(labels()).toEqual(['2A', '2B', '2C', '2D']);
     expect(btns().some((x) => x.dataset.active === 'true')).toBe(false);
-    expect(picked).toEqual([12]); // nothing selected by paging
+    expect(picked).toEqual([11]); // nothing selected by paging
     prev.click();
     prev.click();
-    expect(btns().map((x) => x.querySelector('.p-label')?.textContent)).toEqual(['14C', '14D', '15A', '15B', '15C', '15D', '16A']);
-    btns()[0]!.click();
-    expect(picked).toEqual([12, 54]);
-    store.setField('activePreset', 54, 'event');
+    expect(labels()).toEqual(['16A', '16B', '16C', '16D']); // wraps
+    btns()[2]!.click();
+    expect(picked).toEqual([11, 62]);
+    store.setField('activePreset', 62, 'event');
+    expect(btns()[2]!.dataset.active).toBe('true');
+    next.click();
+    store.setField('activePreset', 61, 'event');
+    expect(labels()).toEqual(['16A', '16B', '16C', '16D']); // back to the active preset's bank
+
+    // 3 a bank: the last bank is preset 64 alone; its other cells stay empty (the columns keep their width).
+    store.patch({ presetsPerBank: 3 });
+    expect(labels()).toEqual(['21A', '21B', '21C']); // 60..62
+    next.click();
+    expect(labels()).toEqual(['22A']);
+    expect(root.querySelector<HTMLElement>('.preset-cells')!.style.getPropertyValue('--cols')).toBe('3');
+    next.click();
+    expect(labels()).toEqual(['1A', '1B', '1C']);
+
+    // Numeric labels (as on the Nano): no banks, seven around the active preset, paged by seven; the pedal
+    // number is the label, so the "show number" box is on and locked, and the bank size is greyed out.
+    store.patch({ labelStyle: 'numeric', showPresetNumber: false });
+    store.setField('activePreset', 9, 'event');
+    expect(labels()).toEqual(['7', '8', '9', '10', '11', '12', '13']);
     expect(btns()[3]!.dataset.active).toBe('true');
-    expect(btns()[3]!.querySelector('.p-label')?.textContent).toBe('14C'); // re-centred
+    expect(btns()[3]!.querySelector<HTMLElement>('.slot-slot')?.textContent).toBe('');
+    const numberBox = Array.from(root.querySelectorAll<HTMLLabelElement>('.setting-row')).find((r) => /^Show pedal preset number/.test(r.textContent ?? ''))!.querySelector('input')!;
+    expect(numberBox.checked).toBe(true);
+    expect(numberBox.disabled).toBe(true);
+    expect(root.querySelector<HTMLSelectElement>('.setting-row select')!.disabled).toBe(true); // presets per bank
+    store.patch({ showPresetNumber: true });
+    expect(btns()[3]!.querySelector<HTMLElement>('.p-num')?.hidden).toBe(true); // not "10·10"
+    next.click();
+    expect(labels()).toEqual(['14', '15', '16', '17', '18', '19', '20']);
+    store.setField('activePreset', 0, 'event');
+    expect(labels()).toEqual(['62', '63', '64', '1', '2', '3', '4']); // wraps
+    store.patch({ labelStyle: 'number-letter', showPresetNumber: false });
+    expect(numberBox.disabled).toBe(false);
+    expect(numberBox.checked).toBe(false); // the setting itself was kept
+
     store.patch({ writesEnabled: false });
     expect(next.hidden).toBe(true); // arrows only in control mode
   });
 });
 
 describe('GigView layout', () => {
-  it('stacks on a narrow upright window: five presets in the strip, seven again when it turns', () => {
+  it('stacks on a narrow upright window: a bank in the strip, in two rows from 6 a bank; five numeric, seven when it turns', () => {
     const listeners: (() => void)[] = [];
     let matches = true;
     const queries: string[] = [];
@@ -263,14 +293,24 @@ describe('GigView layout', () => {
       expect(root.dataset.layout).toBe('stack');
       store.patch({ connection: 'connected', syncPhase: 'ready', writesEnabled: true });
       store.setField('activePreset', 9, 'event');
-      const labels = () => Array.from(root.querySelectorAll<HTMLElement>('.preset-grid > *')).map((x) => (x.classList.contains('bank-sep') ? '|' : x.classList.contains('pbtn') ? x.querySelector('.p-label')!.textContent : '<>'));
-      expect(labels()).toEqual(['<>', '2D', '|', '3A', '3B', '3C', '3D', '<>']); // 3B in the middle of five
-      root.querySelector<HTMLButtonElement>('.preset-grid .pbtn-nav:last-child')!.click();
-      expect(labels()).toEqual(['<>', '4A', '4B', '4C', '4D', '|', '5A', '<>']); // pages by five
+      const labels = () => Array.from(root.querySelectorAll<HTMLElement>('.preset-grid .pbtn-nav, .preset-grid .pbtn:not([hidden])')).map((x) => (x.classList.contains('pbtn') ? x.querySelector('.p-label')!.textContent : '<>'));
+      const cols = () => root.querySelector<HTMLElement>('.preset-cells')!.style.getPropertyValue('--cols');
+      expect(labels()).toEqual(['<>', '3A', '3B', '3C', '3D', '<>']);
+      expect(cols()).toBe('4');
+      store.patch({ presetsPerBank: 8, labelStyle: 'letter-number' });
+      expect(labels()).toEqual(['<>', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', '<>']);
+      expect(cols()).toBe('4'); // two rows of four
+      store.patch({ labelStyle: 'numeric' });
+      expect(labels()).toEqual(['<>', '8', '9', '10', '11', '12', '<>']); // 10 in the middle of five
+      expect(cols()).toBe('5');
+      root.querySelector<HTMLButtonElement>('.preset-grid > .pbtn-nav:last-child')!.click();
+      expect(labels()).toEqual(['<>', '13', '14', '15', '16', '17', '<>']); // pages by five
       matches = false; // turned to landscape (or a tablet-wide window)
       listeners.forEach((fn) => fn());
       expect(root.dataset.layout).toBe('row');
-      expect(labels()).toEqual(['<>', '2C', '2D', '|', '3A', '3B', '3C', '3D', '|', '4A', '<>']);
+      expect(labels()).toEqual(['<>', '7', '8', '9', '10', '11', '12', '13', '<>']);
+      store.patch({ labelStyle: 'letter-number' });
+      expect(cols()).toBe('8'); // one row in the row layout
     } finally {
       window.matchMedia = saved;
     }

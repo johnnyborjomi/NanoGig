@@ -5,6 +5,7 @@
  */
 import {
   FX_SLOTS,
+  labelHasBanks,
   PRESETS_PER_BANK_CHOICES,
   presetLabel,
   presetLabelParts,
@@ -115,10 +116,8 @@ export interface GigViewOptions {
 /** Which of the Nano's footswitches (IA, IB, IIA, IIB) is assigned to preset `index`, if any. */
 export { footswitchFor } from "./preset-label";
 
-/** How long a press must last to count as a hold (opens an editor instead of toggling). */
-/** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
-/** Preset buttons built for the strip; the layout shows all of them or fewer (ui/layout.ts). */
-export const PRESET_STRIP_COUNT = Math.max(STRIP_COUNT.row, STRIP_COUNT.stack);
+/** Preset buttons built for the strip: a bank of the largest size, or the layout's window (ui/layout.ts). */
+export const PRESET_STRIP_COUNT = Math.max(STRIP_COUNT.row, STRIP_COUNT.stack, ...PRESETS_PER_BANK_CHOICES);
 
 const TILE_LABELS: Record<FxSlot | "gate" | "cab", string> = {
   gate: "GATE",
@@ -244,11 +243,15 @@ export class GigView {
   >();
   private readonly presetStrip = el("div", "preset-strip");
   private readonly presetGrid = el("div", "preset-grid");
+  /** The preset buttons, in a grid of the page's columns between the arrows. */
+  private readonly presetCells = el("div", "preset-cells");
   /** Row or stack (ui/layout.ts), from the window's shape. */
   private layout: GigLayout = "row";
   /** Pages of the shown preset count the strip is shifted from the active-centred window (control mode paging). */
   private stripPage = 0;
   private stripCentre: number | null = null;
+  /** Bank size and label style the strip's page was counted in. */
+  private stripPaging = "";
   private readonly stripPrev = el("button", "pbtn-nav");
   private readonly stripNext = el("button", "pbtn-nav");
   private readonly presetBtns: {
@@ -259,7 +262,6 @@ export class GigView {
     fs: HTMLElement;
     name: HTMLElement;
     index: number;
-    bankNo: string;
   }[] = [];
   private readonly toastEl = el("div", "toast");
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -668,7 +670,7 @@ export class GigView {
       label.append(bank, slot, num, fs);
       const name = el("span", "p-name");
       root.append(label, name);
-      const entry = { root, bank, slot, num, fs, name, index: i, bankNo: "" };
+      const entry = { root, bank, slot, num, fs, name, index: i };
       root.addEventListener("click", () => {
         const st = this.store.get();
         if (!st.writesEnabled || st.connection !== "connected") return;
@@ -676,7 +678,7 @@ export class GigView {
       });
       onHold(root, () => this.editor.openPreset(entry.index), () => this.editor.canEdit);
       this.presetBtns.push(entry);
-      grid.append(root);
+      this.presetCells.append(root);
     }
     // Narrow icon-only arrows page the window without selecting anything (control mode only).
     this.stripPrev.append(
@@ -700,8 +702,7 @@ export class GigView {
       nav.title = "Tap: page the presets · hold: all presets";
       onHold(nav, () => this.editor.openPresetList(), () => true);
     }
-    grid.prepend(this.stripPrev);
-    grid.append(this.stripNext);
+    grid.append(this.stripPrev, this.presetCells, this.stripNext);
     // Swipe the strip sideways to page it, like the arrows (a bigger screen than the NanoGig Screen's paged
     // lists); the tap that ends a swipe selects nothing.
     {
@@ -805,7 +806,7 @@ export class GigView {
         el(
           "p",
           "",
-          "The pedal has no banks. These only change the bank/slot label so it matches your MIDI controller.",
+          "The pedal has no banks. These change the bank/slot label so it matches your MIDI controller, and the preset strip shows one bank at a time.",
         ),
       );
       const bankRow = el("label", "setting-row");
@@ -827,7 +828,8 @@ export class GigView {
       styleRow.append(el("span", "", "Label style"));
       for (const [value, text] of [
         ["number-letter", "1B — bank number, preset letter (Mvave Chocolate)"],
-        ["letter-number", "A2 — bank letter, preset number (Nano Cortex)"],
+        ["letter-number", "A2 — bank letter, preset number (other MIDI controllers)"],
+        ["numeric", "1–64 — preset number, as on the Nano"],
       ] as const) {
         const opt = document.createElement("option");
         opt.value = value;
@@ -1502,11 +1504,12 @@ export class GigView {
         style: s.labelStyle,
       });
       if (!parts) continue;
+      const withNumber = s.showPresetNumber && labelHasBanks(s.labelStyle);
       const span = mk(
-        `${parts.bank}${parts.slot}${s.showPresetNumber ? `·${i + 1}` : ""}`,
+        `${parts.bank}${parts.slot}${withNumber ? `·${i + 1}` : ""}`,
         "slot-label",
       );
-      if (s.showPresetNumber) {
+      if (withNumber) {
         // The number is 0.4em: approximate by wrapping it in its own span with the real class.
         span.replaceChildren(
           el("span", "", `${parts.bank}${parts.slot}`),
@@ -1738,8 +1741,15 @@ export class GigView {
     const idx = s.activePreset.value;
     const label = renderPresetLabel({ bank: this.slotBank, slot: this.slotSlot, num: this.slotNum, fs: this.slotFs }, idx, s);
     if (this.footswitchCheck.checked !== s.showFootswitches) this.footswitchCheck.checked = s.showFootswitches;
-    if (this.numberCheck.checked !== s.showPresetNumber)
-      this.numberCheck.checked = s.showPresetNumber;
+    {
+      // The numeric label is the pedal's number: the box shows it on and can't be changed, and the bank size
+      // means nothing there.
+      const banked = labelHasBanks(s.labelStyle);
+      const numberOn = banked ? s.showPresetNumber : true;
+      if (this.numberCheck.checked !== numberOn) this.numberCheck.checked = numberOn;
+      this.numberCheck.disabled = !banked;
+      this.bankSelect.disabled = !banked;
+    }
     if (this.bankSelect.value !== String(s.presetsPerBank))
       this.bankSelect.value = String(s.presetsPerBank);
     if (this.styleSelect.value !== s.labelStyle)
@@ -1956,7 +1966,7 @@ export class GigView {
     this.menuSync.hidden = parts.length === 0;
   }
 
-  /** Window of the shown preset count centred on the active one, wrapping around the 64 slots. */
+  /** The next or previous page of the strip (a bank, or the numeric window), wrapping around the 64 slots. */
   private pageStrip(dir: -1 | 1) {
     const s = this.store.get();
     if (!(s.writesEnabled && s.connection === "connected")) return;
@@ -1967,15 +1977,28 @@ export class GigView {
   private renderPresetStrip(s: GigState) {
     const controlling = s.writesEnabled && s.connection === "connected";
     const centre = s.activePreset.value ?? 0;
-    // A new active preset (or leaving control mode) re-centres the window.
-    if (centre !== this.stripCentre || !controlling) this.stripPage = 0;
+    // A new active preset (leaving control mode, a new bank size or label style) goes back to its page.
+    const paging = `${s.presetsPerBank}|${s.labelStyle}`;
+    if (centre !== this.stripCentre || !controlling || paging !== this.stripPaging) this.stripPage = 0;
     this.stripCentre = centre;
+    this.stripPaging = paging;
     this.stripPrev.hidden = this.stripNext.hidden = !controlling;
-    const count = STRIP_COUNT[this.layout];
+    // Bank labels: one bank a page (as the NanoGig Screen's presets list), the arrows step through the banks and
+    // wrap; a short last bank leaves its cells empty. Numeric labels have no banks: a window centred on the
+    // active preset, paged by its size.
+    const banked = labelHasBanks(s.labelStyle);
+    const per = s.presetsPerBank;
+    const banks = Math.ceil(PRESET_COUNT / per);
+    const count = banked ? per : STRIP_COUNT[this.layout];
+    const bank = (((Math.floor(centre / per) + this.stripPage) % banks) + banks) % banks;
     const half = Math.floor(count / 2);
+    // Two rows in the stack layout once a bank is more than a phone's width holds (6 and 8 a bank).
+    const cols = this.layout === "stack" && count > STRIP_COUNT.stack ? Math.ceil(count / 2) : count;
+    this.presetCells.style.setProperty("--cols", String(cols));
+    this.root.dataset.stripRows = s.showPresetStrip && cols < count ? "2" : "1";
     this.presetBtns.forEach((b, i) => {
-      b.root.hidden = i >= count;
-      const raw = centre - half + this.stripPage * count + i;
+      const raw = banked ? bank * per + i : centre - half + this.stripPage * count + i;
+      b.root.hidden = i >= count || (banked && raw >= PRESET_COUNT);
       const idx = ((raw % PRESET_COUNT) + PRESET_COUNT) % PRESET_COUNT;
       b.index = idx;
       const label = renderPresetLabel(b, idx, s)!;
@@ -1988,26 +2011,7 @@ export class GigView {
       b.root.setAttribute("aria-disabled", controlling ? "false" : "true");
       b.root.style.pointerEvents = controlling ? "auto" : "none";
       b.root.title = `${label.bank}${label.slot} · ${b.name.textContent}`;
-      b.bankNo = label.bank;
     });
-    this.relayoutStripSeparators(s);
-  }
-
-  /**
-   * A thin vertical rule between buttons of different banks (like the pre | post divider).
-   * Skipped when the Nano footswitch labels are on: those players have no MIDI controller,
-   * so banks mean nothing to them.
-   */
-  private relayoutStripSeparators(s: GigState) {
-    const children: HTMLElement[] = [this.stripPrev];
-    const shown = this.presetBtns.filter((b) => !b.root.hidden);
-    shown.forEach((b, i) => {
-      const prev = shown[i - 1];
-      if (prev && !s.showFootswitches && prev.bankNo !== b.bankNo) children.push(el("div", "vsep bank-sep"));
-      children.push(b.root);
-    });
-    children.push(this.stripNext);
-    this.presetGrid.replaceChildren(...children);
   }
 
   private renderLog(log: LogLine[]) {

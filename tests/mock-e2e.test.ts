@@ -84,10 +84,11 @@ describe('mock mode end-to-end', () => {
     expect(tile('pre1')).toBe('true');
     expect(store.get().fxOn.source).toBe('dump');
 
-    // Preset strip: active preset sits in the middle (4th of 7); the 5th button is the next preset → MIDI PC path.
-    const strip = root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn');
-    expect(strip[3]!.dataset.active).toBe('true');
-    strip[4]!.click();
+    // Preset strip: the active preset's bank (2A–2D, 4 a bank); the button after it is the next preset → MIDI PC path.
+    const strip = root.querySelectorAll<HTMLButtonElement>('.preset-strip .pbtn:not([hidden])');
+    expect(strip).toHaveLength(4);
+    expect(strip[0]!.dataset.active).toBe('true');
+    strip[1]!.click();
     await wait(500);
     expect(text('.preset-name')).toBe('Ambient Swell');
     expect(text('.capture')).toBe('Jazz 120 Clean');

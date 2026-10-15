@@ -18,6 +18,7 @@ import {
   gateBypassFrame,
   outputsMuteFrame,
   presetLabel,
+  labelHasBanks,
   presetSelectFrame,
   programChange,
   tunerOnFrame,
@@ -129,6 +130,16 @@ describe('presetLabel', () => {
     expect(presetLabel(8, nano)).toBe('B1');
     expect(presetLabel(9, nano)).toBe('B2');
     expect(presetLabel(63, nano)).toBe('H8');
+  });
+  it('numeric: the pedal\'s own number, no bank or slot (as on the Nano Cortex)', () => {
+    const numeric = { presetsPerBank: 4, style: 'numeric' as const };
+    expect(presetLabel(0, numeric)).toBe('1');
+    expect(presetLabel(9, numeric)).toBe('10');
+    expect(presetLabel(63, numeric)).toBe('64');
+    expect(presetLabelParts(9, numeric)).toEqual({ bank: '10', slot: '', slotIndex: 1 });
+    expect(labelHasBanks('numeric')).toBe(false);
+    expect(labelHasBanks('letter-number')).toBe(true);
+    expect(labelHasBanks(undefined)).toBe(true);
   });
   it('exposes the two figures separately for colouring', () => {
     expect(presetLabelParts(9)).toEqual({ bank: '3', slot: 'B', slotIndex: 1 });
