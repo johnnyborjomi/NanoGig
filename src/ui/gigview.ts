@@ -23,6 +23,8 @@ import {
   Copy,
   Download,
   ListOrdered,
+  Lock,
+  LockOpen,
   Metronome,
   LogOut,
   Maximize,
@@ -394,10 +396,8 @@ export class GigView {
     );
     this.writesBtn.title =
       "Control mode: tap tiles to toggle blocks, ◀ ▶ to switch presets. Changes go to the real pedal.";
-    this.writesState.append(
-      lucideElement(Power, { "stroke-width": 2.5, "aria-hidden": "true" }),
-    );
     this.writesState.dataset.on = "false";
+    this.renderWritesIcon(false);
     this.writesBtn.append(el("span", "btn-label", "Control"), this.writesState);
     this.writesBtn.setAttribute("aria-label", "Control"); // the label is hidden in the stack layout
     this.writesBtn.addEventListener("click", () => {
@@ -1428,6 +1428,11 @@ export class GigView {
     }, 5000);
   }
 
+  /** Control's icon: a closed lock while off (taps only show), an open one while on (taps go to the pedal). */
+  private renderWritesIcon(on: boolean) {
+    this.writesState.replaceChildren(lucideElement(on ? LockOpen : Lock, { "stroke-width": 2.5, "aria-hidden": "true", "data-icon": on ? "lock-open" : "lock" }));
+  }
+
   private toggleFullscreen() {
     // Must run synchronously inside the click (user activation); no awaits before the call.
     const root = document.documentElement;
@@ -1660,6 +1665,7 @@ export class GigView {
       else this.renderTempo(s);
     }
     this.menuBtn.hidden = s.connection === "disconnected";
+    if (this.writesState.dataset.on !== String(s.writesEnabled)) this.renderWritesIcon(s.writesEnabled);
     this.writesState.dataset.on = s.writesEnabled ? "true" : "false";
     this.writesBtn.classList.toggle("warn", s.writesEnabled);
     this.writesBtn.setAttribute(

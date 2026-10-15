@@ -291,6 +291,7 @@ describe('GigView writes toggle and reconnect button', () => {
     const control = btn(/^Control$/);
     expect(control.hidden).toBe(false);
     expect(control.querySelector<HTMLElement>('.btn-state')?.dataset.on).toBe('false');
+    expect(control.querySelector('svg')?.dataset.icon).toBe('lock'); // off: locked
     expect(btn(/^Pick from the list…$/).hidden).toBe(true);
     control.click();
     expect(calls).toEqual(['writes:true']);
@@ -298,6 +299,7 @@ describe('GigView writes toggle and reconnect button', () => {
     store.patch({ writesEnabled: true });
     expect(control.querySelector<HTMLElement>('.btn-state')?.dataset.on).toBe('true');
     expect(control.getAttribute('aria-pressed')).toBe('true');
+    expect(control.querySelector('svg')?.dataset.icon).toBe('lock-open'); // on: unlocked
     expect(root.querySelector('.badge')).toBeNull(); // no separate "control on" badge
     expect(root.querySelector('.preset-strip')?.classList.contains('writable')).toBe(true);
 
