@@ -23,7 +23,6 @@ import {
   Copy,
   Download,
   ListOrdered,
-  Lock,
   Metronome,
   LogOut,
   Maximize,
@@ -33,21 +32,24 @@ import {
   Pencil,
   Power,
   RefreshCw,
+  Save,
   ScrollText,
   Settings,
+  Star,
+  Undo2,
   VolumeX,
   createElement as lucideElement,
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { EditorView } from "./editor-view";
 import { onHold } from "./hold";
+import { presetLabelEls, renderPresetLabel } from "./preset-label";
 export { HOLD_MS } from "./hold";
 import type { EditController } from "../sync/editor";
 
 /** Where a coffee goes. Also in the README's Sponsor section. */
 export const SUPPORT_URL = "https://buymeacoffee.com/johnnyborjomi";
 import { PRESET_COUNT } from "../protocol/frames";
-import type { FootswitchAssignments } from "../protocol/decode";
 
 /** How Connect reaches the pedal: a known one without the chooser, else / always the chooser, or every BT device. */
 export type ConnectMode = 'auto' | 'chooser' | 'all';
@@ -108,14 +110,7 @@ export interface GigViewOptions {
 }
 
 /** Which of the Nano's footswitches (IA, IB, IIA, IIB) is assigned to preset `index`, if any. */
-export function footswitchFor(index: number, fs: FootswitchAssignments | null): "IA" | "IB" | "IIA" | "IIB" | null {
-  if (!fs) return null;
-  if (fs.ia === index) return "IA";
-  if (fs.ib === index) return "IB";
-  if (fs.iia === index) return "IIA";
-  if (fs.iib === index) return "IIB";
-  return null;
-}
+export { footswitchFor } from "./preset-label";
 
 /** How long a press must last to count as a hold (opens an editor instead of toggling). */
 /** Preset buttons shown in control mode. Odd so the active preset sits in the middle. */
@@ -267,6 +262,8 @@ export class GigView {
   private readonly menuSync = el("div", "menu-info-line");
   private readonly consoleEl = el("div", "console");
   private readonly consoleBody = el("div", "c-body");
+  private readonly frameInput = el("input", "c-frame");
+  private readonly frameSend = el("button", "", "send");
   private readonly overlay = el("div", "overlay connect open");
   private readonly overlayErr = el("div", "err page-err");
   private readonly resumeTip = el("div", "hint resume-tip");
@@ -296,6 +293,11 @@ export class GigView {
   /** Edit mode: Control plus the edit gestures and sheets. */
   private readonly editBtn = el("button", "ghost edit-btn", "");
   private readonly editState = el("span", "btn-state");
+  /** In Edit mode while the pedal's save light is on: Save and Discard stand where Edit was. */
+  private readonly saveBtn = el("button", "ghost save-btn", "");
+  private readonly discardBtn = el("button", "ghost discard-btn", "");
+  /** When Save was tapped (0 = not waiting): a refusal is told in a toast. */
+  private saveAt = 0;
   private editor!: EditorView;
   // Tempo view: the big BPM, −/+ (auto-repeat while held), Done. Follows the pedal's tap tempo mode.
   private readonly tempoOverlay = el("div", "overlay tempo");
@@ -401,7 +403,7 @@ export class GigView {
     });
     // Edit: control and editing together; off again leaves control as it is.
     this.editBtn.title =
-      "Edit mode (turns Control on too): hold an FX tile for its model and parameters, hold Gate for its threshold, tap the capture or IR name for volume, IR settings and the library, hold the preset name to rename or manage it. Changes are live: save on the pedal to keep them.";
+      "Edit mode (turns Control on too): hold an FX tile for its model and parameters, hold Gate for its threshold, tap the capture or IR name for volume, IR settings and the library, hold the preset name to rename or manage it. Changes are live: Save (here, once the pedal's save light is on) or the pedal's save button keeps them.";
     this.editState.append(lucideElement(Pencil, { "stroke-width": 2.5, "aria-hidden": "true" }));
     this.editState.dataset.on = "false";
     this.editBtn.setAttribute("aria-label", "Edit");
@@ -411,6 +413,32 @@ export class GigView {
       if (on && !this.store.get().writesEnabled) this.actions.setWritesEnabled(true);
       this.actions.setSettings({ editing: on });
     });
+    // Save / Discard, as the pedal's save and EXIT buttons: the preset stored with its edits, or loaded again.
+    this.saveBtn.title = "Save the preset on the pedal with its changes (as the pedal's save button)";
+    this.saveBtn.append(lucideElement(Save, { "stroke-width": 2.5, "aria-hidden": "true" }), el("span", "btn-label", "Save"));
+    this.saveBtn.addEventListener("click", () => {
+      const edit = this.actions.edit?.();
+      if (!edit) return;
+      this.saveAt = Date.now();
+      void edit.savePreset().catch((e) => {
+        this.saveAt = 0;
+        this.toast(e);
+      });
+    });
+    this.discardBtn.title = "Discard the changes: the preset is loaded again as saved (as the pedal's EXIT)";
+    this.discardBtn.append(lucideElement(Undo2, { "stroke-width": 2.5, "aria-hidden": "true" }), el("span", "btn-label", "Discard"));
+    this.discardBtn.addEventListener("click", () => {
+      const s = this.store.get();
+      const i = s.activePreset.value;
+      // A preview is not undone by a load: it gets the stop the capture tab's Discard sends.
+      const edit = this.actions.edit?.();
+      if (edit && s.edit.capturePreview?.preset === i && s.presetDirty.value !== true) {
+        void edit.discardCapture().catch((e) => this.toast(e));
+        return;
+      }
+      if (i !== null) void this.actions.selectPreset(i).catch((e) => this.toast(e));
+    });
+    this.saveBtn.hidden = this.discardBtn.hidden = true;
     this.reconnectBtn.hidden = true;
     this.reconnectBtn.title = "Stop retrying and pick the pedal from the Bluetooth chooser (put it in pairing mode first)";
     this.reconnectBtn.addEventListener("click", () => this.doConnect("chooser"));
@@ -516,6 +544,8 @@ export class GigView {
     );
     actions.append(
       this.exitDemoBtn,
+      this.discardBtn,
+      this.saveBtn,
       this.editBtn,
       this.writesBtn,
       this.fullscreenBtn,
@@ -528,15 +558,16 @@ export class GigView {
     this.slotLabel.append(this.slotBank, this.slotSlot, this.slotNum, this.slotFs);
     this.slotFs.hidden = true;
     this.slotEl.append(this.slotLabel, this.nameEl, this.sourceTag);
-    const capLbl = el("span", "lbl", "capture");
-    const irLbl = el("span", "lbl", "cab / ir");
+    // In their colours: capture red, IR violet (as the amp & cab sheet and the libraries).
+    const capLbl = el("span", "lbl lbl-capture", "capture");
+    const irLbl = el("span", "lbl lbl-ir", "cab / ir");
     for (const st of [this.captureState, this.irState]) {
       const power = lucideElement(Power, {
         "stroke-width": 2.5,
         "aria-hidden": "true",
       });
       power.classList.add("i-power");
-      const lock = lucideElement(Lock, {
+      const lock = lucideElement(Star, {
         "stroke-width": 2.5,
         "aria-hidden": "true",
       });
@@ -627,11 +658,7 @@ export class GigView {
     for (let i = 0; i < PRESET_STRIP_COUNT; i++) {
       const root = el("button", "pbtn");
       const label = el("span", "p-label");
-      const bank = el("span", "p-bank");
-      const slot = el("span", "slot-slot");
-      const num = el("span", "p-num");
-      const fs = el("span", "fs-badge");
-      fs.hidden = true;
+      const { bank, slot, num, fs } = presetLabelEls();
       label.append(bank, slot, num, fs);
       const name = el("span", "p-name");
       root.append(label, name);
@@ -662,6 +689,11 @@ export class GigView {
     this.stripNext.setAttribute("aria-label", "Next presets");
     this.stripPrev.addEventListener("click", () => this.pageStrip(-1));
     this.stripNext.addEventListener("click", () => this.pageStrip(1));
+    // Hold either arrow: all 64 in the presets list (as Menu → Presets).
+    for (const nav of [this.stripPrev, this.stripNext]) {
+      nav.title = "Tap: page the presets · hold: all presets";
+      onHold(nav, () => this.editor.openPresetList(), () => true);
+    }
     grid.prepend(this.stripPrev);
     grid.append(this.stripNext);
     // Swipe the strip sideways to page it, like the arrows (a bigger screen than the NanoGig Screen's paged
@@ -733,7 +765,22 @@ export class GigView {
       drop.addEventListener("click", () => this.actions.simulateDrop?.());
       head.insertBefore(drop, names);
     }
-    this.consoleEl.append(head, this.consoleBody);
+    // Protocol work on the pedal: a frame typed as hex (a body, or a whole line copied from the log), sent in Edit
+    // mode; the answer shows above. Always in the layout, disabled when not editing.
+    const sendRow = el("form", "c-send");
+    this.frameInput.placeholder = "frame hex, e.g. 96 00 00 00 (Edit mode)";
+    this.frameInput.autocomplete = "off";
+    this.frameInput.spellcheck = false;
+    this.frameInput.setAttribute("aria-label", "Frame to send, as hex");
+    this.frameSend.type = "submit";
+    sendRow.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const edit = this.actions.edit?.();
+      if (!edit) return;
+      void edit.sendFrameHex(this.frameInput.value).catch((err) => this.toast(err));
+    });
+    sendRow.append(this.frameInput, this.frameSend);
+    this.consoleEl.append(head, this.consoleBody, sendRow);
 
     // Settings overlay --------------------------------------------------
     {
@@ -1629,7 +1676,22 @@ export class GigView {
       this.editState.dataset.on = String(editing);
       this.editBtn.classList.toggle("on", editing);
       this.editBtn.setAttribute("aria-pressed", String(editing));
-      this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit;
+      // Unsaved changes while editing: Save and Discard instead of Edit, until the light goes out.
+      // A capture preview counts too (the pedal leaves its light off): Save stores it, for trying the preset's own.
+      // Only one loaded into the preset's own: a capture just listened to in the library is not a change.
+      const previewing = s.edit.capturePreview?.kept === true && s.edit.capturePreview.preset === s.activePreset.value;
+      const unsaved = editing && (s.presetDirty.value === true || previewing) && !!this.actions.edit;
+      this.frameInput.disabled = this.frameSend.disabled = !(editing && this.actions.edit);
+      this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit || unsaved;
+      this.saveBtn.hidden = this.discardBtn.hidden = !unsaved;
+      const op = s.edit.preset;
+      const saving = op.busy?.kind === "create" && op.busy.index === s.activePreset.value;
+      this.saveBtn.disabled = this.discardBtn.disabled = saving;
+      this.saveBtn.dataset.busy = String(saving);
+      if (this.saveAt && op.result && op.result.at >= this.saveAt) {
+        if (!op.result.ok) this.toast(new Error(`Not saved: ${op.result.message}`));
+        this.saveAt = 0;
+      }
     }
     this.root.dataset.editing = String(s.editing && s.writesEnabled && s.connection === "connected");
     if (this.expShowCheck.checked !== s.expressionShow) this.expShowCheck.checked = s.expressionShow;
@@ -1649,25 +1711,7 @@ export class GigView {
 
     // Preset --------------------------------------------------------
     const idx = s.activePreset.value;
-    const label =
-      idx === null
-        ? null
-        : presetLabelParts(idx, {
-            presetsPerBank: s.presetsPerBank,
-            style: s.labelStyle,
-          });
-    this.slotBank.textContent = label ? label.bank : "—";
-    this.slotSlot.textContent = label ? label.slot : "";
-    this.slotSlot.dataset.slot = label ? String(label.slotIndex) : "";
-    this.slotNum.textContent =
-      label && s.showPresetNumber && idx !== null ? `·${idx + 1}` : "";
-    this.slotNum.hidden = this.slotNum.textContent === "";
-    {
-      const fs = idx === null || !s.showFootswitches ? null : footswitchFor(idx, s.footswitches.value);
-      this.slotFs.textContent = fs ?? "";
-      this.slotFs.dataset.fs = fs ? fs.toLowerCase() : "";
-      this.slotFs.hidden = !fs;
-    }
+    const label = renderPresetLabel({ bank: this.slotBank, slot: this.slotSlot, num: this.slotNum, fs: this.slotFs }, idx, s);
     if (this.footswitchCheck.checked !== s.showFootswitches) this.footswitchCheck.checked = s.showFootswitches;
     if (this.numberCheck.checked !== s.showPresetNumber)
       this.numberCheck.checked = s.showPresetNumber;
@@ -1712,7 +1756,7 @@ export class GigView {
     this.irEl.textContent = s.irName.value || "—";
     const onAttr = (v: boolean | null) =>
       v === null ? "unknown" : v ? "true" : "false";
-    // Locked = the current capture/IR is not in the pedal's slot list, so it could not be re-enabled from here.
+    // The preset's own capture / IR (in none of the pedal's slots): a star, and the label does not toggle it.
     const locks: [HTMLElement, HTMLElement, boolean | null, string][] = [
       [
         this.subLabels[0]!,
@@ -1731,7 +1775,7 @@ export class GigView {
       lbl.classList.toggle("locked", locked);
       st.dataset.locked = locked ? "true" : "false";
       lbl.title = locked
-        ? `This ${what} is not in the pedal's slot list, so it can only be switched on the pedal`
+        ? `The preset's own ${what} (in none of the pedal's slots): switched on the pedal, or from the amp & cab sheet`
         : "";
     }
     this.captureState.dataset.on = onAttr(s.captureOn.value);
@@ -1903,21 +1947,11 @@ export class GigView {
     this.stripCentre = centre;
     this.stripPrev.hidden = this.stripNext.hidden = !controlling;
     const half = Math.floor(PRESET_STRIP_COUNT / 2);
-    const opts = { presetsPerBank: s.presetsPerBank, style: s.labelStyle };
     this.presetBtns.forEach((b, i) => {
       const raw = centre - half + this.stripPage * PRESET_STRIP_COUNT + i;
       const idx = ((raw % PRESET_COUNT) + PRESET_COUNT) % PRESET_COUNT;
       b.index = idx;
-      const label = presetLabelParts(idx, opts)!;
-      b.bank.textContent = label.bank;
-      b.slot.textContent = label.slot;
-      b.slot.dataset.slot = String(label.slotIndex);
-      b.num.textContent = s.showPresetNumber ? `·${idx + 1}` : "";
-      b.num.hidden = !s.showPresetNumber;
-      const fs = s.showFootswitches ? footswitchFor(idx, s.footswitches.value) : null;
-      b.fs.textContent = fs ?? "";
-      b.fs.dataset.fs = fs ? fs.toLowerCase() : "";
-      b.fs.hidden = !fs;
+      const label = renderPresetLabel(b, idx, s)!;
       const name = s.presetNames.value[idx] ?? "";
       b.name.textContent = name || `Preset ${idx + 1}`;
       b.name.classList.toggle("empty", !name);

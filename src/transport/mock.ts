@@ -28,6 +28,7 @@ import {
   buildExpressionPositionEvent,
   buildExpressionValuesEvent,
   buildMetadataBody,
+  mockCaptureSlots,
   defaultMockDeviceState,
   segmentStream,
   wrapSinglePacket,
@@ -188,7 +189,7 @@ export class MockTransport implements Transport {
     if (this._status !== 'connected') throw new Error('mock: not connected');
     this.log('tx', 'TX c304 (mock)', toHex(bytes));
     if (bytesEqual(bytes, METADATA_DUMP_REQUEST)) {
-      const body = buildMetadataBody(this.presets, this.device);
+      const body = buildMetadataBody(this.presets, this.device, this.metadataCaptures());
       this.emitStream(segmentStream(body, 510));
       return;
     }
@@ -203,8 +204,14 @@ export class MockTransport implements Transport {
     if (bytes.length === 56 && bytes[0] === 0x36 && bytes[1] === 0xc0 && bytes[2] === 0x18 && bytes[4] === 0x20 && bytes[52] === 0x1d && bytes[51] !== 0x02) {
       // (field 9 = 2 is a footswitch assignment, not a select: handled with the edits)
       if (this.opts.acceptedMidi !== 'c304-select') return; // other firmware: ignored
+      if (this.device.previewSavedOwn && this.device.activePreset === bytes[5]) this.device.captureSlot = 6;
+      this.device.previewSavedOwn = false;
       this.device.activePreset = bytes[5]!;
-      this.device.captureNameOverride = this.device.irNameOverride = null; // a preset load drops unsaved edits
+      this.presetLoads++;
+      this.device.captureNameOverride = this.device.irNameOverride = null; // a preset load drops unsaved edits (a preview too)
+      this.device.previewing = this.device.irPreviewing = false;
+      this.device.irOwnLoaded = null;
+      this.loadDropsEdits();
       // The real pedal answers with a bypass-changed notice, then the 0x1E ack; no 0x1D event.
       this.schedule(() => {
         this.emit(HW_BYPASS_CHANGED);
@@ -258,12 +265,7 @@ export class MockTransport implements Transport {
     }
     // Slot-select family: 08 C0 18 <sel> 20 <v> 1C 00 00 00
     if (bytes.length === 10 && bytes[0] === 0x08 && bytes[1] === 0xc0 && bytes[2] === 0x18 && bytes[4] === 0x20 && bytes[6] === 0x1c) {
-      const sel = bytes[3]!;
-      if (sel === 0x04) {
-        this.device.captureOn = true; // capture select (enable)
-        return;
-      }
-      // Selector 1 (capture slot / bypass) and 3 (IR slot / off): the editing handler below.
+      // Selector 1 (capture slot / bypass), 3 (IR slot / off) and 4 (bank and capture): the editing handler below.
     }
     if (this.handleEdit(bytes)) return;
     this.log('warn', 'mock: unrecognised command frame ignored', toHex(bytes));
@@ -334,14 +336,15 @@ export class MockTransport implements Transport {
         const slot = FX_SLOTS[v(3)];
         const type = v(4);
         if (!slot || !FX_SLOT_MODELS[v(3)]!.includes(type)) return true; // the pedal ignores a model the slot does not take
+        if (!this.device.dirty) this.savedModelIds = structuredClone(this.device.fxModelIds!); // the saved ones, before the first edit
         this.device.fxModelIds![slot] = Array.from(fromHex(fxModelId(type)));
         this.fxParams[slot] = [];
-        this.reply([...varintField(1, 1)], 0x73); // "something changed"
+        this.markDirty();
         break;
       }
       case EDIT_MSG.FX_PARAMS_REQUEST: {
         const slot = FX_SLOTS[v(3)];
-        if (!slot || !this.device.fxOn[slot]) return true; // the real pedal may crash; the mock stays silent
+        if (!slot) return true; // on or off alike, as Cortex Cloud reads a bypassed block
         const values = this.paramsFor(slot);
         const packed = new Uint8Array(values.length * 4);
         values.forEach((x, i) => new DataView(packed.buffer).setFloat32(i * 4, x, true));
@@ -352,12 +355,14 @@ export class MockTransport implements Transport {
         const slot = FX_SLOTS[v(3)];
         const raw = f.find((x) => x.field === 5 && x.wire === 5)?.raw;
         if (slot && raw) this.paramsFor(slot)[v(4)] = new DataView(raw.buffer, raw.byteOffset, 4).getFloat32(0, true);
+        this.markDirty(false);
         break;
       }
       case EDIT_MSG.KNOB: {
         if (v(3) === 10) this.device.captureVolumeRaw = v(4);
         else if (v(3) === 11) this.device.gateThresholdRaw = v(4);
         else return false;
+        this.markDirty(false);
         break;
       }
       case EDIT_MSG.ENCODER: {
@@ -365,20 +370,31 @@ export class MockTransport implements Transport {
         if (v(3) === 1) {
           this.device.captureOn = v(4) > 0;
           if (v(4) > 0) this.device.captureSlot = v(4);
-          if (v(4) > 0 && v(4) <= 5) this.device.captureNameOverride = this.metadataCaptures()[v(4) - 1] ?? null;
+          this.device.previewing = false;
+          const bank = (this.device.captureBank ?? 1) - 1;
+          if (v(4) > 0 && v(4) <= 5) this.device.captureNameOverride = this.metadataCaptures()[bank * 5 + v(4) - 1] ?? null;
           if (v(4) === 6) this.device.captureNameOverride = null;
+        } else if (v(3) === 4) {
+          // Bank and capture: slot 0..24 over the five banks (Cortex Cloud, DrD85).
+          const abs = v(4);
+          this.device.captureBank = Math.floor(abs / 5) + 1;
+          this.device.captureSlot = (abs % 5) + 1;
+          this.device.captureOn = true;
+          this.device.captureNameOverride = this.metadataCaptures()[abs] ?? null;
+          this.device.previewing = false;
         } else if (v(3) === 3) {
           this.device.cabOn = v(4) > 0;
           if (v(4) > 0) {
             this.device.cabSlot = v(4);
-            this.device.irNameOverride = this.metadataIrs()[v(4) - 1] ?? null;
+            this.device.irNameOverride = v(4) === 6 ? (this.device.irOwnLoaded ?? null) : (this.metadataIrs()[v(4) - 1] ?? null);
           }
+          this.device.irPreviewing = false;
         } else return false;
-        this.reply([...varintField(1, 1)], 0x73);
+        this.markDirty(); // the slot write's ack is this notice (`08 C0 08 01 18 01 73`)
         break;
       }
       case EDIT_MSG.CAB_SETTINGS_REQUEST: {
-        if (!this.device.cabOn) return true;
+        if (!this.device.cabOn) return true; // the pedal leaves it unanswered (board, 2026-10-11)
         const ir = this.ir;
         const name = this.device.irNameOverride || this.currentPreset().irShortName || ir.irName;
         const settings = [
@@ -419,6 +435,7 @@ export class MockTransport implements Transport {
             }
           }
         }
+        this.markDirty(false);
         break;
       }
       case EDIT_MSG.LIBRARY_REQUEST: {
@@ -439,13 +456,57 @@ export class MockTransport implements Transport {
         this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_SLOT_LOADED);
         break;
       }
+      case EDIT_MSG.CAB_SLOT_LOAD: {
+        // A library IR into IR slot 0..4 (saved presets on it keep theirs), or 5: the preset's own IR slot.
+        const item = sub(4) ?? sub(5);
+        if (item && v(3) === 5) this.device.irOwnLoaded = text(item, 2);
+        else if (item) this.slotIrs[v(3)] = text(item, 2);
+        this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAB_SLOT_LOADED);
+        break;
+      }
       case EDIT_MSG.CAPTURE_PREVIEW: {
+        // The real pedal hung on a preview while its capture was off (board, 2026-10-11): remembered for tests.
+        if (!this.device.captureOn) this.previewedWhileOff = true;
+        // Heard at once; the preset is NOT marked edited (Cortex Cloud's tap; the board shows no save light).
         const item = sub(3) ?? sub(4);
         if (item) {
           this.device.captureNameOverride = text(item, 2);
           this.device.captureOn = true;
+          this.device.previewing = true;
         }
         this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEWED);
+        break;
+      }
+      case EDIT_MSG.IR_PREVIEW: {
+        // Cortex Cloud's IR preview (snoop 2026-10-11): heard at once, in the preset's own place.
+        const item = sub(3) ?? sub(4);
+        if (item) {
+          if (!this.device.irPreviewing) this.device.irBeforePreview = this.device.irNameOverride ?? null;
+          this.device.irNameOverride = text(item, 2);
+          this.device.irPreviewing = true;
+        }
+        this.reply([...varintField(1, 6), ...varintField(3, 1)], EDIT_MSG.IR_PREVIEWED);
+        break;
+      }
+      case EDIT_MSG.CAPTURE_PREVIEW_STOP: {
+        // Field 4 (not 3): the IR's stop.
+        if (f.some((x) => x.field === 4)) {
+          if (this.device.irPreviewing) this.device.irNameOverride = this.device.irBeforePreview ?? null;
+          this.device.irPreviewing = false;
+          const ts = f.find((x) => x.field === 2 && x.wire === 0)?.raw ?? [];
+          this.reply([...varintField(1, 1), 0x10, ...Array.from(ts), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEW_STOPPED);
+          break;
+        }
+        // Cortex Cloud's stop (snoop 2026-10-11): the saved capture plays again; the reply echoes the time sent.
+        this.device.captureNameOverride = null;
+        this.device.previewing = false;
+        // After a save with the preview: the slot it had plays again (its bank capture), unlike what is saved (board).
+        if (this.device.previewSavedOwn && (this.device.captureSlot ?? 0) >= 1 && (this.device.captureSlot ?? 0) <= 5) {
+          this.device.captureNameOverride = this.metadataCaptures()[((this.device.captureBank ?? 1) - 1) * 5 + this.device.captureSlot! - 1] ?? null;
+          this.markDirty();
+        }
+        const ts = f.find((x) => x.field === 2 && x.wire === 0)?.raw ?? [];
+        this.reply([...varintField(1, 1), 0x10, ...Array.from(ts), ...varintField(3, 1)], EDIT_MSG.CAPTURE_PREVIEW_STOPPED);
         break;
       }
       case EDIT_MSG.RENAME:
@@ -456,10 +517,15 @@ export class MockTransport implements Transport {
         const p = this.presets[index]!;
         if (msgType === EDIT_MSG.PRESET_CREATE) {
           p.captureName = this.device.captureNameOverride || this.currentPreset().captureName || 'Capture 1';
+          // Saved with a preview playing: the preset keeps it as its own capture (board, 2026-10-13); what plays
+          // stays on the slot it had until the preset loads again.
+          if (this.device.previewing && index === this.device.activePreset) this.device.previewSavedOwn = true;
           p.irShortName = this.device.irNameOverride || this.currentPreset().irShortName || 'IR 1';
         }
         p.name = name;
         this.reply(ok(index), msgType === EDIT_MSG.RENAME ? EDIT_MSG.RENAME_REPLY : EDIT_MSG.PRESET_CREATED);
+        // SavePreset (DrD85's name for it): on the shown preset, its edits are saved and the light goes out.
+        if (msgType === EDIT_MSG.PRESET_CREATE && index === this.device.activePreset) this.saveEdits();
         break;
       }
       case EDIT_MSG.PRESET_DELETE: {
@@ -487,22 +553,59 @@ export class MockTransport implements Transport {
     return true;
   }
 
+  /**
+   * An edit: the shown preset has unsaved changes. The pedal says so with 0x73 field 3 = 1 (always, as the ack to
+   * a slot write; `always` false: only when the light comes on).
+   */
+  private markDirty(always = true) {
+    const was = this.device.dirty;
+    this.device.dirty = true;
+    if (always || !was) this.reply([...varintField(1, 1), ...varintField(3, 1)], 0x73);
+  }
+
+  /** FX models as saved (the mock's presets share one set): a load puts them back, a save takes the shown ones. */
+  private savedModelIds: Record<FxSlot, number[]> | null = null;
+
+  private saveEdits() {
+    this.savedModelIds = structuredClone(this.device.fxModelIds ?? defaultMockModelIds());
+    this.clearDirty();
+  }
+
+  /** A preset load drops unsaved edits (the desktop editor's Discard is a load of the shown preset). */
+  private loadDropsEdits() {
+    if (this.device.dirty && this.savedModelIds) this.device.fxModelIds = structuredClone(this.savedModelIds);
+    this.clearDirty();
+  }
+
+  /** A preset load or a save: no unsaved changes (`06 C0 08 01 73`, as after a footswitch press). */
+  private clearDirty() {
+    if (!this.device.dirty) return;
+    this.device.dirty = false;
+    this.schedule(() => this.emit(Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x73, 0x00, 0x00, 0x00])), this.opts.latencyMs);
+  }
+
   /** The capture slots' names after library loads (slot 0..24). */
   readonly slotCaptures: Record<number, string> = {};
+  /** A capture preview arrived while the capture was off (the real pedal hangs). */
+  previewedWhileOff = false;
+  /** Preset selects received (a load of the shown preset is the way out of a preview). */
+  presetLoads = 0;
+  /** The IR slots' names after library loads (slot 0..4). */
+  readonly slotIrs: Record<number, string> = {};
   /** Preset index on IA, IB, IIA, IIB. */
   readonly footswitches = [3, 7, 10, 16];
 
   private metadataCaptures(): string[] {
-    const base = [...new Set(this.presets.map((p) => p.captureName).filter(Boolean))];
-    return base.map((n, i) => this.slotCaptures[i] ?? n);
+    return mockCaptureSlots(this.presets).map((n, i) => this.slotCaptures[i] ?? n);
   }
 
   private metadataIrs(): string[] {
-    return [...new Set(this.presets.map((p) => p.irShortName).filter(Boolean))].slice(0, 5);
+    return [...new Set(this.presets.map((p) => p.irShortName).filter(Boolean))].slice(0, 5).map((n, i) => this.slotIrs[i] ?? n);
   }
 
   /** Test hook: the pedal's own save button (0x1B, field 3 = 2). */
   pressSave() {
+    this.saveEdits();
     this.emit(Uint8Array.from([0x08, 0xc0, 0x08, 0x01, 0x18, 0x02, 0x1b, 0x00, 0x00, 0x00]));
   }
 
@@ -514,6 +617,7 @@ export class MockTransport implements Transport {
     if (strategy.id !== this.opts.acceptedMidi) return; // pedal ignores this form
     if (bytes.length === 2 && (bytes[0]! & 0xf0) === 0xc0 && bytes[1]! < 64) {
       this.device.activePreset = bytes[1]!;
+      this.loadDropsEdits();
       // The real pedal announces the switch with a preset-changed message.
       this.schedule(() => this.emit(buildPresetChangedEvent(this.device.activePreset)), this.opts.latencyMs);
       return;
@@ -589,6 +693,9 @@ export class MockTransport implements Transport {
     const next = populated[(populated.indexOf(this.device.activePreset) + 1) % populated.length] ?? 0;
     this.device.activePreset = next;
     this.device.captureNameOverride = this.device.irNameOverride = null;
+    this.device.previewing = this.device.irPreviewing = false;
+    this.device.irOwnLoaded = null;
+    this.loadDropsEdits();
     // Alternate between the hardware-observed message and the 2-byte MIDI shape.
     if (i % 2 === 0) this.emit(buildPresetChangedEvent(next));
     else this.emit(Uint8Array.from([0xc0, next]));
@@ -603,6 +710,9 @@ export class MockTransport implements Transport {
   pressFootswitch(preset: number) {
     this.device.activePreset = preset;
     this.device.captureNameOverride = this.device.irNameOverride = null;
+    this.device.previewing = this.device.irPreviewing = false;
+    this.device.irOwnLoaded = null;
+    this.loadDropsEdits();
     this.emit(buildPresetChangedEvent(preset));
     this.emit(Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x1f, 0x00, 0x00, 0x00])); // bypass-changed follows on hardware
   }

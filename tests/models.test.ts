@@ -40,9 +40,9 @@ describe('FX model catalogue', () => {
     expect(lookupFxModel('C6BB01')).toMatchObject({ name: 'Envelope Filter', category: 'Filter' });
     expect(lookupFxModel('A11F')).toMatchObject({ name: 'Parametric 3', category: 'EQ' });
   });
-  it('has a tile colour rule in styles.css for every category', () => {
+  it('has a colour rule in styles.css for every category (tiles, sheets, chips)', () => {
     const css = readFileSync(new URL('../src/ui/styles.css', import.meta.url), 'utf8');
     const cats = new Set([...FX_MODELS.values()].map((m) => categorySlug(m.category)));
-    for (const cat of cats) expect(css, cat).toContain(`.tile[data-cat='${cat}']`);
+    for (const cat of cats) expect(css, cat).toContain(`\n[data-cat='${cat}'] { --fx: var(--fx-${cat});`);
   });
 });

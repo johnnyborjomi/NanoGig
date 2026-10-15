@@ -8,6 +8,7 @@ import { Store } from '../src/state/store';
 import { SyncEngine } from '../src/sync/engine';
 import { MockTransport } from '../src/transport/mock';
 import { LibraryFolders } from '../src/ui/library-folders';
+import { EDIT_MSG } from '../src/protocol/edit';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until(cond: () => boolean, ms = 2000) {
@@ -123,11 +124,86 @@ describe('edit gestures', () => {
     await until(() => Math.abs((mock.fxParams.post3[0] ?? 0) - 0.75) < 1e-6);
   });
 
+  it('a block that is off is editable but drawn grey', async () => {
+    const { root, store } = await setup(true);
+    await hold(root.querySelector('.tile[data-key="pre1"]')!); // off in the demo
+    await until(() => store.get().edit.fx?.status === 'ready');
+    const params = root.querySelector<HTMLElement>('.fx-sheet .ed-params')!;
+    expect(params.dataset.off).toBe('true');
+    expect(root.querySelector<HTMLInputElement>('.fx-sheet .ed-slider input')!.disabled).toBe(false);
+    await hold(root.querySelector('.tile[data-key="post2"]')!); // on
+    await until(() => store.get().edit.fx?.slot === 'post2' && store.get().edit.fx?.status === 'ready');
+    expect(params.dataset.off).toBe('false');
+  });
+
+  it("a moved slider shows the sheet's Discard, which puts the block's saved value back", async () => {
+    const { root, store, mock } = await setup(true);
+    await hold(root.querySelector('.tile[data-key="post3"]')!);
+    await until(() => store.get().edit.fx?.status === 'ready');
+    const saved = store.get().edit.fx!.values![0]!;
+    const discard = root.querySelector<HTMLElement>('.fx-sheet .ed-discard')!;
+    expect(discard.dataset.shown).toBe('false');
+    const input = root.querySelector<HTMLInputElement>('.fx-sheet .ed-slider input')!;
+    input.value = String(Math.round(saved * 1000) === 750 ? 250 : 750);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(discard.dataset.shown).toBe('true');
+    tap(discard);
+    await until(() => store.get().edit.fx?.status === 'ready' && discard.dataset.shown === 'false');
+    expect(mock.fxParams.post3[0]).toBeCloseTo(saved, 6);
+  });
+
+  it('the model list stays open after a pick; the mark moves to the new model', async () => {
+    const { root, store } = await setup(true);
+    await hold(root.querySelector('.tile[data-key="post2"]')!);
+    tap(root.querySelector('.fx-sheet .ed-model-btn')!);
+    const list = root.querySelector<HTMLElement>('.fx-sheet .ed-models')!;
+    expect(list.hidden).toBe(false);
+    const tape = Array.from(list.querySelectorAll<HTMLElement>('.ed-chip')).find((b) => b.textContent === 'Tape Delay')!;
+    tap(tape);
+    await until(() => store.get().fxModels.value.post2?.name === 'Tape Delay');
+    expect(list.hidden).toBe(false);
+    expect(tape.isConnected).toBe(true);
+    expect(Array.from(list.querySelectorAll<HTMLElement>('.ed-chip[data-active="true"]')).map((b) => b.textContent)).toEqual(['Tape Delay']);
+    // The preset's saved model is outlined, and Discard puts it back.
+    expect(Array.from(list.querySelectorAll<HTMLElement>('.ed-chip[data-saved="true"]')).map((b) => b.textContent)).toEqual(['Analog Delay']);
+    const discard = root.querySelector<HTMLElement>('.fx-sheet .ed-discard')!;
+    expect(discard.dataset.shown).toBe('true');
+    tap(discard);
+    await until(() => store.get().fxModels.value.post2?.name === 'Analog Delay' && store.get().fxModels.source === 'dump');
+    expect(discard.dataset.shown).toBe('false');
+    expect(list.querySelectorAll('.ed-chip[data-saved="true"]')).toHaveLength(0);
+  });
+
+  it('Save and Discard stand in for Edit while the save light is on', async () => {
+    const { root, store, engine } = await setup(true);
+    const btn = (cls: string) => root.querySelector<HTMLButtonElement>(`.topbar .${cls}`)!;
+    expect(btn('edit-btn').hidden).toBe(false);
+    expect(btn('save-btn').hidden).toBe(true);
+    await engine.edit.setFxModel('post2', 6004);
+    await until(() => store.get().presetDirty.value === true);
+    expect(btn('edit-btn').hidden).toBe(true);
+    expect(btn('save-btn').hidden).toBe(false);
+    expect(btn('discard-btn').hidden).toBe(false);
+    tap(btn('save-btn'));
+    await until(() => store.get().presetDirty.value === false);
+    expect(btn('edit-btn').hidden).toBe(false);
+    expect(btn('save-btn').hidden).toBe(true);
+    expect(btn('discard-btn').hidden).toBe(true);
+  });
+
   it('the capture name opens amp & cab; hold the gate for its threshold; hold the name to rename', async () => {
-    const { root, store, toggles, open } = await setup(true);
+    const { root, store, mock, toggles, open } = await setup(true);
     (root.querySelector('.capture.sub-name') as HTMLElement).click();
     expect(open('src-sheet')).toBe(true);
     expect(root.querySelector('.src-sheet .ed-big')!.textContent).toBe(store.get().captureName.value);
+    // On / off sits at the end of the name's row, not with the slot arrows.
+    expect(root.querySelectorAll('.src-sheet .ed-name-row > .ed-big + .ed-power')).toHaveLength(2);
+    // The tabs and the name row stay put while the sheet scrolls: in its head, the shown tab's row only.
+    expect(root.querySelector('.src-sheet .sheet-head > .ed-tabs')).not.toBeNull();
+    expect(root.querySelectorAll('.src-sheet .sheet-head > .ed-name-row:not([hidden])')).toHaveLength(1);
+    // The amp & cab sheet is the first level: an X; the library over it: Back.
+    expect(root.querySelector<HTMLElement>('.src-sheet .sheet-close')!.dataset.back).toBe('false');
+    expect(root.querySelector('.src-sheet .ed-step .ed-power')).toBeNull();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await hold(root.querySelector('.tile[data-key="gate"]')!);
     expect(open('gate-sheet')).toBe(true);
@@ -137,6 +213,300 @@ describe('edit gestures', () => {
     expect(open('preset-sheet')).toBe(true);
     const input = root.querySelector<HTMLInputElement>('.preset-sheet .ed-input')!;
     expect(input.value).toBe(store.get().presetNames.value[store.get().activePreset.value!]);
+    // Save now: the preset playing stored with the save light off too (the create frame under its own name).
+    const force = root.querySelector<HTMLButtonElement>('.preset-sheet .ed-force-save')!;
+    expect(force.disabled).toBe(false);
+    const sent = mock.edits.length;
+    tap(force);
+    await until(() => mock.edits.length > sent);
+    expect(mock.edits.at(-1)!.type).toBe(EDIT_MSG.PRESET_CREATE);
+    await until(() => store.get().edit.preset.busy === null);
+  });
+
+  it('capture tab: ‹ what plays › steps through every slot over the banks; the middle opens the bank playing; a tap plays a slot', async () => {
+    const { root, store } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    await until(() => store.get().captureSlots.length === 25);
+    const picker = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-slots')!;
+    const toggle = picker.querySelector<HTMLElement>('.ed-slots-toggle')!;
+    const [prev, next] = Array.from(picker.querySelectorAll<HTMLElement>('.ed-slots-head .ed-step-btn:not(.ed-bank-btn)'));
+    const [bankPrev, bankNext] = Array.from(picker.querySelectorAll<HTMLElement>('.ed-slots-head .ed-bank-btn'));
+    // One row only: no stepper of its own above the list.
+    expect(root.querySelectorAll('.src-sheet .ed-pane:not([hidden]) .ed-step')).toHaveLength(1);
+    if (picker.dataset.open === 'true') tap(toggle);
+    expect(picker.querySelector<HTMLElement>('.ed-slots-list')!.hidden).toBe(true);
+    const label = picker.querySelector<HTMLElement>('.ed-slots-label')!;
+    // The demo plays bank 2 (as the real dump it starts from).
+    const playing = () => `Bank ${store.get().captureBank.value} · Slot ${store.get().captureSlot.value}`;
+    expect(store.get().captureBank.value).toBe(2);
+    expect(label.textContent).toBe(playing());
+    tap(toggle);
+    expect(picker.dataset.open).toBe('true');
+    const slots = () => Array.from(picker.querySelectorAll<HTMLElement>('.ed-cap-slots .ed-cap-slot'));
+    const names = () => slots().map((b) => b.querySelector('.ed-cap-name')!.textContent);
+    expect(names()).toEqual(store.get().captureSlots.slice(5, 10));
+    expect(slots().filter((b) => b.dataset.active === 'true')).toHaveLength(1);
+    // A preset saved on a slot: no "Preset's own" (it would play the same capture).
+    const own = picker.querySelector<HTMLElement>('.ed-slots-list > .ed-cap-row > .ed-cap-slot')!;
+    expect((own.parentElement as HTMLElement).dataset.shown).toBe('false');
+    expect((own as HTMLButtonElement).disabled).toBe(true);
+    // Bank 2 slot 5, then › goes on to bank 3 slot 1 (the list follows), ‹ back.
+    tap(slots()[4]!);
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureSlot.value === 5);
+    tap(next!);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 3 && store.get().captureSlot.value === 1);
+    expect(label.textContent).toBe('Bank 3 · Slot 1');
+    expect(names()).toEqual(store.get().captureSlots.slice(10, 15));
+    expect(slots().map((b) => b.dataset.active)).toEqual(['true', 'false', 'false', 'false', 'false']);
+    tap(prev!);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 2 && store.get().captureSlot.value === 5);
+    expect(label.textContent).toBe('Bank 2 · Slot 5');
+    // « » : the same slot a bank on / back, wrapping.
+    tap(bankNext!);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 3 && store.get().captureSlot.value === 5);
+    tap(bankPrev!);
+    await until(() => store.get().captureBank.source === 'dump' && store.get().captureBank.value === 2 && store.get().captureSlot.value === 5);
+    tap(toggle); // closed again for the next test
+  });
+
+  it('slot list: a row\'s swap button opens the library for that slot; a capture replaces it there', async () => {
+    const { root, store, mock } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    await until(() => store.get().captureSlots.length === 25);
+    const picker = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-slots')!;
+    const toggle = picker.querySelector<HTMLElement>('.ed-slots-toggle')!;
+    if (picker.dataset.open !== 'true') tap(toggle);
+    const bank = store.get().captureBank.value!;
+    const swaps = Array.from(picker.querySelectorAll<HTMLElement>('.ed-cap-slots .ed-cap-swap'));
+    expect(swaps).toHaveLength(5);
+    tap(swaps[2]!);
+    const sheet = root.querySelector<HTMLElement>('.lib-sheet')!;
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    expect(sheet.querySelector('.sheet-sub')!.textContent).toBe(`For Bank ${bank} · Slot 3`);
+    expect(sheet.querySelector<HTMLElement>('.sheet-close')!.dataset.back).toBe('true');
+    expect(sheet.querySelector('.sheet-close')!.textContent).toBe('Back');
+    // The search and User / Factory stay at the top while the list scrolls.
+    expect(sheet.querySelector('.sheet-head > .ed-search + .ed-tabs')).not.toBeNull();
+    const item = Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name')).find((n) => !n.querySelector('.ed-item-slot'))!;
+    const name = item.querySelector('.ed-item-label')!.textContent!;
+    tap(item);
+    const row = sheet.querySelector<HTMLElement>('.ed-item[data-selected="true"]')!;
+    expect(row.querySelector('.ed-load-to .ed-label')!.textContent).toBe('Replace:');
+    const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>('.ed-load-to button'));
+    expect(buttons.map((b) => b.textContent)).toEqual([`Bank ${bank} · Slot 3`, 'Move to folder']);
+    tap(buttons[0]!);
+    expect(sheet.closest('.overlay')!.classList.contains('open')).toBe(false);
+    const { EDIT_MSG } = await import('../src/protocol/edit');
+    await until(() => mock.edits.some((e) => e.type === EDIT_MSG.CAPTURE_SLOT_LOAD));
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureBank.value === bank && store.get().captureSlot.value === 3);
+    await until(() => store.get().captureSlots[(bank - 1) * 5 + 2] === name);
+    if (picker.dataset.open === 'true') tap(toggle); // closed again for the next test
+  });
+
+  it('library: Bank / Slot… opens a chooser over it (« ‹ bank · slot › », the bank\'s slots); Load goes there', async () => {
+    const { root, store, mock, open } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!);
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    const sheet = root.querySelector<HTMLElement>('.lib-sheet')!;
+    const item = Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name')).find((n) => !n.querySelector('.ed-item-slot'))!;
+    const name = item.querySelector('.ed-item-label')!.textContent!;
+    tap(item);
+    tap(sheet.querySelector<HTMLElement>('.ed-item[data-selected="true"] .ed-load-choose')!);
+    expect(open('slot-sheet')).toBe(true);
+    expect(open('lib-sheet')).toBe(true); // under it
+    const chooser = root.querySelector<HTMLElement>('.slot-sheet')!;
+    expect(chooser.querySelector('.ed-slot-for strong')!.textContent).toBe(name);
+    const label = chooser.querySelector<HTMLElement>('.ed-slots-label')!;
+    const bank = store.get().captureBank.value!;
+    // Starts on the slot playing; » a bank on, a tap picks the slot, Load writes it there and closes both.
+    expect(label.textContent).toBe(`Bank ${bank} · Slot ${store.get().captureSlot.value}`);
+    tap(chooser.querySelectorAll<HTMLElement>('.ed-bank-btn')[1]!);
+    const to = (bank % 5) + 1;
+    tap(chooser.querySelectorAll<HTMLElement>('.ed-cap-slot')[1]!);
+    expect(label.textContent).toBe(`Bank ${to} · Slot 2`);
+    const names = Array.from(chooser.querySelectorAll('.ed-cap-slot .ed-cap-name')).map((n) => n.textContent);
+    expect(names).toEqual(store.get().captureSlots.slice((to - 1) * 5, to * 5));
+    const load = chooser.querySelector<HTMLElement>('.ed-slot-load')!;
+    expect(load.textContent).toBe(`Load to Bank ${to} · Slot 2`);
+    tap(load);
+    expect(open('slot-sheet')).toBe(false);
+    expect(open('lib-sheet')).toBe(false);
+    const { EDIT_MSG } = await import('../src/protocol/edit');
+    await until(() => mock.edits.some((e) => e.type === EDIT_MSG.CAPTURE_SLOT_LOAD));
+    await until(() => store.get().captureSlot.source === 'dump' && store.get().captureBank.value === to && store.get().captureSlot.value === 2);
+    await until(() => store.get().captureSlots[(to - 1) * 5 + 1] === name);
+  });
+
+  it('library rows: a tap plays the capture; Load to: bank · slot or the preset\'s own (Save keeps it), which closes the library', async () => {
+    const { root, store, open } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    const libBtn = () => root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!;
+    tap(libBtn());
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    const sheet = root.querySelector('.lib-sheet')!;
+    // The first item in no slot of the pedal's (one in a slot offers Use instead of a load).
+    const items = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row) .ed-item-name'));
+    const firstItem = () => items().find((n) => !n.querySelector('.ed-item-slot'))!;
+    const firstName = firstItem().querySelector('.ed-item-label')!.textContent!;
+    const buttons = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button')).map((b) => b.textContent);
+    const saveBtn = root.querySelector<HTMLButtonElement>('.topbar .save-btn')!;
+    // A tap: it plays (listened to), a speaker right of its name; nothing to save yet.
+    tap(firstItem());
+    await until(() => store.get().edit.capturePreview?.name === firstName);
+    expect(store.get().edit.capturePreview!.kept).toBe(false);
+    expect(firstItem().querySelector('.ed-item-label + .ed-item-playing')).not.toBeNull();
+    expect(sheet.querySelector('.ed-load-to .ed-label')!.textContent).toBe('Load to:');
+    expect(buttons()).toEqual(['Bank / Slot…', "Preset's own slot", 'Move to folder']);
+    expect(saveBtn.hidden).toBe(store.get().presetDirty.value !== true); // a listen is no change (the demo may have one)
+    // Closed without a load: the preset's capture plays again.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(open('lib-sheet')).toBe(false);
+    await until(() => store.get().edit.capturePreview === null);
+    // Into the preset's own: the library closes, Save shows, the capture tab shows it in the preset's own place.
+    tap(libBtn());
+    tap(firstItem());
+    await until(() => store.get().edit.capturePreview?.name === firstName);
+    tap(Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button'))[1]!);
+    expect(open('lib-sheet')).toBe(false);
+    await until(() => store.get().edit.capturePreview?.kept === true);
+    expect(saveBtn.hidden).toBe(false);
+    const pane = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden])')!;
+    expect(pane.querySelector('.ed-slots-label')!.textContent).toBe("Preset's own slot");
+    const own = pane.querySelector<HTMLElement>('.ed-slots-list > .ed-cap-row > .ed-cap-slot')!;
+    expect(own.dataset.active).toBe('true');
+    expect((own.parentElement as HTMLElement).dataset.shown).toBe('true');
+    expect(own.textContent).toContain(firstName);
+    expect(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!.dataset.shown).toBe('true');
+    tap(root.querySelector<HTMLElement>('.src-sheet .ed-discard')!);
+    await until(() => store.get().edit.capturePreview === null);
+    tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-tab')[1]!);
+    expect(root.querySelector('.src-sheet .ed-pane:not([hidden]) .ed-slots .ed-slots-label')!.textContent).toBe('Off'); // the IR's picker says what plays
+    // The IR is off in the demo: as the capture's, its library waits for it to be on.
+    const irLib = root.querySelector<HTMLButtonElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!;
+    expect(irLib.disabled).toBe(true);
+    tap(root.querySelector<HTMLElement>('.src-sheet .sheet-head > .ed-name-row:not([hidden]) .ed-power')!);
+    await until(() => store.get().cabOn.value === true && !irLib.disabled);
+    tap(irLib);
+    await until(() => store.get().edit.library.irs !== null && store.get().edit.library.loading === null);
+    // An IR plays on a tap too (Cortex Cloud's IR preview); Load to: the IR slot playing or the preset's own slot.
+    expect(root.querySelector<HTMLElement>('.lib-sheet')!.dataset.kind).toBe('irs'); // the IR colour
+    const irName = firstItem().querySelector('.ed-item-label')!.textContent!;
+    tap(firstItem());
+    await until(() => store.get().edit.irPreview?.name === irName);
+    expect(firstItem().querySelector('.ed-item-label + .ed-item-playing')).not.toBeNull();
+    expect(buttons()).toEqual(['Slot…', "Preset's own slot", 'Move to folder']);
+    tap(Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item-actions button'))[1]!);
+    expect(open('lib-sheet')).toBe(false);
+    // Straight into the preset's own IR slot (index 5, then slot 6 selected): the preview stopped first.
+    await until(() => store.get().cabSlot.source === 'dump' && store.get().cabSlot.value === 6 && store.get().irName.value === irName);
+    expect(store.get().edit.irPreview).toBeNull();
+    expect(root.querySelector('.src-sheet .ed-pane:not([hidden]) .ed-slots-label')!.textContent).toBe("Preset's own slot");
+  });
+
+  it('library: A–Z / Z–A with a letter between the groups; where an item sits on the pedal, and Use for it', async () => {
+    const { root, store, mock } = await setup(true);
+    try {
+      localStorage.removeItem('nanogig.librarySort');
+    } catch {
+      /* none */
+    }
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    tap(root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-lib-btn')!);
+    await until(() => store.get().edit.library.captures !== null && store.get().edit.library.loading === null);
+    const sheet = root.querySelector('.lib-sheet')!;
+    const sort = sheet.querySelector<HTMLElement>('.ed-bar-sort')!;
+    const names = () => Array.from(sheet.querySelectorAll('.ed-item:not(.ed-folder-row) .ed-item-label')).map((n) => n.textContent!);
+    const letters = () => Array.from(sheet.querySelectorAll('.ed-letter')).map((n) => n.textContent);
+    const cmp = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    expect(sort.dataset.active).toBe('false');
+    expect(letters()).toEqual([]);
+    const before = names();
+    tap(sort);
+    expect(sort.dataset.active).toBe('true');
+    expect(names()).toEqual(before.slice().sort(cmp));
+    expect(letters().length).toBeGreaterThan(0);
+    expect(new Set(letters()).size).toBe(letters().length); // one divider per letter
+    tap(sort);
+    expect(names()).toEqual(before.slice().sort((a, b) => cmp(b, a)));
+    tap(sort);
+    expect(names()).toEqual(before);
+    expect(letters()).toEqual([]);
+    // A capture that is in a slot carries "Bank b · Slot n".
+    const slots = store.get().captureSlots;
+    const row = Array.from(sheet.querySelectorAll<HTMLElement>('.ed-item:not(.ed-folder-row)')).find((r) =>
+      slots.some((n) => n && n.toLowerCase() === r.querySelector('.ed-item-label')!.textContent!.toLowerCase()),
+    )!;
+    const i = slots.findIndex((n) => n.toLowerCase() === row.querySelector('.ed-item-label')!.textContent!.toLowerCase());
+    expect(row.querySelector('.ed-item-slot')!.textContent).toBe(`Bank ${Math.floor(i / 5) + 1} · Slot ${(i % 5) + 1}`);
+    // Already in a slot: Use (plays it from there, nothing written over), no load.
+    tap(row.querySelector<HTMLElement>('.ed-item-name')!);
+    expect(row.isConnected ? row : null).toBeNull(); // re-rendered
+    const open = sheet.querySelector<HTMLElement>('.ed-item[data-selected="true"]')!;
+    expect(open.querySelector('.ed-load-to .ed-label')!.textContent).toBe('Use:');
+    const labels = Array.from(open.querySelectorAll<HTMLButtonElement>('.ed-load-to button')).map((b) => b.textContent);
+    expect(labels[0]).toBe(`Bank ${Math.floor(i / 5) + 1} · Slot ${(i % 5) + 1}`);
+    expect(labels.at(-1)).toBe('Move to folder');
+    expect(labels).not.toContain("Preset's own slot");
+    const loads = (await import('../src/protocol/edit')).EDIT_MSG.CAPTURE_SLOT_LOAD;
+    const useBtn = open.querySelector<HTMLButtonElement>('.ed-load-to button')!;
+    if (!useBtn.disabled) {
+      tap(useBtn);
+      await until(() => store.get().captureSlot.source === 'dump' && store.get().captureBank.value === Math.floor(i / 5) + 1 && store.get().captureSlot.value === (i % 5) + 1);
+    }
+    expect(mock.edits.some((e) => e.type === loads)).toBe(false); // nothing written into a slot
+  });
+
+  it('amp & cab and gate: Discard once a value moves; an IR that is off is grey but editable', async () => {
+    const { root, store } = await setup(true);
+    (root.querySelector('.capture.sub-name') as HTMLElement).click();
+    const discard = root.querySelector<HTMLElement>('.src-sheet .ed-discard')!;
+    await until(() => store.get().edit.savedSource !== null);
+    expect(discard.dataset.shown).toBe('false');
+    const volume = root.querySelector<HTMLInputElement>('.src-sheet .ed-slider input')!;
+    volume.value = String((store.get().captureVolume.value ?? 0) + 40);
+    volume.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(discard.dataset.shown).toBe('true');
+    tap(discard);
+    await until(() => store.get().captureVolume.source === 'dump' && discard.dataset.shown === 'false');
+    // A double tap on the slider (or its readout) puts it at 0 dB; a drag between does not count as a tap.
+    volume.value = '60';
+    volume.dispatchEvent(new Event('input', { bubbles: true }));
+    await until(() => store.get().captureVolume.value === 60);
+    tap(volume);
+    press(volume, 'pointerdown', 10, 10);
+    press(volume, 'pointerup', 80, 10); // a drag
+    tap(volume);
+    await wait(30);
+    expect(store.get().captureVolume.value).toBe(60);
+    tap(volume);
+    await until(() => store.get().captureVolume.value === 128);
+    expect(root.querySelector('.src-sheet .ed-slider .ed-value')!.textContent).toBe('0.0 dB');
+    tap(discard);
+    await until(() => store.get().captureVolume.source === 'dump' && discard.dataset.shown === 'false');
+    // The IR is off in the demo and never read yet: the pedal does not answer for it, so it is not asked.
+    expect(store.get().cabOn.value).toBe(false);
+    tap(root.querySelectorAll<HTMLElement>('.src-sheet .ed-tab')[1]!);
+    expect(store.get().edit.ir?.status).toBe('off');
+    const irParams = root.querySelector<HTMLElement>('.src-sheet .ed-pane:not([hidden]) .ed-params')!;
+    expect(irParams.querySelector<HTMLInputElement>('input')!.disabled).toBe(true);
+    // On: read. Off again: its settings stay, grey and editable.
+    tap(root.querySelector<HTMLElement>('.src-sheet .sheet-head > .ed-name-row:not([hidden]) .ed-power')!);
+    await until(() => store.get().cabOn.value === true && store.get().edit.ir?.status === 'ready');
+    tap(root.querySelector<HTMLElement>('.src-sheet .sheet-head > .ed-name-row:not([hidden]) .ed-power')!);
+    await until(() => store.get().cabOn.value === false && store.get().cabOn.source === 'dump');
+    expect(store.get().edit.ir?.status).toBe('ready');
+    expect(irParams.dataset.off).toBe('true');
+    expect(irParams.querySelector<HTMLInputElement>('input')!.disabled).toBe(false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    // Gate.
+    await hold(root.querySelector('.tile[data-key="gate"]')!);
+    const gateDiscard = root.querySelector<HTMLElement>('.gate-sheet .ed-discard')!;
+    expect(gateDiscard.dataset.shown).toBe('false');
+    const threshold = root.querySelector<HTMLInputElement>('.gate-sheet .ed-slider input')!;
+    threshold.value = '20';
+    threshold.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(gateDiscard.dataset.shown).toBe('true');
   });
 
   it('swiping the preset strip pages it without selecting', async () => {
@@ -231,6 +601,23 @@ describe('library sheet', () => {
     tap(folderRow.querySelector('button')!);
     expect(Array.from(sheet.querySelectorAll('.ed-item-label')).map((n) => n.textContent)).toEqual([name]);
 
+    // + : tick captures of the list (not the one in already), Add puts them all in.
+    const add = sheet.querySelector<HTMLButtonElement>('.ed-bar-add')!;
+    expect(add.hidden).toBe(false);
+    tap(add);
+    expect(sheet.querySelector('.ed-bar-title')!.textContent).toBe('Add to Fenders');
+    const pickRows = () => Array.from(sheet.querySelectorAll<HTMLElement>('.ed-pick-row'));
+    expect(pickRows().map((r) => r.querySelector('.ed-item-label')!.textContent)).not.toContain(name);
+    expect(add.disabled).toBe(true);
+    const picked = pickRows().slice(0, 2).map((r) => r.querySelector('.ed-item-label')!.textContent!);
+    tap(pickRows()[0]!.querySelector('button')!);
+    tap(pickRows()[1]!.querySelector('button')!);
+    expect(pickRows().filter((r) => r.dataset.picked === 'true')).toHaveLength(2);
+    expect(add.textContent).toBe('Add 2');
+    tap(add);
+    expect(sheet.querySelectorAll('.ed-pick-row')).toHaveLength(0);
+    expect(Array.from(sheet.querySelectorAll('.ed-item-label')).map((n) => n.textContent).sort()).toEqual([name, ...picked].sort());
+
     // Delete takes two taps; the capture goes back to the top.
     const del = sheet.querySelector('.ed-bar-delete') as HTMLElement;
     del.click();
@@ -238,6 +625,29 @@ describe('library sheet', () => {
     del.click();
     expect(sheet.querySelectorAll('.ed-folder-row')).toHaveLength(0);
     expect(Array.from(sheet.querySelectorAll('.ed-item-label')).map((n) => n.textContent)).toContain(name);
+  });
+});
+
+describe('presets list', () => {
+  it("opens on a hold of the strip's arrows (a tap pages); labels as on the strip", async () => {
+    const { root, store, open } = await setup(false);
+    const next = root.querySelectorAll<HTMLElement>('.pbtn-nav')[1]!;
+    const first = () => root.querySelector('.pbtn .p-name')!.textContent;
+    const before = first();
+    tap(next);
+    expect(first()).not.toBe(before); // paged
+    expect(open('list-sheet')).toBe(false);
+    const paged = first();
+    await hold(next);
+    expect(open('list-sheet')).toBe(true);
+    expect(first()).toBe(paged); // the hold did not page too
+    // Slot letters and footswitch badges carry what the styles colour, as on the strip.
+    const fs = store.get().footswitches.value!;
+    const row = root.querySelectorAll<HTMLElement>('.ed-preset-row')[fs.ia]!;
+    expect(row.querySelector<HTMLElement>('.slot-slot')!.dataset.slot).not.toBe('');
+    expect(row.querySelector<HTMLElement>('.fs-badge')!.dataset.fs).toBe('ia');
+    const strip = root.querySelector<HTMLElement>('.pbtn .slot-slot')!;
+    expect(strip.dataset.slot).not.toBe('');
   });
 });
 

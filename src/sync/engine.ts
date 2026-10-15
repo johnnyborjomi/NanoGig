@@ -194,12 +194,16 @@ export class SyncEngine {
       metadata: () => this.metadata,
       metadataChanged: (md) => {
         this.metadata = md;
-        this.store.setField('presetNames', md.presets.map((p) => p.name), 'metadata');
+        this.publishNames(md, 'metadata');
         this.updateSlotKnowledge(Date.now());
         this.persistMetadata(md);
       },
       refreshNames: () => void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Metadata refresh failed: ${(err as Error).message}`)),
       lastState: () => this.lastState,
+      reloadPreset: async () => {
+        const i = this.store.get().activePreset.value;
+        if (i !== null) await this.selectPreset(i);
+      },
     });
     this.assembler = new MessageAssembler({
       onMessage: (body, meta) => this.onAssembledMessage(body, meta),
@@ -278,7 +282,7 @@ export class SyncEngine {
         // Names carried over from an earlier link (or the persistent cache) may have been renamed
         // in Cortex Cloud meanwhile: treat them as provisional so the staleness check and the
         // idle refresh apply to this link too, not only to the first one after a page load.
-        this.store.setField('presetNames', this.metadata.presets.map((p) => p.name), 'cache');
+        this.publishNames(this.metadata, 'cache');
         this.log('info', 'Preset names already known; reading state only (Menu → Refresh re-reads them)');
         this.validateNamesOnNextState = true;
         await this.requestState();
@@ -297,7 +301,7 @@ export class SyncEngine {
     if (!md || md.presetRecordCount < MIN_PRESET_RECORDS) return;
     this.metadata = md;
     this.cachedFingerprint = metadataFingerprint(md);
-    this.store.setField('presetNames', md.presets.map((p) => p.name), 'cache');
+    this.publishNames(md, 'cache');
     this.log('info', `Preset names restored from the cache (${md.presetRecordCount} presets, ${md.captures.length} captures, ${md.irs.length} IRs)`);
   }
 
@@ -590,9 +594,15 @@ export class SyncEngine {
         if (ev.msgType === MSG.ENCODER) this.showEncoderFromCache(ev.selector, ev.value, pkt.at);
         if (ev.msgType === MSG.ENCODER || ev.msgType === MSG.KNOB) this.scheduleDebouncedRefresh();
         return;
+      case 'dirty':
+        // The pedal's save light (0x73, field 3). Also the ack to slot writes and sent after footswitch presses,
+        // so the state is read again as before.
+        this.store.setField('presetDirty', ev.dirty, 'dump', pkt.at);
+        this.log('info', ev.dirty ? 'The preset has unsaved changes' : 'No unsaved changes', toHex(pkt.data));
+        if (this.opts.refreshOnUnknownEvent) this.scheduleDebouncedRefresh();
+        return;
       case 'unknown':
-        // 0x73 is the pedal's generic "something changed" notice: seen after footswitch presses and
-        // as the ack to our capture/cab slot writes (2026-09-13). Undocumented, so we just re-read state.
+        // Undocumented: re-read the state, it may have changed.
         this.log('info', `Undocumented event${ev.msgType !== null ? ` type 0x${ev.msgType.toString(16)}` : ''}; re-reading state shortly`, toHex(pkt.data));
         if (this.opts.refreshOnUnknownEvent) this.scheduleDebouncedRefresh();
         return;
@@ -608,7 +618,7 @@ export class SyncEngine {
       else this.log('warn', 'Metadata carried no IR slot list (field 19); cab re-enable will not be possible until it does');
       if (md.presetRecordCount >= MIN_PRESET_RECORDS) {
         this.metadata = md;
-        this.store.setField('presetNames', md.presets.map((p) => p.name), 'metadata');
+        this.publishNames(md, 'metadata');
         this.updateSlotKnowledge(Date.now());
         this.store.patch({ lastMetadataAt: Date.now() });
         this.persistMetadata(md);
@@ -712,6 +722,12 @@ export class SyncEngine {
     void this.requestMetadata({ silent: true }).catch((err) => this.log('warn', `Metadata refresh failed: ${(err as Error).message}`));
   }
 
+  /** Preset names and the capture slots' names, from a metadata read (or its cache). */
+  private publishNames(md: Metadata, source: 'metadata' | 'cache'): void {
+    this.store.setField('presetNames', md.presets.map((p) => p.name), source);
+    this.store.patch({ captureSlots: md.captures.map((c) => c.name), irSlots: md.irs.map((r) => r.shortName || r.fullName) });
+  }
+
   private applyState(state: CurrentState, requestedAt = 0) {
     const at = Date.now();
     const prev = this.store.get();
@@ -740,11 +756,15 @@ export class SyncEngine {
     const models = {} as FxModelsBySlot;
     for (const slot of FX_SLOTS) models[slot] = lookupFxModel(state.fxModelIds[slot]);
     this.store.setField('fxModels', models, 'dump', at);
+    this.store.setField('presetDirty', state.dirty, 'dump', at);
     const gateStale = writtenSince(this.writtenAt.gate, requestedAt);
     this.store.setField('gateOn', gateStale ? prev.gateOn.value : state.gateOn, gateStale ? 'optimistic' : 'dump', at);
     const cabStale = writtenSince(this.writtenAt.cab, requestedAt);
     this.store.setField('cabOn', cabStale ? prev.cabOn.value : state.cabOn, cabStale ? 'optimistic' : 'dump', at);
-    this.store.setField('captureName', state.capture?.name || null, 'dump', at); // '' (no capture) → null
+    // A preview plays: its name stands (the dump may still name the capture underneath).
+    const preview = this.store.get().edit.capturePreview;
+    if (preview && preview.preset === state.activePreset) this.store.setField('captureName', preview.name, 'optimistic', at);
+    else this.store.setField('captureName', state.capture?.name || null, 'dump', at); // '' (no capture) → null
     // Capture on/off follows field 11 (rotary position, 0/absent = bypassed) as in the web editor.
     // Field 32.1 ("enabled") is NOT used: hardware dumps show it stuck at 1 after a bypass
     // (2026-09-13) and at 0 with position 4 (2026-09-12), so it means something else.
@@ -753,11 +773,14 @@ export class SyncEngine {
     this.store.setField('captureOn', captureOn, captureStale ? 'optimistic' : 'dump', at);
     if (stale || gateStale || cabStale || captureStale || editHeld) this.scheduleConfirm();
     this.store.setField('captureSlot', state.captureSlot ?? 0, editHeld ? 'optimistic' : 'dump', at);
+    if (state.captureBank !== null) this.store.setField('captureBank', state.captureBank, editHeld ? 'optimistic' : 'dump', at);
     // Field 44 absent = raw 0 (-24 dB): the pedal leaves zero varints out.
     this.store.setField('captureVolume', state.captureVolumeRaw ?? 0, 'dump', at);
     this.store.setField('gateThreshold', state.gateThresholdRaw, 'dump', at);
     this.store.setField('cabSlot', state.cabOn ? state.cabSlot : null, 'dump', at);
-    this.store.setField('irName', state.ir?.shortName || null, 'dump', at);
+    const irPreview = this.store.get().edit.irPreview;
+    if (irPreview && irPreview.preset === state.activePreset) this.store.setField('irName', irPreview.name, 'optimistic', at);
+    else this.store.setField('irName', state.ir?.shortName || null, 'dump', at);
     if (state.firmware) this.store.setField('firmware', state.firmware, 'dump', at);
     if (state.footswitchAssignments) this.store.setField('footswitches', state.footswitchAssignments, 'dump', at);
     this.store.setField('tempo', state.tempoBpm, 'dump', at);
@@ -767,6 +790,8 @@ export class SyncEngine {
       this.store.patch({ tuner: { ...this.store.get().tuner, referenceHz: state.tunerReferenceHz } });
     }
     this.updateSlotKnowledge(at);
+    // A preset seen for the first time since it loaded: what it shows is what it has saved.
+    this.edit.noteSaved(state.activePreset);
 
     if (state.activePreset !== null) {
       if (prev.activePreset.value !== state.activePreset) this.expAssignTries = 0;
@@ -1102,6 +1127,9 @@ export class SyncEngine {
     this.pendingPresetSince = Date.now();
     this.expAssignTries = 0;
     this.store.setField('activePreset', index, 'optimistic');
+    this.edit.clearCapturePreview(); // a load puts the preset's own capture back
+    this.edit.clearIrPreview();
+
     if (this.selectInflight) {
       this.log('info', `Preset ${index + 1} held until the pedal acks the select in flight`);
       return;

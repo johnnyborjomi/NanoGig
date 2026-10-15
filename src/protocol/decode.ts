@@ -174,6 +174,8 @@ export interface CurrentState {
   ir: IrState | null;
   amp: AmpKnobs;
   captureSlot: number | null;
+  /** Field 9 (DrD85: bankSelector): the capture bank 1..5 that field 11's position counts in. Absent = null. */
+  captureBank: number | null;
   captureVolumeRaw: number | null;
   /**
    * Gate threshold as the write's raw 0..255: field 53 is f32 raw / 255 (screen firmware, verified 2026-10-10:
@@ -191,6 +193,8 @@ export interface CurrentState {
    * reconnect during the mode carried it; dumps outside the mode do not). Absent = false.
    */
   tapTempoMode: boolean;
+  /** Field 41 (currentPresetDirty, DrD85): the shown preset has unsaved changes. Absent = none. */
+  dirty: boolean;
   /** FX model IDs (uppercase hex, no spaces) from fields 48-52; null per slot when absent. */
   fxModelIds: Record<FxSlot, string | null>;
   firmware: string | null;
@@ -269,6 +273,10 @@ export function decodeCurrentState(bytes: Uint8Array): CurrentState | null {
       treble: firstVarint(f, 7),
     },
     captureSlot: firstVarint(f, 11),
+    captureBank: (() => {
+      const b = firstVarint(f, 9);
+      return b !== null && b >= 1 && b <= 5 ? b : null;
+    })(),
     captureVolumeRaw: firstVarint(f, 44),
     gateThresholdRaw: (() => {
       const v = firstFixed32Float(f, 53);
@@ -285,6 +293,7 @@ export function decodeCurrentState(bytes: Uint8Array): CurrentState | null {
       return v !== null && Number.isFinite(v) && v >= 400 && v <= 480 ? v : null;
     })(),
     tapTempoMode: firstVarint(f, 60) === 1,
+    dirty: (firstVarint(f, 41) ?? 0) !== 0,
     fxModelIds: {
       pre1: modelIdHex(f, 48),
       pre2: modelIdHex(f, 49),
@@ -366,6 +375,8 @@ export type DeviceEvent =
    * tempo mode is on (`active`), and one more with `active` false and the final tempo on exit.
    */
   | { kind: 'tap-tempo'; active: boolean; bpm: number; hex: string; provisional: typeof PROVISIONAL }
+  /** The shown preset's unsaved changes on / off (type 0x73, field 3): the pedal's save light. */
+  | { kind: 'dirty'; dirty: boolean; hex: string; provisional: typeof PROVISIONAL }
   | { kind: 'unknown'; msgType: number | null; hex: string; provisional: typeof PROVISIONAL };
 
 // ---------------------------------------------------------------------------
@@ -575,6 +586,7 @@ export function decodeEvent(data: Uint8Array): DeviceEvent {
       return { kind: 'unknown', msgType, hex, provisional: PROVISIONAL };
     }
     if (msgType === MSG.BYPASS_CHANGED) return { kind: 'bypass-changed', provisional: PROVISIONAL };
+    if (msgType === MSG.DIRTY_CHANGED) return { kind: 'dirty', dirty: (firstVarint(parseFields(payload), 3) ?? 0) !== 0, hex, provisional: PROVISIONAL };
     if (msgType === MSG.SETTINGS) {
       const settings = decodeDeviceSettings(payload);
       if (settings) return { kind: 'settings', settings, hex, provisional: PROVISIONAL };

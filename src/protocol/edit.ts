@@ -44,8 +44,12 @@ export const EDIT_MSG = {
   FX_MODEL: 0x88,
   FX_PARAMS_REQUEST: 0x89,
   FX_PARAMS: 0x8a,
+  CAPTURE_PREVIEW_STOP: 0x94,
+  CAPTURE_PREVIEW_STOPPED: 0x95,
   CAPTURE_PREVIEW: 0x96,
   CAPTURE_PREVIEWED: 0x97,
+  IR_PREVIEW: 0x9e,
+  IR_PREVIEWED: 0x9f,
 } as const;
 
 /** Field 1 of most writes: 1 = update, 2 = delete, 3 = read. */
@@ -170,8 +174,8 @@ export function fxModelFrame(slot: FxSlot, type: number): Uint8Array {
 }
 
 /**
- * Read a block's parameters: `08 C0 08 03 18 <slot> 89 00 00 00` → type 0x8A. Only for a block that is ON:
- * DrD85 saw the pedal crash on a bypassed one.
+ * Read a block's parameters: `08 C0 08 03 18 <slot> 89 00 00 00` → type 0x8A. On or off alike: Cortex Cloud reads
+ * a bypassed block (DrD85 once reported a crash on one; Cortex Cloud and rixrix/deskop-nano-cortex read them).
  */
 export function fxParamsRequest(slot: FxSlot): Uint8Array {
   return new Pb().varint(1, OP_READ).varint(3, slotIndex(slot)).frame(EDIT_MSG.FX_PARAMS_REQUEST);
@@ -452,6 +456,33 @@ export function capturePreviewFrame(item: LibraryItem): Uint8Array {
 }
 
 /**
+ * Stop a capture preview (Cortex Cloud's stop button, HCI snoop 2026-10-11): `0D C0 10 <ms since 1970, varint> 18 00
+ * 94 00 00 00` → type 0x95 `08 01 10 <the same ms> 18 01`. The saved capture plays again. A "Use" (slot load, then
+ * its select) ends a preview without this frame.
+ */
+export function capturePreviewStopFrame(nowMs = Date.now()): Uint8Array {
+  return new Pb().varint(2, nowMs).varint(3, 0).frame(EDIT_MSG.CAPTURE_PREVIEW_STOP);
+}
+
+/**
+ * Preview a library IR, as Cortex Cloud's tap on one (HCI snoop 2026-10-11 10:54): the capture preview's shape with
+ * type 0x9E, `<len> C0 <1A factory / 22 user> <n> { 08 <index> 12 <name> } 40 01 9E 00 00 00` → type 0x9F
+ * `08 06 18 01 22 { 12 <name> }`. (The user list's field 4 is the one seen; factory as the captures'.)
+ */
+export function irPreviewFrame(item: LibraryItem): Uint8Array {
+  if (!item.name) throw new RangeError('IR name required');
+  return new Pb()
+    .sub(item.list === 'factory' ? 3 : 4, (pb) => pb.varint(1, item.index).text(2, item.name))
+    .varint(8, 1)
+    .frame(EDIT_MSG.IR_PREVIEW);
+}
+
+/** Stop an IR preview (same snoop): the capture stop with field 4 = 0 for field 3, `0D C0 10 <ms> 20 00 94 00 00 00` → 0x95. */
+export function irPreviewStopFrame(nowMs = Date.now()): Uint8Array {
+  return new Pb().varint(2, nowMs).varint(4, 0).frame(EDIT_MSG.CAPTURE_PREVIEW_STOP);
+}
+
+/**
  * Cortex Cloud's "Use": write a library capture into bank slot 0..24 (every preset on that slot hears it):
  * `<len> C0 18 <slot> <22 factory / 2A user> <n> { 08 <index> 12 <name> } 50 00 00 00` → type 0x51 `08 06 18 01`;
  * then the slot is selected (`captureSlotSelectFrame`), which marks the preset edited.
@@ -465,9 +496,12 @@ export function captureSlotLoadFrame(slot: number, item: LibraryItem): Uint8Arra
     .frame(EDIT_MSG.CAPTURE_SLOT_LOAD);
 }
 
-/** The IR equivalent (type 0x4E → 0x4F). The firmware loads IRs with `cabLoadFrame` instead; kept for parity. */
+/**
+ * The IR equivalent (type 0x4E → 0x4F): IR slot 0..4, or 5 = the preset's own IR slot (Cortex Cloud, HCI snoop
+ * 2026-10-11 10:54: `24 C0 18 05 2A 1C {08 25 12 "YA VX30 212 BLU Mix BMAY"} 4E`, then `08 C0 18 03 20 06 1C`).
+ */
 export function cabSlotLoadFrame(slot: number, item: LibraryItem): Uint8Array {
-  checkIndex('IR slot', slot, CAB_SLOT_COUNT - 1);
+  checkIndex('IR slot', slot, CAB_SLOT_COUNT);
   if (!item.name) throw new RangeError('IR name required');
   return new Pb()
     .varint(3, slot)
@@ -477,7 +511,11 @@ export function cabSlotLoadFrame(slot: number, item: LibraryItem): Uint8Array {
 
 /** Slots selector 1 reaches (1..5, like the IR's); 6 = the preset's own capture. */
 export const CAPTURE_SELECT_SLOTS = 5;
+/** Capture banks (field 9, 1..5): 5 × 5 = the pedal's 25 capture slots. */
+export const CAPTURE_BANKS = 5;
 export const CAPTURE_OWN_SLOT = 6;
+/** Field 12 / the IR select's 6: the IR saved in the preset itself (board 2026-10-10: selecting it restores it). */
+export const CAB_OWN_SLOT = 6;
 
 /**
  * The capture in slot 1..5 on (Cortex Cloud after a use: `08 C0 18 01 20 <slot> 1C 00 00 00`), 6 = back to the

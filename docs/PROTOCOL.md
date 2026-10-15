@@ -103,8 +103,21 @@ Seen on 2.2.1: `3A C0 08 01 18 01 2A 16 "Neural DSP Nano Cortex" 30 38 38 01 40 
 **Field 16 = outputs 1/2 muted**: `1` while muted, absent (57-byte reply) while the outputs
 are on. The field mirrors the last `68 <v>` write exactly (before/after pair in NanoGig's own
 log, 2026-09-15), so it confirms the write landed but cannot settle the polarity by itself;
-that was done by ear. The other fields are still unmapped. NanoGig re-reads the message after
-every mute ack to confirm the switch against the pedal's report.
+that was done by ear. NanoGig re-reads the message after every mute ack to confirm the switch
+against the pedal's report.
+
+More fields, from DrD85/nano-cortex-editor (2026-10-13; his names in brackets, not yet used here):
+
+| Field | Meaning |
+| --- | --- |
+| 8 | MIDI channel 1..16 (omitted = 1) |
+| 15 | Guitar input muted, Cortex Cloud's "Mute Guitar Input" (`muteIn1`; omitted = not muted) |
+| 16 | Guitar output muted, "Mute Guitar Output" (`muteProcessingChain`): no guitar at the output jacks, the USB sound stays. The "outputs 1/2" switch above |
+| 17 | USB playback volume in dB, f32 (`usbReturnGain`; how loud the computer's sound is mixed in; omitted = 0 dB). Read only so far: no write seen |
+
+Writes are type `0x43` (UpdateSettings), one setting per frame, a 0 written out; the reply field is the write
+field + 3. Field 12 = mute input, field 13 = mute output: DrD85 sends `06 C0 60 <1 / 0> 43 00 00 00` and
+`06 C0 68 <1 / 0> 43 00 00 00`, Cortex Cloud adds `08 01` (ours, above). The `0x44` reply's field 3 = 1 confirms.
 
 ## Live events (single-packet messages, by trailer type)
 
@@ -117,7 +130,7 @@ every mute ack to confirm the switch against the pedal's report.
 | `0x40` | Expression pedal position: `0B C0 08 01 18 02 20 <0–254> 40 00 00 00`, field 4 absent at heel; ~20/s while moving | side bar                    |
 | `0xAA` | Values the expression produced for its assigned slots (see "Expression pedal")                        | EXP badge fill on the tile             |
 | `0x3D` | Reply to our expression-assignments request (see "Expression pedal")                                 | EXP badges                             |
-| `0x73` | Generic "something changed" notice; also the ack to capture / cab slot writes                         | debounced re-read                      |
+| `0x73` | The shown preset's unsaved changes (the save light): field 3 = 1 on, absent off. Off after a footswitch press, on as the ack to capture / cab slot writes (DrD85: `DIRTY_CHANGED`) | Save / Discard in Edit mode; debounced re-read |
 | `0x42` | Device-settings reply (see above)                                                                    | log the fields                         |
 | `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
 | `0x1E` | Ack to the c304 preset select: `08 C0 08 01 20 01 1E 00 00 00`, after a `0x1F` notice               | send the newest pending select, else re-read state (field 13 confirms) |
@@ -267,33 +280,44 @@ pedal was rocked through an Mvave Chocolate over MIDI, which changes nothing on 
 
 **Values** (type `0xAA`), sent with every position: one varint field per assigned target — the
 parameter value after the range is applied (0–255) for ranges, 0/1 for bypasses. Field numbers:
-gain 4, bass 5, mid 6, treble 7, level 8, pre 1 … post 3 = 9–13, an unnamed eleventh range 14;
-bypass capture 15, IR 16, pre 1 … post 3 = 17–21, an unnamed eighth bypass 22. With post 3
+gain 4, bass 5, mid 6, treble 7, pre 1 … post 3 = 9–13, level and input gate amount 8 and 14 (which
+is which: see the table below); bypass capture 15, IR 16, pre 1 … post 3 = 17–21, input gate 22. With post 3
 assigned 17–130 the values ran 17…129. An empty `06 C0 08 01 AA 00 00 00` follows a preset load
 with nothing assigned.
 
 **Assignments are per preset.** Read: `08 C0 08 03 18 <preset> 3C 00 00 00`; reply (type
 `0x3D`) `08 01` then one sub-message per assigned target; the pedal acks writes with
 `08 C0 08 01 18 01 3F 00 00 00`. Cortex Cloud writes the whole list with type `0x3E` after
-`18 <preset>`; the "assign everything" capture (preset 6, targets added in Cortex Cloud's list
-order) gives the write numbering, which NanoGig treats as canonical:
+`18 <preset>` (an unassigned target is left out). The field numbers below are
+DrD85/nano-cortex-editor's (2026-10-13), whose editor reads, writes and reads back assignments; the reply's field
+is the write field − 1 (he applies this to every target; we saw it with post 3).
 
 | Write field | Target                | Values field |
 | ----------- | --------------------- | ------------ |
 | 4 5 6 7     | gain bass mid treble  | 4 5 6 7      |
-| 21          | level                 | 8            |
 | 8 … 12      | pre 1 pre 2 post 1 post 2 post 3 amount | 9 … 13 |
-| 13          | ? (listed after post 3) | 14         |
+| 13          | level (capture volume) | 8 or 14 (to test) |
+| 21          | input gate amount     | 14 or 8 (to test) |
 | 14 15       | capture / IR bypass   | 15 16        |
 | 16 … 20     | pre 1 … post 3 bypass | 17 … 21      |
-| 22          | ? bypass (listed third, gate?) | 22  |
+| 22          | input gate bypass     | 22           |
 
-A range sub-message is `{1: flag, 2: min, 3: max}` (`08 00 10 00 18 FF 01` = 0–100 %). A bypass
-sub-message's key is the mode: `{2: {1:0, 2:0}}` is heel-toe (its values flag flips at
-mid-travel), `{1: {1:0, 2:600}}` and `{3: {1:600}}` carry a delay in ms and never fired without
-a toe switch (switch / stop, order unknown). The reply was only seen with post 3, at field 11 =
-write − 1; the decoder applies that rule to every target and logs the result, so the first
-read of a fully assigned preset will confirm or correct it.
+**Not yet tested by us.** Our own reading of the 2026-09-19 "assign everything" capture (preset 6, targets added
+in Cortex Cloud's list order) had 13 and 21 swapped (21 = level, 13 = unnamed), and the decoder
+(`src/protocol/decode.ts`) still uses that until assignment writes are tried on the pedal.
+
+A range record is `{1: inverted, 2: min, 3: max}`, min / max 0–255 shown as 0–100 % (`08 00 10 00 18 FF 01` =
+0–100 %, not inverted). A bypass record holds one of three modes (DrD85):
+
+| Key | Mode | Inside |
+| --- | --- | --- |
+| 1 | Heel-Toe | `{1: inverted, 2: switch delay ms}` |
+| 2 | Switch | `{1: inverted, 2: latch emulation}` |
+| 3 | Stop | `{1: switch delay ms}` |
+
+Zero values are left out of every record. Our 2026-09-19 notes differ here too, untested: `{2: {1:0, 2:0}}`
+flipped its values flag at mid-travel (we called it heel-toe), and `{1: {1:0, 2:600}}` and `{3: {1:600}}`
+never fired without a toe switch.
 
 NanoGig requests the assignments after every state dump whose preset differs from the last
 request, remembers which preset it asked for (the reply carries none), and shows a bar at the
@@ -310,24 +334,41 @@ preset is only saved by the pedal's save button) except rename / create / delete
 | Action | Frame | Reply |
 | --- | --- | --- |
 | FX model | `<len> C0 18 <slot 0..4> 20 <type varint> 88 00 00 00` (type = the varint the dump's model ID spells: `FA2E` = 6010) | state dump confirms |
-| FX parameters read | `08 C0 08 03 18 <slot> 89 00 00 00`, **only for a block that is on** (DrD85 saw the pedal crash on a bypassed one) | `0x8A`: field 4 = every parameter's 0..1 as packed f32, in the model's order (`src/protocol/fx-params.ts`) |
+| FX parameters read | `08 C0 08 03 18 <slot> 89 00 00 00`, on or off alike: Cortex Cloud reads and edits a bypassed block, and rixrix/deskop-nano-cortex reads every slot on each preset load (DrD85 once reported a crash on a bypassed one) | `0x8A`: field 4 = every parameter's 0..1 as packed f32, in the model's order (`src/protocol/fx-params.ts`) |
 | FX parameter | `0F C0 08 01 18 <slot> 20 <param> 2D <f32 0..1> 63 00 00 00` | — |
 | Capture volume | `0A C0 18 0A 20 <raw 0..255> 28 00 1A 00 00 00` (`0B C0` from raw 128) | state field 44 |
 | Gate threshold | `<len> C0 18 0B 20 <raw 0..255> 28 00 1A 00 00 00` | state field 53 = f32 raw / 255 |
-| Capture slot | `08 C0 18 01 20 <slot 1..5, 6 = the preset's own, 0 = off> 1C 00 00 00` | field 11 |
+| Capture slot | `08 C0 18 01 20 <slot 1..5, 6 = the preset's own, 0 = off> 1C 00 00 00`: a position in the bank playing (field 9) | field 11 |
+| Capture in another bank | `08 C0 18 04 20 <slot 0..24 over the 5 banks> 1C 00 00 00` (DrD85: "bank and capture", as Cortex Cloud selects) | field 9 = bank 1..5, field 11 = position |
 | IR slot | `08 C0 18 03 20 <slot 1..5, 0 = off> 1C 00 00 00` | field 12 |
-| IR settings read | `08 C0 18 00 20 <field 12 − 1> 5F 00 00 00` | `0x60`: `5 {1 kind, 2 name, 3 position, 4 mic}` factory / `6 {1 kind, 2 name}` user, `7` mics (repeated), `8 {1 level, 2 high pass, 3 low pass (f32), 4 phase}` |
+| IR settings read | `08 C0 18 00 20 <field 12 − 1> 5F 00 00 00`; **not for an IR that is off**: the pedal leaves it unanswered (2026-10-11), so the panel shows what was last read of it | `0x60`: `5 {1 kind, 2 name, 3 position, 4 mic}` factory / `6 {1 kind, 2 name}` user, `7` mics (repeated), `8 {1 level, 2 high pass, 3 low pass (f32), 4 phase}` |
 | IR level / high pass / low pass | `09 C0 <2D / 35 / 3D> <f32 0..1> 5E 00 00 00` | — |
 | IR phase | `06 C0 40 <1 inverted / 0> 5E 00 00 00` | — |
 | IR microphone / position (factory IR) | `<len> C0 1A <n> {08 <kind> 12 <IR name> 18 <position 0..5> 22 <mic>} 5E 00 00 00` | read again |
 | Library | `0C C0 18 01 20 01 28 01 30 01 4C 00 00 00` (fields 3..6: factory captures, factory IRs, user captures, user IRs) | `0x4D`, multi-packet: `3` / `5` = capture `{1 hash, 2 name}`, `4` / `6` = IR name; an item's index is its place in its list |
 | Load a library IR | `<len> C0 <1A factory / 22 user> <n> {08 <index> 12 <name>} 5E 00 00 00` | state dump |
-| Load a library capture ("Use") | `<len> C0 18 <slot 0..24> <22 factory / 2A user> <n> {08 <index> 12 <name>} 50 00 00 00`, then the capture slot select above | `0x51` `08 06 18 01` |
+| Preview a library capture | `<len> C0 <1A factory / 22 user> <n> {08 <index> 12 <name>} 40 01 96 00 00 00`: Cortex Cloud's play button on a library capture. Heard at once over the preset's own, no slot of the pedal's touched, **not an edit** to the pedal: the save light stays off (board, 2026-10-11). **But a Save while it plays keeps it as the preset's own capture** (slot 6; board 2026-10-13, on saved presets and on a new one): this is the load into the preset itself, which the app shows as "Load into preset's own" with its own Save / Discard. After that Save the pedal stays in its preview (later previews went unheard, sound dropping for a moment) until the stop below; the stop alone puts back the slot it was playing before (a bank capture, the save light on, board 2026-10-13), so the app sends the stop and then loads the preset again, which plays what it has saved (its own) with the light off. Cortex Cloud also stops each preview before the next (snoop 2026-10-11), and so does the app. **Never while the capture is off: that hung the pedal (2026-10-11)**; the app turns it on (slot 6) and waits for a state read showing it on | `0x97` `08 06 18 01 22 {12 <name> 1A <hash>}` |
+| Stop the preview | `0D C0 10 <ms since 1970, varint> 18 00 94 00 00 00`: Cortex Cloud's stop button (HCI snoop 2026-10-11, byte-exact). The saved capture plays again. A "Use" ends a preview without it. Neither a reselect of the preset's own capture nor a load of the shown preset ends one (board, 2026-10-11) | `0x95` `08 01 10 <the same ms> 18 01` |
+| Load a library IR into an IR slot | `<len> C0 18 <slot 0..4, or 5 = the preset's own IR slot> <22 factory / 2A user> <n> {08 <index> 12 <name>} 4E 00 00 00`, then (after the `0x4F`) the IR slot select (6 for the own: Cortex Cloud, HCI snoop 2026-10-11 10:54, `24 C0 18 05 2A 1C {08 25 12 "YA VX30 212 BLU Mix BMAY"} 4E` then `08 C0 18 03 20 06 1C`). Into the own slot: this preset alone, no slot of the pedal's written | `0x4F` |
+| Preview a library IR | `<len> C0 <1A factory / 22 user> <n> {08 <index> 12 <name>} 40 01 9E 00 00 00` (the capture preview's shape, type `0x9E`; same snoop, user list seen) | `0x9F` `08 06 18 01 22 {12 <name>}`, then `0x73` off |
+| Stop an IR preview | `0D C0 10 <ms since 1970> 20 00 94 00 00 00`: the capture stop with field 4 = 0 for field 3 (same snoop). Cortex Cloud sent it before its load into the own IR slot | `0x95` `08 01 10 <the same ms> 18 01`, then `0x73` on |
+| Load a library capture ("Use"; the app's and the firmware's library load) | `<len> C0 18 <slot 0..24> <22 factory / 2A user> <n> {08 <index> 12 <name>} 50 00 00 00`, then the capture slot select above, which marks the preset edited (the save light on: Save / Discard). Any bank's slot works, not only the active bank's: a load into bank 4 while bank 2 played, then its select, saved and came back right after a preset change (board, 2026-10-14) | `0x51` `08 06 18 01`; field 3 ≠ 1: refused, field 4 = the pedal's reason as text (DrD85; the IR load's `0x4F` alike) |
 | Rename | `<len> C0 08 01 18 <preset> 22 <n> <name> 6F 00 00 00` | `0x70` `08 06 18 <preset> 20 <1 ok>` |
-| Create (the shown preset stored under a name) | `<len> C0 08 01 18 <preset> 2A <n> <name> 03 00 00 00` | `0x04`, same shape |
+| Create (the shown preset stored under a name) | `<len> C0 08 01 18 <preset> 2A <n> <name> 03 00 00 00`. On a preset that is not empty it replaces it: DrD85's "Copy to another slot" (what is heard now, unsaved edits and expression assignments included) | `0x04`, same shape |
 | Delete | `08 C0 08 02 18 <preset> 32 00 00 00` | `0x33`, same shape |
 | Footswitch | the preset select with field 4 = −1, field 5..8 (IA, IB, IIA, IIB) = the preset on the chosen one, the others −1, field 9 = 2 | as a select (`0x1F`, `0x1E`) |
 | Saved on the pedal | — | `0x1B` with field 3 = 2 (the pedal's save button) |
+| Save (the top bar's Save) | the create frame for the shown preset under its own name: DrD85's SavePreset (type 3, field 5 = name) | `0x04`; the save light goes out (`0x73` off, state field 41 absent) |
+| Discard (the top bar's Discard) | the preset select for the shown preset: a load drops unsaved edits, as the pedal's EXIT (rixrix/deskop-nano-cortex does the same) | as a select |
+
+**A slot load leaves saved presets alone.** A saved preset keeps its capture / IR itself, not a pointer to the slot:
+loading another capture into slot n changes only presets with unsaved changes on it; a saved preset that used slot
+n keeps the old capture, which then shows as its own (Cortex Cloud test, 2026-10-12; DrD85: "tested on hardware").
+So load, save, then load the slot's old capture back should leave the new capture as the preset's own and the slot as
+it was (not tried yet).
+
+State field 41 (`currentPresetDirty`, DrD85) is the save light in the dump: 1 while the shown preset has unsaved
+changes.
 
 Scales (fitted to Cortex Cloud's readouts): capture volume raw = 255 · ((dB + 24) / 36)^1.708 (0 dB = raw 128);
 IR level = −96 + 108 · n^(1/3.5) dB, high pass = 20 + 780 · n^(5/3) Hz, low pass = 1000 + 19000 · n^(5/3) Hz.
@@ -335,6 +376,16 @@ IR level = −96 + 108 · n^(1/3.5) dB, high pass = 20 + 780 · n^(5/3) Hz, low 
 The pedal itself checks no preset name (it took "", 3 characters, duplicates and 32 characters); the app keeps
 DrD85's rules: 4 to 31 characters, unique, no spaces at the ends. A preset saved on the pedal while it has no name
 stays unnamed and refuses renames: as Cortex Cloud does, the app then asks for a name and writes a create.
+
+**Message names** (DrD85/nano-cortex-editor, 2026-10-13): 29 / 30 `SetPresetSlots` (the c304 preset select and
+footswitches; field 9 `PresetSlotType` 0 IA, 1 IB, 2 IIA, 3 IIB, 4 none), 60 / 61 `RetrieveExpAssignments`,
+62 `SaveExpAssignments`, 65 / 66 `RetrieveSettings`, 67 / 68 `UpdateSettings`, 76 / 77 `RetrieveLibraryContent`,
+78 / 79 `SetCabinetSlotContent`, 80 / 81 `SetCaptureSlotContent`, 96 `RetrievePresetCabinetSettingsLiteResponse`,
+111 / 112 `RenamePreset`, 115 `PresetDirtyStateChanged`, 127 `TunerMode`, 128 `TunerMetering`.
+
+**Frames by hand.** The Log sheet has a hex field (Edit mode): a frame's body (`... <type> 00 00 00`) or a whole
+line copied from the log (`<len> C0 ...`: the header is stripped and made again, so a copied line can be edited).
+The pedal's answer shows in the log.
 
 ## Fixtures
 

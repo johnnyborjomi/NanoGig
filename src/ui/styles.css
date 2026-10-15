@@ -37,6 +37,8 @@
   --fx-eq: #3a62d6;
   --fx-gate: #94a3b8;
   --fx-cab: #ef4444;
+  /* IRs: the Quad Cortex IR loader's violet. */
+  --fx-ir: #6d5cf6;
   --fx-unknown: #a8a29e;
   --fx-none: #2dd4a0;
   --fx-text: #0b0d10;
@@ -45,6 +47,29 @@
 
 * {
   box-sizing: border-box;
+}
+
+/*
+ * One category → colour map for everything that carries data-cat (tiles, edit sheets, model chips). --fx is the
+ * colour, --fx-ink the text on it: dark, except on indigo and royal blue, which are too dark for dark text.
+ */
+:where(.tile) { --fx: var(--fx-none); }
+[data-cat='overdrive'] { --fx: var(--fx-overdrive); --fx-ink: var(--fx-text); }
+[data-cat='compressor'] { --fx: var(--fx-compressor); --fx-ink: var(--fx-text); }
+[data-cat='modulation'] { --fx: var(--fx-modulation); --fx-ink: var(--fx-text); }
+[data-cat='delay'] { --fx: var(--fx-delay); --fx-ink: var(--fx-text); }
+[data-cat='reverb'] { --fx: var(--fx-reverb); --fx-ink: var(--fx-text); }
+[data-cat='pitch'] { --fx: var(--fx-pitch); --fx-ink: var(--fx-text); }
+[data-cat='wah'] { --fx: var(--fx-wah); --fx-ink: var(--fx-text); }
+[data-cat='filter'] { --fx: var(--fx-filter); --fx-ink: var(--fx-text); }
+[data-cat='utility'] { --fx: var(--fx-utility); --fx-ink: var(--fx-text); }
+[data-cat='eq'] { --fx: var(--fx-eq); --fx-ink: var(--fx-text); }
+[data-cat='gate'] { --fx: var(--fx-gate); --fx-ink: var(--fx-text); }
+[data-cat='cab'] { --fx: var(--fx-cab); --fx-ink: var(--fx-text); }
+[data-cat='unknown'] { --fx: var(--fx-unknown); --fx-ink: var(--fx-text); }
+[data-cat='modulation'],
+[data-cat='eq'] {
+  --fx-ink: #f4f6f8;
 }
 
 html,
@@ -368,9 +393,32 @@ button.warn {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
-/* A phone: Edit is its pencil alone, so the top bar stays one row. */
+/* Save / Discard: where Edit was while the pedal's save light is on. Save lights up like the pedal's button. */
+.topbar .save-btn,
+.topbar .discard-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+.topbar .save-btn svg,
+.topbar .discard-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.topbar .actions > button.save-btn {
+  background: var(--on);
+  color: var(--on-text);
+  border-color: transparent;
+}
+.topbar .save-btn[data-busy='true'] {
+  animation: pulse 0.8s infinite alternate;
+}
+/* A phone: Edit is its pencil alone, Save and Discard their icons, so the top bar stays one row. */
 @media (max-width: 480px) {
-  .topbar .edit-btn .btn-label {
+  .topbar .edit-btn .btn-label,
+  .topbar .save-btn .btn-label,
+  .topbar .discard-btn .btn-label {
     display: none;
   }
 }
@@ -686,7 +734,7 @@ button.warn {
   width: 0.8em;
   height: 0.8em;
 }
-/* Power icon normally; a lock when the block cannot be toggled from the app. Colour still shows on/off. */
+/* Power icon normally; a star for the preset's own capture / IR (in no slot). Colour still shows on/off. */
 .preset-sub .sub-state .i-lock {
   display: none;
 }
@@ -697,8 +745,21 @@ button.warn {
   display: block;
 }
 .preset-sub .sub-state[data-on='true'] {
-  background: var(--warn);
-  color: var(--on-text);
+  background: var(--src, var(--warn));
+  color: var(--src-ink, var(--on-text));
+}
+/* Capture red, IR violet: the label's border and text, and its on square. */
+.preset-sub .lbl-capture {
+  --src: var(--fx-cab);
+  --src-ink: var(--fx-text);
+}
+.preset-sub .lbl-ir {
+  --src: var(--fx-ir);
+  --src-ink: #fff;
+}
+.preset-sub .lbl.lbl-capture,
+.preset-sub .lbl.lbl-ir {
+  color: color-mix(in srgb, var(--src) 80%, #fff);
 }
 .preset-sub .sub-state[data-on='false'] {
   background: var(--off);
@@ -816,31 +877,11 @@ button.warn {
   min-width: 0;
   cursor: default;
 }
-.tile {
-  --fx: var(--fx-none);
-}
-.tile[data-cat='overdrive'] { --fx: var(--fx-overdrive); }
-.tile[data-cat='compressor'] { --fx: var(--fx-compressor); }
-.tile[data-cat='modulation'] { --fx: var(--fx-modulation); }
-.tile[data-cat='delay'] { --fx: var(--fx-delay); }
-.tile[data-cat='reverb'] { --fx: var(--fx-reverb); }
-.tile[data-cat='pitch'] { --fx: var(--fx-pitch); }
-.tile[data-cat='wah'] { --fx: var(--fx-wah); }
-.tile[data-cat='filter'] { --fx: var(--fx-filter); }
-.tile[data-cat='utility'] { --fx: var(--fx-utility); }
-.tile[data-cat='eq'] { --fx: var(--fx-eq); }
-.tile[data-cat='gate'] { --fx: var(--fx-gate); }
-.tile[data-cat='cab'] { --fx: var(--fx-cab); }
-.tile[data-cat='unknown'] { --fx: var(--fx-unknown); }
 
 /* ON: the whole tile lights up in the category colour. */
 .tile[data-on='true'] {
   background: var(--fx);
-  color: var(--fx-text);
-}
-.tile[data-on='true'][data-cat='modulation'],
-.tile[data-on='true'][data-cat='eq'] {
-  color: #f4f6f8; /* indigo and royal blue are too dark for dark text */
+  color: var(--fx-ink, var(--fx-text));
 }
 .tile[data-on='true'] {
   box-shadow: 0 0 28px color-mix(in srgb, var(--fx) 40%, transparent);
@@ -1071,6 +1112,28 @@ button.warn {
   padding: 6px 12px 12px;
   user-select: text;
   -webkit-user-select: text;
+}
+.console .c-send {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid #1a212b;
+}
+.console .c-send input {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 8px;
+  font: inherit;
+  color: var(--text);
+  background: #0f1319;
+  border: 1px solid #222a34;
+  border-radius: 6px;
+}
+.console .c-send button {
+  min-height: 28px;
+  padding: 2px 10px;
+  font-size: 12px;
 }
 .console .line {
   white-space: pre-wrap;
@@ -2048,18 +2111,9 @@ button.warn {
   user-select: none;
   -webkit-user-select: none;
 }
-.card.sheet[data-cat='overdrive'] { --fx: var(--fx-overdrive); }
-.card.sheet[data-cat='compressor'] { --fx: var(--fx-compressor); }
-.card.sheet[data-cat='modulation'] { --fx: var(--fx-modulation); }
-.card.sheet[data-cat='delay'] { --fx: var(--fx-delay); }
-.card.sheet[data-cat='reverb'] { --fx: var(--fx-reverb); }
-.card.sheet[data-cat='pitch'] { --fx: var(--fx-pitch); }
-.card.sheet[data-cat='wah'] { --fx: var(--fx-wah); }
-.card.sheet[data-cat='filter'] { --fx: var(--fx-filter); }
-.card.sheet[data-cat='utility'] { --fx: var(--fx-utility); }
-.card.sheet[data-cat='eq'] { --fx: var(--fx-eq); }
-.card.sheet.gate-sheet { --fx: var(--fx-gate); }
-.card.sheet.src-sheet { --fx: var(--fx-cab); }
+.card.sheet.gate-sheet { --fx: var(--fx-gate); --fx-ink: var(--fx-text); }
+.card.sheet.src-sheet { --fx: var(--fx-cab); --fx-ink: var(--fx-text); }
+.card.sheet.src-sheet[data-tab='ir'] { --fx: var(--fx-ir); --fx-ink: #fff; }
 .sheet-head {
   display: flex;
   align-items: flex-start;
@@ -2076,6 +2130,63 @@ button.warn {
 }
 .sheet-titles {
   min-width: 0;
+}
+/* What stays at the top with the title (amp & cab: its tabs, the name and on / off; the libraries: the search and
+   User / Factory): a full row each. */
+.sheet-head {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.sheet-head > .ed-tabs,
+.sheet-head > .ed-search,
+.sheet-head > .ed-name-row {
+  flex: 1 0 100%;
+}
+.sheet-head > .ed-name-row[hidden] {
+  display: none;
+}
+/* Over another sheet: ‹ Back instead of the X. */
+.sheet-close[data-back='true'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  padding-right: 12px;
+  font-weight: 600;
+}
+.sheet-close[data-back='true'] svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+/* Buttons left of the close button: pushed right, as tall as it. */
+.sheet-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  align-self: stretch;
+}
+.sheet-actions:empty {
+  display: none;
+}
+.ed-discard {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.ed-discard svg {
+  width: 20px;
+  height: 20px;
+}
+/* Comes and goes with a model change: its room stays, so the title never moves. */
+.ed-discard[data-shown='false'] {
+  visibility: hidden;
+}
+@media (max-width: 480px) {
+  .ed-discard span {
+    display: none;
+  }
 }
 .sheet-sub {
   font-size: 13px;
@@ -2115,8 +2226,8 @@ button.warn {
   height: 20px;
 }
 .ed-power[data-on='true'] {
-  background: var(--on);
-  color: var(--on-text);
+  background: var(--fx, var(--on));
+  color: var(--fx-ink, var(--on-text));
   border-color: transparent;
 }
 /*
@@ -2134,6 +2245,20 @@ button.warn {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+/* Under way: a spinner as tall as the text, in its colour, in front of it. */
+.card .ed-msg[data-busy='true']::before {
+  content: '';
+  display: inline-block;
+  box-sizing: border-box;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.45em;
+  vertical-align: -0.15em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ledspin 0.8s linear infinite;
 }
 .card .ed-msg[data-tone='warn'] {
   color: var(--warn);
@@ -2224,19 +2349,15 @@ button.warn {
 .ed-chip[data-cat] {
   border-left: 4px solid var(--fx, #3a4450);
 }
-.ed-chip[data-cat='overdrive'] { --fx: var(--fx-overdrive); }
-.ed-chip[data-cat='compressor'] { --fx: var(--fx-compressor); }
-.ed-chip[data-cat='modulation'] { --fx: var(--fx-modulation); }
-.ed-chip[data-cat='delay'] { --fx: var(--fx-delay); }
-.ed-chip[data-cat='reverb'] { --fx: var(--fx-reverb); }
-.ed-chip[data-cat='pitch'] { --fx: var(--fx-pitch); }
-.ed-chip[data-cat='wah'] { --fx: var(--fx-wah); }
-.ed-chip[data-cat='filter'] { --fx: var(--fx-filter); }
-.ed-chip[data-cat='utility'] { --fx: var(--fx-utility); }
-.ed-chip[data-cat='eq'] { --fx: var(--fx-eq); }
+/* The model the preset has saved, while another is tried: outlined all round in its colour (a shadow, not a
+   border, so the chip keeps its size). */
+.ed-chip[data-saved='true'] {
+  box-shadow: inset 0 0 0 2px var(--fx, var(--accent));
+}
+/* Chosen: the block's colour (a model chip: its own category's), like a lit tile. */
 .ed-chip[data-active='true'] {
-  background: var(--accent);
-  color: #041021;
+  background: var(--fx, var(--accent));
+  color: var(--fx-ink, #041021);
   border-color: transparent;
   font-weight: 700;
 }
@@ -2247,6 +2368,24 @@ button.warn {
 }
 .ed-params[data-dim='true'] {
   opacity: 0.45;
+}
+/* A block that is off (FX, capture, IR, gate): its controls still work (Cortex Cloud allows it), but grey like the
+   off tile. The power button stays as it is: it is how to turn the block on. */
+.ed-params[data-off='true'],
+.ed-slots[data-off='true'],
+.ed-slider[data-off='true'],
+.ed-row[data-off='true'],
+.ed-mic[data-off='true'] {
+  --fx: var(--off-text);
+  --fx-ink: var(--bg);
+  opacity: 0.7;
+}
+.ed-params[data-off='true'] .ed-label,
+.ed-params[data-off='true'] .ed-value,
+.ed-slider[data-off='true'] .ed-label,
+.ed-slider[data-off='true'] .ed-value,
+.ed-mic[data-off='true'] .ed-label {
+  color: var(--off-text);
 }
 .ed-slider-head {
   display: flex;
@@ -2268,14 +2407,57 @@ button.warn {
 }
 .ed-value.resettable {
   cursor: pointer;
+  touch-action: manipulation; /* a double tap resets, it does not zoom */
 }
 .ed-slider input[type='range'],
 .ed-pane input[type='range'] {
+  /* Drawn here, not by the browser: accent-color is only a hint (Chrome swaps a colour it finds too dark or too
+     light), so a slider would not always match its block. --pct, the fill, is set by the Slider. */
+  --c: var(--fx, var(--accent));
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
   height: 36px;
   margin: 0;
-  accent-color: var(--fx, var(--accent));
+  background: transparent;
+  cursor: pointer;
   touch-action: pan-y;
+}
+.edit-sheet input[type='range']:disabled {
+  --c: var(--dim);
+  cursor: default;
+}
+.edit-sheet input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--c) var(--pct, 0%), #3a4450 var(--pct, 0%));
+}
+.edit-sheet input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -9px;
+  border-radius: 50%;
+  border: 3px solid var(--panel);
+  background: var(--c);
+}
+.edit-sheet input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #3a4450;
+}
+.edit-sheet input[type='range']::-moz-range-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--c);
+}
+.edit-sheet input[type='range']::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 3px solid var(--panel);
+  background: var(--c);
 }
 .ed-enum {
   display: flex;
@@ -2306,6 +2488,7 @@ button.warn {
 .ed-tab[data-active='true'] {
   background: #2a3340;
   color: var(--text);
+  box-shadow: inset 0 -3px 0 var(--fx, var(--accent));
 }
 .ed-pane {
   display: flex;
@@ -2335,6 +2518,17 @@ button.warn {
     -webkit-line-clamp: 2;
     line-clamp: 2;
   }
+}
+/* Name and on / off on one row: the name takes the room, the button keeps its size. */
+.ed-name-row {
+  flex-wrap: nowrap;
+}
+.ed-name-row > .ed-big {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.ed-name-row > .ed-power {
+  flex: none;
 }
 .ed-big[data-off='true'] {
   color: var(--off-text);
@@ -2369,6 +2563,103 @@ button.warn {
   width: 20px;
   height: 20px;
 }
+/* The pedal's slots (capture banks, IR slots): a header that opens / closes the list (‹ › page the banks while
+   open), the slots by name (one per row, a fixed count: no shift between banks), then the preset's own. */
+.ed-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ed-slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ed-slots-toggle {
+  flex: 1 1 120px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.ed-slots-head {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.ed-slots-head .ed-slots-toggle {
+  min-width: 0;
+}
+.ed-slots-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-slots-toggle svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  transition: transform 150ms ease;
+}
+.ed-slots[data-open='true'] .ed-slots-toggle svg {
+  transform: rotate(180deg);
+}
+/* Arrows that give way (a list open, a closed bank list): hidden, their room kept. */
+.ed-step-btn[data-shown='false'] {
+  visibility: hidden;
+}
+/* The preset's own, first in the list: out of it for a preset saved on a slot (no gap above slot 1). */
+.ed-cap-row[data-shown='false'] {
+  display: none;
+}
+/* « » : a bank at a time, narrower than ‹ › so the name keeps its room. */
+.ed-bank-btn {
+  width: 44px;
+}
+/* A slot and, at its end, its swap button (the library, bound to that slot). */
+.ed-cap-row {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.ed-cap-row > .ed-cap-slot {
+  flex: 1 1 0;
+}
+.ed-cap-swap {
+  flex: none;
+  width: 52px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 12px;
+}
+.ed-cap-swap svg {
+  width: 20px;
+  height: 20px;
+}
+.ed-cap-slots {
+  display: grid;
+  gap: 6px;
+}
+.ed-cap-slot {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: 12px;
+  min-width: 0;
+}
+.ed-cap-pos {
+  flex: none;
+  min-width: 1.4em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  opacity: 0.7;
+}
+.ed-cap-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ed-mic {
   display: flex;
   flex-direction: column;
@@ -2395,17 +2686,19 @@ button.warn {
   -webkit-user-select: text;
 }
 .ed-input:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--fx, var(--accent));
   outline-offset: 1px;
 }
-.ed-delete {
+.ed-delete,
+.ed-force-save {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   align-self: flex-start;
 }
-.ed-delete svg {
+.ed-delete svg,
+.ed-force-save svg {
   width: 18px;
   height: 18px;
 }
@@ -2507,6 +2800,19 @@ button.warn {
   border-color: transparent;
   font-weight: 700;
 }
+/* Picking items for a folder: a box before each, ticked in the library's colour. */
+.ed-pick-box {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--muted);
+}
+.ed-pick-row[data-picked='true'] .ed-pick-box {
+  color: var(--accent);
+}
+.ed-pick-row[data-picked='true'] {
+  background: var(--panel-2);
+}
 .ed-folder-row .ed-item-name svg {
   width: 20px;
   height: 20px;
@@ -2589,6 +2895,25 @@ button.warn {
   font-variant-numeric: tabular-nums;
   font-size: 14px;
 }
+/* The presets list's label, as on the strip: bank in text colour, the slot letter in its own, the number thin. */
+.ed-presets .ed-item-index {
+  min-width: 4.2em;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.ed-presets .p-bank {
+  color: var(--text);
+}
+.ed-presets .p-num {
+  font-weight: 300;
+  color: var(--muted);
+  margin-left: 0.2em;
+}
+.ed-presets .fs-badge {
+  font-size: 11px;
+  vertical-align: 0.1em;
+}
 .ed-item-folder {
   margin-left: auto;
   font-size: 12px;
@@ -2614,6 +2939,97 @@ button.warn {
 .ed-item .hint {
   flex: 1 1 100%;
   margin: 0;
+}
+/* Load to: the label above, then [Bank · Slot] [Preset's own slot] … [Move to folder] on one row. */
+.ed-load-to {
+  flex: 1 1 100%;
+  align-items: center;
+}
+.ed-load-to .ed-label {
+  flex: 1 1 100%;
+}
+.ed-load-to .ed-move {
+  margin-left: auto;
+}
+/* The library in the amp & cab colour (red), as the sheet it opens from: one hue, lighter or darker, nothing else. */
+.card.sheet.lib-sheet {
+  --fx: var(--fx-cab);
+  --fx-ink: var(--fx-text);
+  --accent: var(--fx-cab);
+  --on: var(--fx-cab);
+}
+.card.sheet.lib-sheet[data-kind='irs'] {
+  --fx: var(--fx-ir);
+  --fx-ink: #fff;
+  --accent: var(--fx-ir);
+  --on: var(--fx-ir);
+}
+.lib-sheet button.primary {
+  background: var(--fx);
+  color: var(--fx-ink);
+}
+.lib-sheet button.primary.ed-load-own {
+  background: color-mix(in srgb, var(--fx) 72%, #000);
+  color: #fff;
+}
+.lib-sheet .ed-item[data-saved='true'] .ed-item-name {
+  color: color-mix(in srgb, var(--fx) 55%, #fff);
+}
+.lib-sheet .ed-item-saved {
+  color: color-mix(in srgb, var(--fx) 55%, #fff);
+  border-color: color-mix(in srgb, var(--fx) 50%, transparent);
+}
+/* Over the library: where an item goes. Its colour, the bank / slot stepper of the amp & cab sheet, then Load. */
+.card.sheet.slot-sheet {
+  --fx: var(--fx-cab);
+  --fx-ink: var(--fx-text);
+  --accent: var(--fx-cab);
+  --on: var(--fx-cab);
+}
+.card.sheet.slot-sheet[data-kind='irs'] {
+  --fx: var(--fx-ir);
+  --fx-ink: #fff;
+  --accent: var(--fx-ir);
+  --on: var(--fx-ir);
+}
+.ed-slot-for {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+}
+.ed-slot-for strong {
+  color: var(--text);
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.ed-slot-choice {
+  min-height: 44px;
+  background: var(--panel-2);
+  border-radius: 12px;
+}
+.slot-sheet .ed-cap-slot[hidden] {
+  display: none;
+}
+/* What plays now: Load writes over it. */
+.slot-sheet .ed-cap-slot[data-playing='true'] .ed-cap-pos::after {
+  content: ' ▶';
+  font-size: 0.75em;
+}
+.slot-sheet button.ed-slot-load {
+  width: 100%;
+  min-height: 48px;
+  background: var(--fx);
+  color: var(--fx-ink);
+  font-weight: 700;
+}
+/* The capture playing from the library (listened to or loaded): a speaker right of its name. */
+.ed-item-playing {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
 }
 .ed-preset-name {
   flex: 1;
@@ -2711,6 +3127,41 @@ button.warn {
 }
 .ed-item-folder + .ed-item-saved {
   margin-left: 0;
+}
+/* An item's tags (where it sits on the pedal, its folder in a search, saved) at the end of its row. */
+.ed-item-tags {
+  margin-left: auto;
+  flex: none;
+  max-width: 60%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 6px;
+}
+.ed-item-tags > * {
+  margin-left: 0;
+  white-space: nowrap;
+}
+.ed-item-slot {
+  font-size: 12px;
+  color: var(--text);
+  background: #222a35;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+/* Sorted: a letter between the groups. */
+.ed-letter {
+  padding: 10px 4px 2px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border-bottom: 1px solid #2a323d;
+}
+.ed-bar-sort[data-active='true'] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
 }
 /* A one-line status under a settings hint: its text changes, its height does not. */
 .card .hint-line {

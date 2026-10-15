@@ -26,7 +26,7 @@ footswitch press:
   change its model and parameters, tap the capture or IR name for capture volume, IR level /
   filters / phase / microphone and the pedal's whole capture and IR library (in folders of your
   own), hold Gate for its threshold, and hold the preset name to rename it, name an empty
-  slot, put it on a footswitch or delete it. Menu → Presets lists all 64.
+  slot, put it on a footswitch or delete it. Menu → Presets (or a hold on the strip's ‹ ›) lists all 64.
 
 Nothing is installed on the pedal and nothing leaves your device: no account, no server, no
 analytics. It is a web page.
@@ -105,9 +105,9 @@ disconnected. The connect screen shows these steps only on a Chrome without the 
 - **Preset row**: bank/slot label and preset name, sized to always fit on one line. A small
   tag shows _live_ right after a footswitch press until the pedal confirms, or _sending_ while
   the app is changing the preset.
-- **Capture / cab line**: names plus an on/off indicator in each label. A lock instead of the
-  indicator means that capture or cab is a factory one the app could not switch back on, so it
-  leaves it alone.
+- **Capture / cab line**: names plus an on/off indicator in each label (capture red, IR violet). A star
+  instead of the power sign means the preset's own capture or IR (in none of the pedal's slots): the
+  label leaves it alone; the amp & cab sheet can still switch it.
 - **Gate and FX tiles**: effect category, model name, colour when on.
 - **Preset strip**: seven presets around the active one, the active one framed. In control
   mode the arrows page through all 64 and a tap selects.
@@ -181,13 +181,15 @@ Cortex Cloud's own; the app shows every change at once and confirms it against t
 
 | Where | Gesture | What |
 | --- | --- | --- |
-| FX tile | hold | Model (every model the slot takes, by category) and its parameters, live as the sliders move. A bypassed block is never read: turn it on first. |
-| Gate | hold | On / off and threshold. |
-| Capture / IR name | tap | Capture: slots 1–5, on / off, volume in dB. IR: slots, on / off, level, high and low pass, phase, microphone and position (factory IRs). Both open the pedal's library: a capture goes into the slot the preset plays (every preset on that slot hears it), an IR loads into the preset. Library folders of your own, for captures and IRs alike: New folder at the top of a list, hold an item (or drag it, with a mouse) to move it into one; rename or delete a folder from inside it. Folders are kept in this browser. |
+| FX tile | hold | Model (every model the slot takes, by category) and its parameters, live as the sliders move. A block that is off can be edited too, as in Cortex Cloud: its values are heard once it is on, and saved with the preset. While another model is tried, the preset's saved one is outlined. Once the block differs from the preset as saved (model or values), the sheet's Discard puts that block back; other blocks keep their changes. |
+| Gate | hold | On / off and threshold; Discard puts the saved threshold back. |
+| Capture / IR name | tap | Capture: on / off by the name, then ‹ what plays › (Bank 2 · Slot 1, or Preset's own slot): the arrows step through all 25 slots, over the banks, and the middle opens the bank playing (a tap plays a slot; the preset's own capture first, shown only for a preset that plays its own), volume in dB. IR: the same with its 5 slots, level, high and low pass, phase, microphone and position (factory IRs). Each tab's Discard puts back what the preset has saved (the capture slot and volume; the IR and its settings), on / off aside. Like FX blocks, a capture, IR or gate that is off is still editable, drawn grey (an IR once it has been read on: the pedal does not answer for one that is off). Both open the pedal's library. In the library a tap on a capture plays it (a speaker by its name) until another is tapped or the library closes. Load to: the bank slot playing (an edit the preset keeps with Save; saved presets on that slot keep their own) or, for a capture, the preset's own slot (this preset alone: Cortex Cloud's preview, which a Save keeps; the pedal leaves its save light off, so the app shows Save / Discard itself). An IR plays on a tap too (Cortex Cloud's IR preview) and loads into the IR slot playing or straight into the preset's own IR slot (this preset alone, as Cortex Cloud does it). The IR tab and library are in the IR violet. One already in a slot of the pedal's offers Use instead (Bank 2 · Slot 1, Slot 3): it plays from there, nothing is written over. A load or a Use closes the library. Each library needs its capture / IR on. A–Z next to New folder sorts a list (tap again: Z–A, then the pedal's order) with a letter between the groups; an item in a slot shows where (Bank 2 · slot 1, Slot 3). Library folders of your own, for captures and IRs alike: New folder at the top of a list, hold an item (or drag it, with a mouse) to move it into one; rename or delete a folder from inside it. Folders are kept in this browser. |
 | Preset name, a preset button, Menu → Presets → ⋯ | hold / tap | Rename, name an empty slot (stores the sound playing now there), put the preset on IA / IB / IIA / IIB, delete (tap twice). |
 
-Changes are live, like turning a knob on the pedal: **save on the pedal to keep them**.
-Renames, creates and deletes are stored at once.
+Changes are live, like turning a knob on the pedal. When the pedal's save light comes on, **Save** and
+**Discard** take the Edit button's place in the top bar: Save stores the preset under its name (as the pedal's save
+button; a preset with no name is asked for one), Discard loads it again as saved (as the pedal's EXIT). Saving on
+the pedal works as before. Renames, creates and deletes are stored at once.
 
 > **Back up your presets in Cortex Cloud before turning control mode on**, and try it on a
 > preset you don't mind losing first. The protocol is reverse-engineered; a firmware update can

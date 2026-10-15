@@ -58,8 +58,8 @@ export interface FxEditState {
   type: number;
   preset: number | null;
   values: number[] | null;
-  /** loading: a read is out; off: the block is bypassed (never read: DrD85 saw the pedal crash); unknown: no parameter table. */
-  status: 'loading' | 'ready' | 'off' | 'empty' | 'unknown' | 'error';
+  /** loading: a read is out (on or off alike: Cortex Cloud reads a bypassed block); unknown: no parameter table. */
+  status: 'loading' | 'ready' | 'empty' | 'unknown' | 'error';
 }
 
 /** The IR panel: the settings of the IR the preset plays (type 0x60 reply). */
@@ -67,6 +67,7 @@ export interface IrEditState {
   preset: number | null;
   slot: number | null;
   settings: CabSettings | null;
+  /** loading: a read is out; off: off and never read in this preset (the pedal does not answer for an IR that is off). */
   status: 'loading' | 'ready' | 'off' | 'error';
 }
 
@@ -86,11 +87,65 @@ export interface PresetOpState {
   nameNew: number | null;
 }
 
+/**
+ * The FX models a preset has saved, as far as the app can tell (the pedal does not report it): the models it showed
+ * when it loaded, and what it showed when the pedal's save button was pressed. Model ids by slot, null = empty.
+ */
+export interface SavedModels {
+  preset: number;
+  ids: Record<FxSlot, string | null>;
+}
+
+/**
+ * Each block's parameters as the preset has them saved: the first read of a block on its saved model after the
+ * preset loaded or was saved (the pedal's own controls do not reach FX parameters, so that read is the saved one).
+ */
+export interface SavedParams {
+  preset: number;
+  slots: Partial<Record<FxSlot, { type: number; values: number[] }>>;
+}
+
+/**
+ * The capture, IR and gate as the preset has them saved, taken with the saved models: slots, capture volume, the
+ * IR's name and the gate threshold from the state, the IR's settings from its first read on the saved IR.
+ */
+export interface SavedSource {
+  preset: number;
+  /** Field 11 as read: 1..5, 6 = the preset's own, 0 = off. */
+  captureSlot: number | null;
+  /** Field 9: the bank that slot counts in. */
+  captureBank: number | null;
+  captureVolume: number | null;
+  /** Field 12 while on (6 = the preset's own IR), null = off. */
+  cabSlot: number | null;
+  irName: string | null;
+  gateThreshold: number | null;
+  ir: CabSettings | null;
+}
+
+/**
+ * A library capture heard in the preset's own place: Cortex Cloud's preview, which the pedal plays until it is
+ * stopped (`capturePreviewStopFrame`). The pedal shows no save light for it, but a Save keeps it as the preset's own
+ * capture. `kept`: loaded into the preset's own (the app shows Save); else only listened to from the library (stopped
+ * when the library closes).
+ */
+export interface CapturePreview {
+  preset: number;
+  name: string;
+  kept: boolean;
+}
+
 export interface EditState {
   fx: FxEditState | null;
   ir: IrEditState | null;
   library: LibraryState;
   preset: PresetOpState;
+  savedModels: SavedModels | null;
+  savedParams: SavedParams | null;
+  savedSource: SavedSource | null;
+  capturePreview: CapturePreview | null;
+  /** A library IR played from the library (Cortex Cloud's IR preview, 0x9E) until it is stopped or one is loaded. */
+  irPreview: { preset: number; name: string } | null;
 }
 
 export function emptyEdit(): EditState {
@@ -99,6 +154,11 @@ export function emptyEdit(): EditState {
     ir: null,
     library: { captures: null, irs: null, loading: null, error: null },
     preset: { busy: null, result: null, nameNew: null },
+    savedModels: null,
+    savedParams: null,
+    savedSource: null,
+    capturePreview: null,
+    irPreview: null,
   };
 }
 
@@ -156,6 +216,8 @@ export interface GigState {
   fxOn: Field<Record<FxSlot, boolean | null>>;
   /** Model loaded in each FX slot (name/category from the catalogue), null = empty slot. */
   fxModels: Field<FxModelsBySlot>;
+  /** The shown preset has unsaved changes (the pedal's save light): state field 41 and 0x73 notices. */
+  presetDirty: Field<boolean | null>;
   gateOn: Field<boolean | null>;
   cabOn: Field<boolean | null>;
   captureName: Field<string | null>;
@@ -164,6 +226,12 @@ export interface GigState {
   captureSlotKnown: Field<boolean | null>;
   /** Field 11 as sent: the capture slot 1..5, 6 = the preset's own capture, 0 = bypassed. */
   captureSlot: Field<number | null>;
+  /** Field 9: the capture bank 1..5 the slot counts in. */
+  captureBank: Field<number | null>;
+  /** The pedal's 25 capture slots (5 banks of 5) by name, from the metadata; [] until read. */
+  captureSlots: string[];
+  /** The pedal's 5 IR slots by name (short name, else full), from the metadata; [] until read. */
+  irSlots: string[];
   /** Capture volume, raw 0..255 (state field 44; captureVolumeDb for the readout). */
   captureVolume: Field<number | null>;
   /** Gate threshold, raw 0..255 (state field 53 × 255). */
@@ -237,12 +305,16 @@ export function initialState(transportName = 'none'): GigState {
     activePreset: field<number | null>(null),
     fxOn: field<Record<FxSlot, boolean | null>>({ pre1: null, pre2: null, post1: null, post2: null, post3: null }),
     fxModels: field<FxModelsBySlot>({ pre1: null, pre2: null, post1: null, post2: null, post3: null }),
+    presetDirty: field<boolean | null>(null),
     gateOn: field<boolean | null>(null),
     cabOn: field<boolean | null>(null),
     captureName: field<string | null>(null),
     captureOn: field<boolean | null>(null),
     captureSlotKnown: field<boolean | null>(null),
     captureSlot: field<number | null>(null),
+    captureBank: field<number | null>(null),
+    captureSlots: [],
+    irSlots: [],
     captureVolume: field<number | null>(null),
     gateThreshold: field<number | null>(null),
     cabSlot: field<number | null>(null),
@@ -313,12 +385,14 @@ export class Store {
       activePreset: s.activePreset,
       fxOn: s.fxOn,
       fxModels: s.fxModels,
+      presetDirty: s.presetDirty,
       gateOn: s.gateOn,
       cabOn: s.cabOn,
       captureName: s.captureName,
       captureOn: s.captureOn,
       captureSlotKnown: s.captureSlotKnown,
       captureSlot: s.captureSlot,
+      captureBank: s.captureBank,
       captureVolume: s.captureVolume,
       gateThreshold: s.gateThreshold,
       cabSlot: s.cabSlot,
