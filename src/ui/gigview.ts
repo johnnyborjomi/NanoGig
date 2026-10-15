@@ -2008,6 +2008,8 @@ export class GigView {
     const cols = this.layout === "stack" && count > STRIP_COUNT.stack ? Math.ceil(count / 2) : count;
     this.presetCells.style.setProperty("--cols", String(cols));
     this.root.dataset.stripRows = s.showPresetStrip && cols < count ? "2" : "1";
+    // Sideways with a bank of up to 6 there is room to spare: wider arrows, easier to hit.
+    this.presetGrid.dataset.wideNav = String(this.layout === "row" && count <= 6);
     this.presetBtns.forEach((b, i) => {
       const raw = banked ? bank * per + i : centre - half + this.stripPage * count + i;
       b.root.hidden = i >= count || (banked && raw >= PRESET_COUNT);

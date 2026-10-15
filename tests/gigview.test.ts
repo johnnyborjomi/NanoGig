@@ -314,6 +314,10 @@ describe('GigView layout', () => {
       expect(labels()).toEqual(['<>', '7', '8', '9', '10', '11', '12', '13', '<>']);
       store.patch({ labelStyle: 'letter-number' });
       expect(cols()).toBe('8'); // one row in the row layout
+      const grid = root.querySelector<HTMLElement>('.preset-grid')!;
+      expect(grid.dataset.wideNav).toBe('false'); // 8 a bank: narrow arrows
+      store.patch({ presetsPerBank: 5 });
+      expect(grid.dataset.wideNav).toBe('true'); // room to spare sideways: wide arrows
     } finally {
       window.matchMedia = saved;
     }

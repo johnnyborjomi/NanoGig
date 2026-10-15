@@ -1014,6 +1014,15 @@ button.warn {
   width: 20px;
   height: 20px;
 }
+/* A bank of up to 6 in the row layout: the buttons are wide, so the arrows can be too. */
+.preset-grid[data-wide-nav='true'] .pbtn-nav {
+  width: clamp(34px, 7vw, 120px);
+  min-width: clamp(34px, 7vw, 120px);
+}
+.preset-grid[data-wide-nav='true'] .pbtn-nav svg {
+  width: 26px;
+  height: 26px;
+}
 .pbtn-nav:active {
   transform: scale(0.96);
 }
