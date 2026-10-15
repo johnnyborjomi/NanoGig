@@ -427,7 +427,9 @@ describe('edit controller', () => {
     await until(ready);
     edit.setFxParam('post2', 0, 0.123);
     await until(() => Math.abs(mock.fxParams.post2[0]! - 0.123) < 1e-6);
+    await until(() => store.get().presetDirty.value === true);
     edit.closeFx();
+    expect(edit.fxChanged('post2')).toBe(true); // closed, it keeps its mark (the gig view's dot)
     // Reverb (post3): values changed, then another model.
     edit.openFx('post3');
     await until(ready);
@@ -454,6 +456,7 @@ describe('edit controller', () => {
     expect(edit.fxChanged('post3')).toBe(false);
     // The delay's edit stays.
     expect(mock.fxParams.post2[0]).toBeCloseTo(0.123, 6);
+    expect(edit.fxChanged('post2')).toBe(true);
   });
 
   it('assigns a footswitch', async () => {

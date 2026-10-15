@@ -1014,3 +1014,23 @@ describe('GigView rotate (installed app)', () => {
     });
   });
 });
+
+describe('GigView edited dots', () => {
+  it('marks the blocks edited and not saved, while the pedal has something to save', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = new Store();
+    const edit = { fxChanged: (slot: string) => slot === 'post2', gateChanged: () => true, captureChanged: () => false, irChanged: () => true };
+    new GigView(root, store, { ...noopActions(), edit: () => edit } as never, { bluetoothAvailable: true, showMockButton: false });
+    const dots = () => [
+      ...['pre1', 'post2', 'gate'].map((k) => root.querySelector<HTMLElement>(`.tile[data-key="${k}"]`)!.dataset.edited),
+      root.querySelector<HTMLElement>('.lbl-capture')!.dataset.edited,
+      root.querySelector<HTMLElement>('.lbl-ir')!.dataset.edited,
+    ];
+    store.patch({ connection: 'connected' });
+    store.setField('presetDirty', true, 'event');
+    expect(dots()).toEqual(['false', 'true', 'true', 'false', 'true']);
+    store.setField('presetDirty', false, 'event'); // saved, or dropped: no dots
+    expect(dots()).toEqual(['false', 'false', 'false', 'false', 'false']);
+  });
+});

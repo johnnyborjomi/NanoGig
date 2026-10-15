@@ -1866,6 +1866,12 @@ export class GigView {
     }
     this.captureState.dataset.on = onAttr(s.captureOn.value);
     this.irState.dataset.on = onAttr(s.cabOn.value);
+    // Edited, not saved: a dot on the block (as its sheet's Discard), while the pedal has something to save (its
+    // light, or a capture loaded into the preset's own: the Save in the top bar).
+    const kept = s.edit.capturePreview?.kept === true && s.edit.capturePreview.preset === s.activePreset.value;
+    const edit = s.presetDirty.value === true || kept ? (this.actions.edit?.() ?? null) : null;
+    this.subLabels[0]!.dataset.edited = String(edit?.captureChanged() ?? false);
+    this.subLabels[1]!.dataset.edited = String(edit?.irChanged() ?? false);
 
     // Tiles --------------------------------------------------------
     for (const key of TILE_ORDER) {
@@ -1877,6 +1883,9 @@ export class GigView {
             ? s.cabOn.value
             : s.fxOn.value[key];
       t.root.dataset.on = on === null ? "unknown" : on ? "true" : "false";
+      t.root.dataset.edited = String(
+        !!edit && (key === "gate" ? edit.gateChanged() : key === "cab" ? edit.irChanged() : edit.fxChanged(key)),
+      );
       if (key !== "gate" && key !== "cab") {
         const model = s.fxModels.value[key];
         t.name.textContent = model

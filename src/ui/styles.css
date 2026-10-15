@@ -1400,6 +1400,24 @@ button.warn {
 .tile {
   position: relative; /* anchors .t-exp */
 }
+/* Edited and not saved yet (what its sheet's Discard would put back): a dot on the block's corner, in Save's colour.
+   Over the corner, so it comes and goes without moving anything. */
+.preset-sub .lbl {
+  position: relative;
+}
+.tile[data-edited='true']::after,
+.preset-sub .lbl[data-edited='true']::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--on);
+  box-shadow: 0 0 0 2px var(--bg);
+  pointer-events: none;
+}
 
 /* ---------- tuner ---------- */
 .tuner-card {
