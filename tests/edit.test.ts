@@ -140,9 +140,12 @@ describe('capture volume and gate threshold', () => {
 
 describe('IR settings', () => {
   it('frames', () => {
-    expect(cabSettingsRequest(1)).toEqual(bytes(0x08, 0xc0, 0x18, 0x00, 0x20, 0x00, 0x5f, 0x00, 0x00, 0x00));
-    expect(cabSettingsRequest(6)[5]).toBe(5);
-    expect(() => cabSettingsRequest(0)).toThrow();
+    expect(cabSettingsRequest(0, 1)).toEqual(bytes(0x08, 0xc0, 0x18, 0x00, 0x20, 0x00, 0x5f, 0x00, 0x00, 0x00));
+    // Cortex Cloud on preset 50 (HCI snoop 2026-10-16).
+    expect(cabSettingsRequest(49, 3)).toEqual(bytes(0x08, 0xc0, 0x18, 0x31, 0x20, 0x02, 0x5f, 0x00, 0x00, 0x00));
+    expect(cabSettingsRequest(0, 6)[5]).toBe(5);
+    expect(() => cabSettingsRequest(0, 0)).toThrow();
+    expect(() => cabSettingsRequest(64, 1)).toThrow();
     const lvl = bytes(0x09, 0xc0, 0x2d, 0xc3, 0xaf, 0x17, 0x3f, 0x5e, 0x00, 0x00, 0x00);
     expect(cabSettingFrame('level', f32(lvl, 3))).toEqual(lvl);
     expect(cabSettingFrame('highPass', 0.5)[2]).toBe(0x35);

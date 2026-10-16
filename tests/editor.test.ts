@@ -2,7 +2,7 @@
  * Editing against the mock pedal with real (short) timers: mock transport → sync engine → edit controller → store.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EDIT_MSG, ampKnobFrame, fxModelType, fxSlotModels, outputLevelFrame } from '../src/protocol/edit';
+import { EDIT_MSG, ampKnobFrame, cabSettingsRequest, fxModelType, fxSlotModels, outputLevelFrame } from '../src/protocol/edit';
 import { toHex } from '../src/protocol/hex';
 import type { CurrentState } from '../src/protocol/decode';
 import { writtenSince } from '../src/sync/editor';
@@ -107,6 +107,14 @@ describe('edit controller', () => {
     edit.setGateThreshold(30);
     await until(() => mock.device.gateThresholdRaw === 30 && store.get().gateThreshold.source === 'dump');
     expect(store.get().gateThreshold.value).toBe(30);
+  });
+
+  it('IR: the settings read names the preset shown (else the pedal answers about preset 1)', async () => {
+    const { store, mock, edit } = await setup({ device: { initialState: { activePreset: 12, cabOn: true, cabSlot: 3 } } });
+    await until(() => store.get().activePreset.value === 12 && store.get().cabOn.value === true);
+    edit.openIr();
+    await until(() => store.get().edit.ir?.status === 'ready');
+    expect(sent(mock, EDIT_MSG.CAB_SETTINGS_REQUEST).at(-1)!.hex).toBe(toHex(cabSettingsRequest(12, 3)));
   });
 
   it('IR: settings, level, phase and microphone; on / off and the slots', async () => {

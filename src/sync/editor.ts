@@ -1063,7 +1063,8 @@ export class EditController {
         this.irAsked = null;
       }
     }, READ_TIMEOUT_MS);
-    void this.send(cabSettingsRequest(slot), `IR settings read · slot ${slot}`).catch((err) => this.host.log('warn', `IR read failed: ${(err as Error).message}`));
+    if (preset === null) return; // asked again once the state says which preset this is
+    void this.send(cabSettingsRequest(preset, slot), `IR settings read · preset ${preset + 1} slot ${slot}`).catch((err) => this.host.log('warn', `IR read failed: ${(err as Error).message}`));
   }
 
   private onCabSettings(payload: Uint8Array, hex: string): void {

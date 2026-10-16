@@ -312,10 +312,15 @@ export function cabSelectFrame(slot: number): Uint8Array {
   return new Pb().varint(3, 3).varint(4, slot).frame(EDIT_MSG.ENCODER);
 }
 
-/** Read the IR's settings: `08 C0 18 00 20 <slot - 1> 5F 00 00 00` (slot = state field 12) → type 0x60. */
-export function cabSettingsRequest(slot: number): Uint8Array {
+/**
+ * Read the IR's settings: `08 C0 18 <preset> 20 <slot - 1> 5F 00 00 00` (preset 0..63, slot = state field 12) →
+ * type 0x60. Field 3 is the preset: Cortex Cloud sent `18 31 20 02` on preset 50 (HCI snoop 2026-10-16). It read
+ * as a constant 0 in the earlier snoops, all on preset 1; with 0 the pedal answers about preset 1's IR.
+ */
+export function cabSettingsRequest(preset: number, slot: number): Uint8Array {
+  checkIndex('preset', preset, PRESET_COUNT - 1);
   checkIndex('IR slot', slot, 0x7f, 1);
-  return new Pb().varint(3, 0).varint(4, slot - 1).frame(EDIT_MSG.CAB_SETTINGS_REQUEST);
+  return new Pb().varint(3, preset).varint(4, slot - 1).frame(EDIT_MSG.CAB_SETTINGS_REQUEST);
 }
 
 /** Level / high pass / low pass: `09 C0 <field 5 / 6 / 7, f32 0..1> 5E 00 00 00` (clamped). */

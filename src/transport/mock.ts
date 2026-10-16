@@ -398,7 +398,9 @@ export class MockTransport implements Transport {
       case EDIT_MSG.CAB_SETTINGS_REQUEST: {
         if (!this.device.cabOn) return true; // the pedal leaves it unanswered (board, 2026-10-11)
         const ir = this.ir;
-        const name = this.device.irNameOverride || this.currentPreset().irShortName || ir.irName;
+        // Field 3 names the preset: another preset's answer is about its IR (as the pedal, snoop 2026-10-16).
+        const asked = v(3);
+        const name = asked === this.device.activePreset ? this.device.irNameOverride || this.currentPreset().irShortName || ir.irName : this.presets[asked]?.irShortName || ir.irName;
         const settings = [
           ...(ir.level ? fixed32FloatField(1, ir.level) : []),
           ...(ir.highPass ? fixed32FloatField(2, ir.highPass) : []),
