@@ -1,7 +1,6 @@
 /**
  * FX parameters per model, as the Nano Cortex Editor defines them. Generated from the NanoGig Screen
- * firmware's `nano_fx_params.c` (itself generated from DrD85/nano-cortex-controller `main/fx_models.c`, MIT,
- * Dominik Schmidt); regenerate rather than edit. A model is named by its type: the varint its state-dump ID
+ * firmware's `nano_fx_params.c`; regenerate rather than edit. A model is named by its type: the varint its state-dump ID
  * spells (`FA2E` = 6010 = Analog Delay, see `fxModelType`).
  *
  * The pedal keeps every parameter as 0..1. A range parameter shows as min + n * (max - min) in `step`s; an enum

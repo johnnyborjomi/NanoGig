@@ -242,7 +242,7 @@ describe('presets', () => {
     );
   });
 
-  it("keeps DrD85's name rules", () => {
+  it("keeps the name rules", () => {
     const names = ['Clean', 'Crunch', ''];
     expect(presetNameProblem('Lead', 2, names)).toBeNull();
     expect(presetNameProblem('abc', 2, names)).toMatch(/4/);

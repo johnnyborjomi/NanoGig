@@ -4,7 +4,7 @@
  *
  * Ported from the NanoGig Screen firmware (`components/nano_protocol/nano_build.c`, `nano_decode.c`,
  * `nano_scales.c`, 2026-10-10), where every frame is byte-exact against a Cortex Cloud capture (Android HCI
- * snoops 2026-10-07 … 10-10) or DrD85/nano-cortex-controller (MIT) and was tried on the user's pedal. The
+ * snoops 2026-10-07 … 10-10) or another open-source controller and was tried on the user's pedal. The
  * firmware's notes are kept with each builder. All writes are live edits: audible at once, the preset is not
  * saved (the pedal's own save button does that) unless the comment says otherwise.
  *
@@ -104,7 +104,7 @@ const clamp01 = (n: number) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n))
 const slotIndex = (slot: FxSlot) => FX_SLOTS.indexOf(slot);
 
 // ---------------------------------------------------------------------------
-// FX blocks: model and parameters (DrD85 frames, param write verified 2026-10-08)
+// FX blocks: model and parameters (param write verified 2026-10-08)
 // ---------------------------------------------------------------------------
 
 /** A model's type: the varint its state-dump ID spells (`FA2E` → 6010). 0 for an unparsable ID. */
@@ -175,7 +175,7 @@ export function fxModelFrame(slot: FxSlot, type: number): Uint8Array {
 
 /**
  * Read a block's parameters: `08 C0 08 03 18 <slot> 89 00 00 00` → type 0x8A. On or off alike: Cortex Cloud reads
- * a bypassed block (DrD85 once reported a crash on one; Cortex Cloud and rixrix/deskop-nano-cortex read them).
+ * a bypassed block (a crash on one was once reported; Cortex Cloud and rixrix/deskop-nano-cortex read them).
  */
 export function fxParamsRequest(slot: FxSlot): Uint8Array {
   return new Pb().varint(1, OP_READ).varint(3, slotIndex(slot)).frame(EDIT_MSG.FX_PARAMS_REQUEST);
@@ -532,12 +532,12 @@ export function captureSlotSelectFrame(slot: number): Uint8Array {
 
 /**
  * Longest name written: the pedal itself checks nothing (2026-10-08: it took "", 3 characters, duplicates, 32
- * characters, UTF-8), so the app keeps DrD85's rules: 4 to 31 characters (the firmware's name cache), unique.
+ * characters, UTF-8), so the app keeps its own rules: 4 to 31 characters (the firmware's name cache), unique.
  */
 export const PRESET_NAME_MIN = 4;
 export const PRESET_NAME_WRITE_MAX = 31;
 
-/** Why `name` cannot be written for `index`, or null when it can (DrD85's rules). */
+/** Why `name` cannot be written for `index`, or null when it can. */
 export function presetNameProblem(name: string, index: number, names: readonly string[]): string | null {
   const n = name.trim();
   if (n !== name) return 'No spaces at the start or the end';
@@ -556,7 +556,7 @@ function nameBytes(name: string): Uint8Array {
 }
 
 /**
- * Rename (verified 2026-10-08; DrD85's frame): `<len> C0 08 01 18 <preset> 22 <n> <name> 6F 00 00 00`. The pedal
+ * Rename (verified 2026-10-08): `<len> C0 08 01 18 <preset> 22 <n> <name> 6F 00 00 00`. The pedal
  * stores the name at once (no save needed) and answers type 0x70 `08 06 18 <preset> 20 <1 = ok>`.
  */
 export function presetRenameFrame(index: number, name: string): Uint8Array {

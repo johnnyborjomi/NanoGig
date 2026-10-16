@@ -375,7 +375,7 @@ export class MockTransport implements Transport {
           if (v(4) > 0 && v(4) <= 5) this.device.captureNameOverride = this.metadataCaptures()[bank * 5 + v(4) - 1] ?? null;
           if (v(4) === 6) this.device.captureNameOverride = null;
         } else if (v(3) === 4) {
-          // Bank and capture: slot 0..24 over the five banks (Cortex Cloud, DrD85).
+          // Bank and capture: slot 0..24 over the five banks (as Cortex Cloud).
           const abs = v(4);
           this.device.captureBank = Math.floor(abs / 5) + 1;
           this.device.captureSlot = (abs % 5) + 1;
@@ -524,7 +524,7 @@ export class MockTransport implements Transport {
         }
         p.name = name;
         this.reply(ok(index), msgType === EDIT_MSG.RENAME ? EDIT_MSG.RENAME_REPLY : EDIT_MSG.PRESET_CREATED);
-        // SavePreset (DrD85's name for it): on the shown preset, its edits are saved and the light goes out.
+        // SavePreset: on the shown preset, its edits are saved and the light goes out.
         if (msgType === EDIT_MSG.PRESET_CREATE && index === this.device.activePreset) this.saveEdits();
         break;
       }

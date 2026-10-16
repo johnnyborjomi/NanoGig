@@ -347,7 +347,7 @@ export class EditController {
   /**
    * A block with a model: readable and editable on or off. Cortex Cloud reads and edits a bypassed block (the
    * values are kept for when it is turned on, and saved), and the desktop editor rixrix/deskop-nano-cortex reads
-   * every slot on each preset load. DrD85 once saw a crash reading a bypassed one; not seen since by those two.
+   * every slot on each preset load. A crash reading a bypassed one was once reported; not seen since by those two.
    */
   private slotEditable(slot: FxSlot): boolean {
     return !!this.store.get().fxModels.value[slot];
@@ -860,7 +860,7 @@ export class EditController {
 
   /**
    * A capture slot in any bank (1..5 each): in the active bank by its position (selector 1, as the pedal's own
-   * encoder), in another by bank and capture (selector 4, slot 0..24, as Cortex Cloud and DrD85 select them).
+   * encoder), in another by bank and capture (selector 4, slot 0..24, as Cortex Cloud selects them).
    */
   async selectCapture(bank: number, position: number): Promise<void> {
     this.assertEdit();
@@ -1394,7 +1394,7 @@ export class EditController {
   }
 
   /**
-   * Save, as the pedal's save button: SavePreset (DrD85's name for the create frame) over the shown preset, under
+   * Save, as the pedal's save button: SavePreset (the protocol's name for the create frame) over the shown preset, under
    * its own name. A preset with no name is asked for one first (the pedal refuses renames of an unnamed preset).
    */
   async savePreset(): Promise<void> {

@@ -174,7 +174,7 @@ export interface CurrentState {
   ir: IrState | null;
   amp: AmpKnobs;
   captureSlot: number | null;
-  /** Field 9 (DrD85: bankSelector): the capture bank 1..5 that field 11's position counts in. Absent = null. */
+  /** Field 9 (bankSelector): the capture bank 1..5 that field 11's position counts in. Absent = null. */
   captureBank: number | null;
   captureVolumeRaw: number | null;
   /**
@@ -193,7 +193,7 @@ export interface CurrentState {
    * reconnect during the mode carried it; dumps outside the mode do not). Absent = false.
    */
   tapTempoMode: boolean;
-  /** Field 41 (currentPresetDirty, DrD85): the shown preset has unsaved changes. Absent = none. */
+  /** Field 41 (currentPresetDirty): the shown preset has unsaved changes. Absent = none. */
   dirty: boolean;
   /** FX model IDs (uppercase hex, no spaces) from fields 48-52; null per slot when absent. */
   fxModelIds: Record<FxSlot, string | null>;
