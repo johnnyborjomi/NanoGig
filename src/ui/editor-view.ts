@@ -23,6 +23,9 @@ import {
   PRESET_NAME_WRITE_MAX,
   cabValueText,
   captureVolumeText,
+  AMP_KNOBS,
+  ampKnobText,
+  type AmpKnob,
   fxDef,
   fxParamText,
   fxParamsInOrder,
@@ -131,6 +134,7 @@ function iconButton(i: Parameters<typeof lucideElement>[0], label: string, class
 
 const SLOT_LABELS: Record<FxSlot, string> = { pre1: "PRE 1", pre2: "PRE 2", post1: "POST 1", post2: "POST 2", post3: "POST 3" };
 const CAB_LABELS: Record<CabParam, string> = { level: "Level", highPass: "High pass", lowPass: "Low pass" };
+const AMP_LABELS: Record<AmpKnob, string> = { gain: "Gain", bass: "Bass", mid: "Mid", treble: "Treble", level: "Level" };
 /** Drag data type for a library item dragged onto a folder (desktop). */
 const DRAG_TYPE = "application/x-nanogig-library-item";
 /** A mouse or trackpad: items can be dragged as well as held. */
@@ -751,8 +755,12 @@ export class EditorView {
   private readonly irLib = el("button", "ed-lib-btn");
   private readonly capHint = el("p", "hint", "");
   private readonly capPower = el("button", "ed-power");
+  /** Gain, bass, mid, treble, level: the pedal's knobs, 0..10. */
+  private readonly ampSliders = new Map<AmpKnob, Slider>(
+    AMP_KNOBS.map((k) => [k, new Slider(AMP_LABELS[k], 255, (v) => this.run(() => this.edit().setAmpKnob(k, v)), ampKnobText)]),
+  );
   private readonly capVolume = new Slider(
-    "Volume",
+    "Capture volume",
     255,
     (v) => this.run(() => this.edit().setCaptureVolume(v)),
     (v) => captureVolumeText(v),
@@ -816,7 +824,10 @@ export class EditorView {
     capLib.addEventListener("click", () => this.openLibrary("captures"));
     const capHint = this.capHint; // one line under the library button: its text follows on / off (no layout shift)
     sh.head.append(this.nameRow(this.capHead, this.capName, this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value))));
-    this.capPane.append(this.capPicker.root, capLib, capHint, this.capVolume.root); // as the IR tab: the library, its line, then the controls
+    const level = this.ampSliders.get("level")!.root;
+    level.title = "The pedal's LEVEL knob: for every preset, a save does not keep it";
+    // As the IR tab: the library, its line, then the controls (the amp knobs, then the capture volume).
+    this.capPane.append(this.capPicker.root, capLib, capHint, ...[...this.ampSliders.values()].map((x) => x.root), this.capVolume.root);
 
     const irLib = this.irLib;
     irLib.append(icon(Library), el("span", "", "IR library"));
@@ -903,14 +914,18 @@ export class EditorView {
         canSwap: on === true, // as the library button
       });
       this.capVolume.set(s.captureVolume.value, on !== null);
-      // Off: the volume still works (heard once it is on), drawn grey like an off block.
+      // Off: the volume and knobs still work (heard once it is on), drawn grey like an off block.
       this.capVolume.root.dataset.off = String(on === false);
+      for (const [k, slider] of this.ampSliders) {
+        slider.set(s.amp.value?.[k] ?? null, on !== null);
+        slider.root.dataset.off = String(on === false);
+      }
       // The library needs the capture on (a preview onto an off capture hung the pedal; Cortex Cloud hides it too).
       this.capLib.disabled = on !== true;
-      this.capHint.textContent = on === false ? "Turn the capture on to open the library." : "Double-tap the volume to reset it to 0 dB.";
+      this.capHint.textContent = on === false ? "Turn the capture on to open the library." : "Double-tap the capture volume to reset it to 0 dB.";
       this.showSrcDiscard(
         this.actions.edit()?.captureChanged() ?? false,
-        this.actions.edit()?.capturePreview() ? "Undo the load into the preset's own: the capture it has saved plays again" : "Back to the capture and volume this preset has saved (on / off stays)",
+        this.actions.edit()?.capturePreview() ? "Undo the load into the preset's own: the capture it has saved plays again" : "Back to the capture, knobs and volume this preset has saved (on / off and level stay)",
       );
       return;
     }

@@ -6,7 +6,7 @@
 import { DEFAULT_LABEL_STYLE, DEFAULT_PRESETS_PER_BANK, PRESET_COUNT, TUNER_REFERENCE_DEFAULT_HZ, type FxSlot, type PresetLabelStyle } from '../protocol/frames';
 import type { LogLine, TransportStatus } from '../transport/types';
 import type { FxModelsBySlot } from '../protocol/models';
-import type { CabSettings, LibraryItem, LibraryKind } from '../protocol/edit';
+import type { AmpKnob, CabSettings, LibraryItem, LibraryKind } from '../protocol/edit';
 import { EMPTY_EXPRESSION_VALUES, type ExpressionAssignments, type ExpressionValues, type FootswitchAssignments, type TunerReading } from '../protocol/decode';
 
 /** 'cache' = restored from the last session's metadata, pending a background refresh. */
@@ -116,6 +116,8 @@ export interface SavedSource {
   /** Field 9: the bank that slot counts in. */
   captureBank: number | null;
   captureVolume: number | null;
+  /** The amp knobs (state fields 3..7). */
+  amp: Record<AmpKnob, number> | null;
   /** Field 12 while on (6 = the preset's own IR), null = off. */
   cabSlot: number | null;
   irName: string | null;
@@ -234,6 +236,8 @@ export interface GigState {
   irSlots: string[];
   /** Capture volume, raw 0..255 (state field 44; captureVolumeDb for the readout). */
   captureVolume: Field<number | null>;
+  /** The capture's amp knobs, raw 0..255 (state fields 3..7; zero ones are left out by the pedal). */
+  amp: Field<Record<AmpKnob, number> | null>;
   /** Gate threshold, raw 0..255 (state field 53 × 255). */
   gateThreshold: Field<number | null>;
   /** Field 12 as sent: the IR slot 1..5 (6 = the preset's own IR), null = off / absent. */
@@ -316,6 +320,7 @@ export function initialState(transportName = 'none'): GigState {
     captureSlots: [],
     irSlots: [],
     captureVolume: field<number | null>(null),
+    amp: field<Record<AmpKnob, number> | null>(null),
     gateThreshold: field<number | null>(null),
     cabSlot: field<number | null>(null),
     irName: field<string | null>(null),
@@ -394,6 +399,7 @@ export class Store {
       captureSlot: s.captureSlot,
       captureBank: s.captureBank,
       captureVolume: s.captureVolume,
+      amp: s.amp,
       gateThreshold: s.gateThreshold,
       cabSlot: s.cabSlot,
       irName: s.irName,

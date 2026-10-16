@@ -467,7 +467,23 @@ describe('edit gestures', () => {
     const discard = root.querySelector<HTMLElement>('.src-sheet .ed-discard')!;
     await until(() => store.get().edit.savedSource !== null);
     expect(discard.dataset.shown).toBe('false');
-    const volume = root.querySelector<HTMLInputElement>('.src-sheet .ed-slider input')!;
+    // The amp knobs come first, then the capture volume; all under their names.
+    const labels = [...root.querySelectorAll('.src-sheet .ed-pane:not([hidden]) .ed-slider .ed-label')].map((x) => x.textContent);
+    expect(labels).toEqual(['Gain', 'Bass', 'Mid', 'Treble', 'Level', 'Capture volume']);
+    const gain = root.querySelector<HTMLInputElement>('.src-sheet input[aria-label="Gain"]')!;
+    expect(gain.value).toBe(String(store.get().amp.value!.gain));
+    gain.value = String(store.get().amp.value!.gain + 20);
+    gain.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(discard.dataset.shown).toBe('true');
+    tap(discard);
+    await until(() => store.get().amp.source === 'dump' && discard.dataset.shown === 'false');
+    // Level is the pedal's own: a change of it is no edit to the preset.
+    const level = root.querySelector<HTMLInputElement>('.src-sheet input[aria-label="Level"]')!;
+    level.value = '30';
+    level.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(discard.dataset.shown).toBe('false');
+    await until(() => store.get().amp.source === 'dump' && store.get().amp.value!.level === 30);
+    const volume = root.querySelector<HTMLInputElement>('.src-sheet input[aria-label="Capture volume"]')!;
     volume.value = String((store.get().captureVolume.value ?? 0) + 40);
     volume.dispatchEvent(new Event('input', { bubbles: true }));
     expect(discard.dataset.shown).toBe('true');
@@ -485,7 +501,7 @@ describe('edit gestures', () => {
     expect(store.get().captureVolume.value).toBe(60);
     tap(volume);
     await until(() => store.get().captureVolume.value === 128);
-    expect(root.querySelector('.src-sheet .ed-slider .ed-value')!.textContent).toBe('0.0 dB');
+    expect(volume.closest('.ed-slider')!.querySelector('.ed-value')!.textContent).toBe('0.0 dB');
     tap(discard);
     await until(() => store.get().captureVolume.source === 'dump' && discard.dataset.shown === 'false');
     // The IR is off in the demo and never read yet: the pedal does not answer for it, so it is not asked.

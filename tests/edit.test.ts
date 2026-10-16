@@ -20,6 +20,8 @@ import {
   captureSlotSelectFrame,
   captureVolumeDb,
   captureVolumeFrame,
+  ampKnobFrame,
+  ampKnobText,
   captureVolumeRaw,
   captureVolumeText,
   decodeCabSettings,
@@ -108,6 +110,17 @@ describe('capture volume and gate threshold', () => {
     expect(captureVolumeFrame(100)).toEqual(bytes(0x0a, 0xc0, 0x18, 0x0a, 0x20, 100, 0x28, 0x00, 0x1a, 0x00, 0x00, 0x00));
     // Two-byte varint from 128 up: 0B C0.
     expect(Array.from(captureVolumeFrame(200).subarray(0, 7))).toEqual([0x0b, 0xc0, 0x18, 0x0a, 0x20, 0xc8, 0x01]);
+  });
+
+  it('amp knobs: the same frame with selectors 0..4, read 0..10', () => {
+    expect(ampKnobFrame('gain', 0x71)).toEqual(bytes(0x0a, 0xc0, 0x18, 0x00, 0x20, 0x71, 0x28, 0x00, 0x1a, 0x00, 0x00, 0x00));
+    expect(Array.from(ampKnobFrame('level', 5).subarray(2, 6))).toEqual([0x18, 0x01, 0x20, 5]);
+    expect(Array.from(ampKnobFrame('bass', 5).subarray(2, 4))).toEqual([0x18, 0x02]);
+    expect(Array.from(ampKnobFrame('mid', 5).subarray(2, 4))).toEqual([0x18, 0x03]);
+    expect(Array.from(ampKnobFrame('treble', 255).subarray(0, 7))).toEqual([0x0b, 0xc0, 0x18, 0x04, 0x20, 0xff, 0x01]);
+    expect(ampKnobText(0)).toBe('0.0');
+    expect(ampKnobText(128)).toBe('5.0');
+    expect(ampKnobText(255)).toBe('10.0');
   });
 
   it('dB scale fits Cortex Cloud readouts', () => {

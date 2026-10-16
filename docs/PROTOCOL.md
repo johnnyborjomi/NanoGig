@@ -337,6 +337,7 @@ preset is only saved by the pedal's save button) except rename / create / delete
 | FX parameters read | `08 C0 08 03 18 <slot> 89 00 00 00`, on or off alike: Cortex Cloud reads and edits a bypassed block, and rixrix/deskop-nano-cortex reads every slot on each preset load (a crash on a bypassed one was once reported) | `0x8A`: field 4 = every parameter's 0..1 as packed f32, in the model's order (`src/protocol/fx-params.ts`) |
 | FX parameter | `0F C0 08 01 18 <slot> 20 <param> 2D <f32 0..1> 63 00 00 00` | — |
 | Capture volume | `0A C0 18 0A 20 <raw 0..255> 28 00 1A 00 00 00` (`0B C0` from raw 128) | state field 44 |
+| Amp knobs (gain / level / bass / mid / treble) | `<len> C0 18 <0 gain / 1 level / 2 bass / 3 mid / 4 treble> 20 <raw 0..255> 28 00 1A 00 00 00`: the capture volume's frame (reported shipped elsewhere; not yet tried from this app). Shown 0.0..10.0. Level is reported to be the pedal's LEVEL knob: for every preset, not marked edited, not kept by a save, so Discard leaves it | state fields 3..7 (gain 3, level 4, bass 5, mid 6, treble 7) |
 | Gate threshold | `<len> C0 18 0B 20 <raw 0..255> 28 00 1A 00 00 00` | state field 53 = f32 raw / 255 |
 | Capture slot | `08 C0 18 01 20 <slot 1..5, 6 = the preset's own, 0 = off> 1C 00 00 00`: a position in the bank playing (field 9) | field 11 |
 | Capture in another bank | `08 C0 18 04 20 <slot 0..24 over the 5 banks> 1C 00 00 00` ("bank and capture", as Cortex Cloud selects) | field 9 = bank 1..5, field 11 = position |
@@ -393,7 +394,6 @@ From other open-source Nano Cortex projects. None of it tried from this app yet.
 
 | Feature | Frame / field | Tested |
 | --- | --- | --- |
-| Capture tone knobs | `<len> C0 18 <id> 20 <raw 0..255> 28 00 1A 00 00 00`, id 0 gain, 1 level, 2 bass, 3 mid, 4 treble (our `knobFrame`); read back in state fields 3-7. Level (id 1) is the Nano's master LEVEL: global, not marked edited, not saved with the preset | shipped elsewhere |
 | Knob event payload | incoming `0x1A` carries field 3 = id, field 4 = value | shipped elsewhere |
 | Cab mic / position that sounds and saves | `<len> C0 18 <slot-1> 22 <n> {08 <index> 12 <cab name> 18 <position 0..5> 22 <mic name>} 4E 00 00 00`, after the `0x4F` the IR slot select. The `0x5E` mic write above was reported to give no audible change (2026-10-15). The pedal lights no save light for mic / position / level / filters | reported tested with Save, 2026-10-13 |
 | USB playback volume | `0x43` `75 <f32 dB>` (settings field 14, −40..0 dB), read back as field 17 | shipped elsewhere |

@@ -776,6 +776,9 @@ export class SyncEngine {
     if (state.captureBank !== null) this.store.setField('captureBank', state.captureBank, editHeld ? 'optimistic' : 'dump', at);
     // Field 44 absent = raw 0 (-24 dB): the pedal leaves zero varints out.
     this.store.setField('captureVolume', state.captureVolumeRaw ?? 0, 'dump', at);
+    // Fields 3..7 absent = raw 0, as field 44.
+    const k = state.amp;
+    this.store.setField('amp', { gain: k.gain ?? 0, level: k.level ?? 0, bass: k.bass ?? 0, mid: k.mid ?? 0, treble: k.treble ?? 0 }, 'dump', at);
     this.store.setField('gateThreshold', state.gateThresholdRaw, 'dump', at);
     this.store.setField('cabSlot', state.cabOn ? state.cabSlot : null, 'dump', at);
     const irPreview = this.store.get().edit.irPreview;

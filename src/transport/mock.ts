@@ -359,10 +359,12 @@ export class MockTransport implements Transport {
         break;
       }
       case EDIT_MSG.KNOB: {
+        const amp = (['gain', 'level', 'bass', 'mid', 'treble'] as const)[v(3)];
         if (v(3) === 10) this.device.captureVolumeRaw = v(4);
         else if (v(3) === 11) this.device.gateThresholdRaw = v(4);
+        else if (amp) this.device.amp = { ...this.device.amp, [amp]: v(4) };
         else return false;
-        this.markDirty(false);
+        if (amp !== 'level') this.markDirty(false); // level: the pedal's own, reported not to light the save light
         break;
       }
       case EDIT_MSG.ENCODER: {

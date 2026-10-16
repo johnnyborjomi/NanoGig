@@ -39,6 +39,9 @@ import {
   captureSlotLoadFrame,
   captureSlotSelectFrame,
   captureVolumeFrame,
+  ampKnobFrame,
+  AMP_KNOBS,
+  type AmpKnob,
   decodeCabSettings,
   decodeFxParams,
   decodeLibrary,
@@ -115,6 +118,7 @@ export class EditController {
   private readonly writtenAt = {
     model: { pre1: 0, pre2: 0, post1: 0, post2: 0, post3: 0 } as Record<FxSlot, number>,
     captureVolume: 0,
+    amp: { gain: 0, bass: 0, mid: 0, treble: 0, level: 0 } as Record<AmpKnob, number>,
     gateThreshold: 0,
     capture: 0,
     ir: 0,
@@ -250,6 +254,13 @@ export class EditController {
     if (writtenSince(this.writtenAt.captureVolume, requestedAt) && samePreset && s.captureVolume.value !== null) {
       state.captureVolumeRaw = s.captureVolume.value;
       held = true;
+    }
+    const amp = s.amp.value;
+    for (const knob of AMP_KNOBS) {
+      if (writtenSince(this.writtenAt.amp[knob], requestedAt) && samePreset && amp) {
+        state.amp = { ...state.amp, [knob]: amp[knob] };
+        held = true;
+      }
     }
     if (writtenSince(this.writtenAt.gateThreshold, requestedAt) && samePreset && s.gateThreshold.value !== null) {
       state.gateThresholdRaw = s.gateThreshold.value;
@@ -540,6 +551,7 @@ export class EditController {
         captureSlot: s.captureOn.value === false ? 0 : s.captureSlot.value,
         captureBank: s.captureBank.value,
         captureVolume: s.captureVolume.value,
+        amp: s.amp.value && { ...s.amp.value },
         cabSlot: s.cabOn.value ? s.cabSlot.value : null,
         irName: s.irName.value,
         gateThreshold: s.gateThreshold.value,
@@ -654,14 +666,22 @@ export class EditController {
     return saved && saved.preset === this.store.get().activePreset.value ? saved : null;
   }
 
-  /** The capture differs from the preset as saved: a library capture previewed over it, its slot (while on) or its volume. */
+  /** The capture differs from the preset as saved: a library capture previewed over it, its slot (while on), its volume or its amp knobs. */
   captureChanged(): boolean {
     if (this.capturePreview()) return true;
     const b = this.savedSourceNow();
     const s = this.store.get();
     if (!b) return false;
     if (b.captureVolume !== null && s.captureVolume.value !== null && s.captureVolume.value !== b.captureVolume) return true;
+    if (this.ampChanged(b).length) return true;
     return this.captureMoved(b);
+  }
+
+  /** The preset's amp knobs that differ from the saved ones (not level: the pedal's, a save does not keep it). */
+  private ampChanged(b: SavedSource): AmpKnob[] {
+    const now = this.store.get().amp.value;
+    if (!b.amp || !now) return [];
+    return AMP_KNOBS.filter((k) => k !== 'level' && now[k] !== b.amp![k]);
   }
 
   /** Another capture than saved while on: another slot, or (for slots 1..5) another bank. */
@@ -672,7 +692,7 @@ export class EditController {
     return b.captureSlot !== CAPTURE_OWN_SLOT && b.captureBank !== null && s.captureBank.value !== null && s.captureBank.value !== b.captureBank;
   }
 
-  /** Discard the capture's edits: a preview stopped, its saved slot (6: the preset's own) and volume. On / off stays as it is. */
+  /** Discard the capture's edits: a preview stopped, its saved slot (6: the preset's own), volume and amp knobs. On / off stays as it is. */
   async discardCapture(): Promise<void> {
     this.assertEdit();
     await this.stopCapturePreview();
@@ -684,6 +704,7 @@ export class EditController {
       else await this.selectCapture(b.captureBank, b.captureSlot);
     }
     if (b.captureVolume !== null && s.captureVolume.value !== b.captureVolume) this.setCaptureVolume(b.captureVolume);
+    for (const knob of this.ampChanged(b)) this.setAmpKnob(knob, b.amp![knob]);
   }
 
   /** The gate's threshold differs from the preset as saved. */
@@ -785,6 +806,17 @@ export class EditController {
     this.writtenAt.captureVolume = Date.now();
     this.store.setField('captureVolume', v, 'optimistic');
     this.sendLatest('capture-volume', captureVolumeFrame(v), `Capture volume → ${v}`);
+    this.host.confirm(600);
+  }
+
+  setAmpKnob(knob: AmpKnob, raw: number): void {
+    this.assertEdit();
+    const v = Math.round(Math.min(255, Math.max(0, raw)));
+    const amp = this.store.get().amp.value;
+    if (!amp) return;
+    this.writtenAt.amp[knob] = Date.now();
+    this.store.setField('amp', { ...amp, [knob]: v }, 'optimistic');
+    this.sendLatest(`amp-${knob}`, ampKnobFrame(knob, v), `Amp ${knob} → ${v}`);
     this.host.confirm(600);
   }
 
