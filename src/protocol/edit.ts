@@ -178,7 +178,7 @@ export function fxParamCurve(param: FxParam): number {
 }
 
 /**
- * A parameter that does nothing now, as Cortex Cloud greys it: a sync note while its sync is off; a delay time, rate
+ * A parameter that does nothing now, as Cortex Cloud greys and locks it: a sync note while its sync is off; a delay time, rate
  * or speed while it is on. "Sync Note L" goes with "Sync L", else with the model's one "Sync".
  */
 export function fxParamIdle(def: FxDef, values: readonly number[] | null, index: number): boolean {

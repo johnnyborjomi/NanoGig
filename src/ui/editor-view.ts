@@ -748,6 +748,7 @@ export class EditorView {
             // Double tap: the model's default (as Cortex Cloud), once read from the pedal.
             const reset = () =>
               this.run(() => {
+                if (slider.root.dataset.idle === "true") return; // locked while it does nothing
                 if (!this.edit().resetFxParam(slot, index)) throw new Error(`${param.name}: its default is not known yet (Log → Read every effect's defaults)`);
               });
             const slider = new Slider(param.name, 1000, (v) => this.run(() => this.edit().setFxParam(slot, index, v / 1000)), (v) => fxParamText(param, v / 1000), reset, fine, curved);
@@ -760,9 +761,10 @@ export class EditorView {
     // Off or on alike, as in Cortex Cloud: a bypassed block keeps its edits for when it is turned on.
     const ready = status === "ready";
     for (const r of this.fxSliders) {
-      r.set(fx?.values?.[r.index] ?? null, ready);
-      // Greyed while it does nothing (a delay time while synced), as Cortex Cloud; still editable.
-      r.root.dataset.idle = String(!!def && fxParamIdle(def, fx?.values ?? null, r.index));
+      // Greyed and locked while it does nothing (a delay time while synced), as in Cortex Cloud.
+      const idle = !!def && fxParamIdle(def, fx?.values ?? null, r.index);
+      r.root.dataset.idle = String(idle);
+      r.set(fx?.values?.[r.index] ?? null, ready && !idle);
     }
     this.fxParams.dataset.dim = String(!ready);
     // Off: still editable (heard once it is on), but drawn like the off tile: grey, so it reads as off.

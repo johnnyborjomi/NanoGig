@@ -3609,7 +3609,7 @@ button.warn {
   font-weight: 400;
 }
 
-/* An FX parameter that does nothing now (a delay time while synced), greyed as in Cortex Cloud; still editable. */
+/* An FX parameter that does nothing now (a delay time while synced), greyed and locked as in Cortex Cloud. */
 .ed-slider[data-idle='true'],
 .ed-enum[data-idle='true'] {
   opacity: 0.45;
