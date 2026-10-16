@@ -1895,6 +1895,16 @@ button.warn {
 #app[data-layout='stack'][data-strip-rows='2'] {
   --strip-extra: 51px;
 }
+/* Short of room (a smaller phone, two rows of presets): the PRE / POST names go and the tiles take their lines
+   (the divider still parts pre from post). The tiles' own height decides: they are the container. */
+[data-layout='stack'] .tiles {
+  container: tiles / size;
+}
+@container tiles (max-height: 300px) {
+  .tile-wrap > .t-slot {
+    display: none;
+  }
+}
 [data-layout='stack'] .tiles > .vsep {
   width: auto;
   height: 1px;
