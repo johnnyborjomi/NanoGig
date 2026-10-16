@@ -5,7 +5,7 @@ import { Store } from '../src/state/store';
 
 function noopActions() {
   const p = () => Promise.resolve();
-  return { connect: p, connectMock: p, disconnect: p, refresh: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setOutputsMuted: p, setOutputLevel: () => {}, startTuner: p, stopTuner: p, setTunerReference: p, setTunerMute: p, openTempo: p, closeTempo: p, stepTempo: () => {}, setWritesEnabled: () => {}, setSettings: () => {} };
+  return { connect: p, connectMock: p, disconnect: p, refresh: p, toggleFx: p, toggleGate: p, toggleCab: p, toggleCapture: p, selectPreset: p, setOutputsMuted: p, setOutputLevel: () => {}, setExpression: () => {}, startTuner: p, stopTuner: p, setTunerReference: p, setTunerMute: p, openTempo: p, closeTempo: p, stepTempo: () => {}, setWritesEnabled: () => {}, setSettings: () => {} };
 }
 
 describe('GigView', () => {
@@ -713,8 +713,9 @@ describe('GigView expression pedal', () => {
         movedAt: now,
         values: { ranges: { post3: 73 }, bypasses: {} },
         valuesAt: now,
-        assignments: { ranges: { post3: { min: 17, max: 130, flag: 0 } }, bypasses: { post1: { mode: 2, delayMs: 0 } } },
+        assignments: { ranges: { post3: { min: 17, max: 130, inverted: false } }, bypasses: { post1: { mode: 'switch', inverted: false, delayMs: 0, latch: false } } },
         assignmentsPreset: 4,
+        write: null,
       },
     });
     expect(bar.classList.contains('visible')).toBe(true);

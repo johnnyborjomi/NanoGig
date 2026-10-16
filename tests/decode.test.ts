@@ -16,6 +16,7 @@ import {
   HW_EXP_ASSIGN_ACK,
   HW_EXP_ASSIGN_REPLY_2,
   HW_EXP_ASSIGN_REPLY_58,
+  HW_EXP_ASSIGN_WRITE_2,
   HW_EXP_ASSIGN_WRITE_ALL,
   HW_EXP_VALUES_ALL_96,
   HW_EXP_POSITION_138,
@@ -30,6 +31,7 @@ import {
   HW_TUNER_PITCH_G_PLUS_2_3,
 } from '../src/fixtures/hardware-2026-09-19';
 import { bytesField, stringField } from '../src/protocol/proto';
+import { expressionAssignmentsWrite, sameExpressionAssignments } from '../src/protocol/edit';
 import { DEMO_PRESETS, REAL_EVENTS, REAL_STATE_DUMP_PACKET, buildFootswitchSelectEvent, buildMetadataBody, buildPresetChangedEvent } from '../src/fixtures/captures';
 
 describe('decodeCurrentState (real firmware 2.2.1 capture)', () => {
@@ -378,34 +380,57 @@ describe('expression pedal (Cortex Cloud HCI capture 2026-09-19)', () => {
     // Everything assigned, pedal at 96: all eleven ranges at 96, the six heel-toe bypasses engaged.
     const all = decodeEvent(HW_EXP_VALUES_ALL_96);
     if (all.kind === 'expression-values') {
-      expect(all.values.ranges).toEqual({ gain: 96, bass: 96, mid: 96, treble: 96, level: 96, pre1: 96, pre2: 96, post1: 96, post2: 96, post3: 96, range13: 96 });
-      expect(all.values.bypasses).toEqual({ pre1: true, pre2: true, post1: true, post2: true, post3: true, bypass22: true });
+      expect(all.values.ranges).toEqual({ gain: 96, bass: 96, mid: 96, treble: 96, level: 96, pre1: 96, pre2: 96, post1: 96, post2: 96, post3: 96, gate: 96 });
+      expect(all.values.bypasses).toEqual({ pre1: true, pre2: true, post1: true, post2: true, post3: true, gate: true });
     } else throw new Error(all.kind);
   });
   it('assignment replies: post 3 17–130 (preset 58) and 15–127 (preset 2); the ack', () => {
     const r = decodeEvent(HW_EXP_ASSIGN_REPLY_58);
-    if (r.kind === 'expression-assignments') expect(r.assignments).toEqual({ ranges: { post3: { min: 17, max: 130, flag: 0 } }, bypasses: {} });
+    if (r.kind === 'expression-assignments') expect(r.assignments).toEqual({ ranges: { post3: { min: 17, max: 130, inverted: false } }, bypasses: {} });
     else throw new Error(r.kind);
     const r2 = decodeEvent(HW_EXP_ASSIGN_REPLY_2);
-    if (r2.kind === 'expression-assignments') expect(r2.assignments.ranges.post3).toEqual({ min: 15, max: 127, flag: 0 });
+    if (r2.kind === 'expression-assignments') expect(r2.assignments.ranges.post3).toEqual({ min: 15, max: 127, inverted: false });
     else throw new Error(r2.kind);
     expect(decodeEvent(HW_EXP_ASSIGN_ACK).kind).toBe('expression-assign-ack');
   });
   it("Cortex Cloud's 'assign everything' write decodes to the full map (write numbering)", () => {
     const { payload } = splitTrailer(HW_EXP_ASSIGN_WRITE_ALL.subarray(2));
     const a = decodeExpressionAssignments(payload, 0);
-    expect(Object.keys(a.ranges).sort()).toEqual(['bass', 'gain', 'level', 'mid', 'post1', 'post2', 'post3', 'pre1', 'pre2', 'range13', 'treble']);
-    expect(a.ranges.level).toEqual({ min: 0, max: 255, flag: 0 });
+    expect(Object.keys(a.ranges).sort()).toEqual(['bass', 'gain', 'gate', 'level', 'mid', 'post1', 'post2', 'post3', 'pre1', 'pre2', 'treble']);
+    expect(a.ranges.level).toEqual({ min: 0, max: 255, inverted: false });
     expect(a.bypasses).toEqual({
-      capture: { mode: 1, delayMs: 600 },
-      ir: { mode: 3, delayMs: 600 },
-      pre1: { mode: 2, delayMs: 0 },
-      pre2: { mode: 2, delayMs: 0 },
-      post1: { mode: 2, delayMs: 0 },
-      post2: { mode: 2, delayMs: 0 },
-      post3: { mode: 2, delayMs: 0 },
-      bypass22: { mode: 2, delayMs: 0 },
+      capture: { mode: 'heelToe', inverted: false, delayMs: 600, latch: false },
+      ir: { mode: 'stop', inverted: false, delayMs: 600, latch: false },
+      pre1: { mode: 'switch', inverted: false, delayMs: 0, latch: false },
+      pre2: { mode: 'switch', inverted: false, delayMs: 0, latch: false },
+      post1: { mode: 'switch', inverted: false, delayMs: 0, latch: false },
+      post2: { mode: 'switch', inverted: false, delayMs: 0, latch: false },
+      post3: { mode: 'switch', inverted: false, delayMs: 0, latch: false },
+      gate: { mode: 'switch', inverted: false, delayMs: 0, latch: false },
     });
+  });
+});
+
+describe('expression assignment write (0x3E)', () => {
+  it("is byte-exact with Cortex Cloud's writes", () => {
+    const all = decodeExpressionAssignments(splitTrailer(HW_EXP_ASSIGN_WRITE_ALL.subarray(2)).payload, 0);
+    expect(toHex(expressionAssignmentsWrite(6, all))).toBe(toHex(HW_EXP_ASSIGN_WRITE_ALL));
+    const two = decodeExpressionAssignments(splitTrailer(HW_EXP_ASSIGN_WRITE_2.subarray(2)).payload, 0);
+    expect(toHex(expressionAssignmentsWrite(2, two))).toBe(toHex(HW_EXP_ASSIGN_WRITE_2));
+  });
+  it('writes what the reply reads back, inverted and latched included', () => {
+    const a = {
+      ranges: { gain: { min: 20, max: 200, inverted: true }, level: { min: 0, max: 255, inverted: false } },
+      bypasses: { post1: { mode: 'switch' as const, inverted: true, delayMs: 0, latch: true }, gate: { mode: 'heelToe' as const, inverted: false, delayMs: 300, latch: false } },
+    };
+    const w = expressionAssignmentsWrite(0, a);
+    const { payload } = splitTrailer(w.subarray(2));
+    expect(decodeExpressionAssignments(payload, 0)).toEqual(a);
+    expect(sameExpressionAssignments(a, decodeExpressionAssignments(payload, 0))).toBe(true);
+    expect(toHex(w).slice(3, 11)).toBe('C0 18 00');
+  });
+  it('nothing assigned: just the preset', () => {
+    expect(toHex(expressionAssignmentsWrite(5, { ranges: {}, bypasses: {} }))).toBe('06 C0 18 05 3E 00 00 00');
   });
 });
 

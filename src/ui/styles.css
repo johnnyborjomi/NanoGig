@@ -3650,3 +3650,128 @@ button.warn {
 .ed-fold[data-open='true'] .ed-fold-pill {
   display: none;
 }
+
+/* ---- Expression pedal ---------------------------------------------------------------------------------------- */
+/* The gate row's EXP button (editing only): in the row all the time, hidden by visibility, so nothing moves when
+   Edit turns on. As tall as the gate's button; the number of targets the pedal moves on this preset after it. */
+.gate-row .exp-btn {
+  margin-left: auto;
+  visibility: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: clamp(28px, 4vh, 40px);
+  min-height: 0;
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+#app[data-editing='true'] .gate-row .exp-btn {
+  visibility: visible;
+}
+.exp-btn svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.exp-btn .exp-count {
+  min-width: 1.6em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #041021;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-align: center;
+}
+.exp-btn .exp-count:empty {
+  display: none;
+}
+
+/* The sheet: where the pedal is now, then one group per block in the order of the screen. */
+.exp-pos {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.exp-pos-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: #3a4450;
+  overflow: hidden;
+}
+.exp-pos-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 4px;
+}
+:where(.exp-group) {
+  --fx: var(--muted);
+}
+.exp-group[data-cat='ir'] {
+  --fx: var(--fx-ir);
+  --fx-ink: #f4f6f8;
+}
+.exp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--panel-2);
+}
+.exp-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 2px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  text-align: left;
+}
+.exp-row-head svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--muted);
+}
+.exp-row[data-on='true'] .exp-row-head svg {
+  color: color-mix(in srgb, var(--fx) 78%, #fff);
+}
+.exp-row:not([data-on='true']) .exp-row-head svg:nth-of-type(2),
+.exp-row[data-on='true'] .exp-row-head svg:nth-of-type(1) {
+  display: none;
+}
+.exp-name {
+  flex: 1;
+  min-width: 0;
+}
+.exp-row[data-on='true'] .exp-name {
+  font-weight: 700;
+}
+.exp-sum {
+  color: var(--muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.exp-row-head:disabled {
+  opacity: 0.5;
+}
+.exp-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0 12px 32px;
+}
+.exp-row:not([data-on='true']) .exp-row-body {
+  display: none;
+}

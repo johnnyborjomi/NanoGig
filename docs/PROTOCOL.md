@@ -303,9 +303,9 @@ is the write field − 1 (applied to every target; we saw it with post 3).
 | 16 … 20     | pre 1 … post 3 bypass | 17 … 21      |
 | 22          | input gate bypass     | 22           |
 
-**Not yet tested by us.** Our own reading of the 2026-09-19 "assign everything" capture (preset 6, targets added
-in Cortex Cloud's list order) had 13 and 21 swapped (21 = level, 13 = unnamed), and the decoder
-(`src/protocol/decode.ts`) still uses that until assignment writes are tried on the pedal.
+Capture volume = 13 and gate = 21 is what another editor reads, writes and reads back; our own reading of
+the 2026-09-19 "assign everything" capture had them swapped. NanoGig follows 13 / 21 (`src/protocol/decode.ts`):
+to be confirmed by ear on the pedal (assign Capture volume, rock the pedal, hear the volume move).
 
 A range record is `{1: inverted, 2: min, 3: max}`, min / max 0–255 shown as 0–100 % (`08 00 10 00 18 FF 01` =
 0–100 %, not inverted). A bypass record holds one of three modes:
@@ -316,9 +316,13 @@ A range record is `{1: inverted, 2: min, 3: max}`, min / max 0–255 shown as 0�
 | 2 | Switch | `{1: inverted, 2: latch emulation}` |
 | 3 | Stop | `{1: switch delay ms}` |
 
-Zero values are left out of every record. Our 2026-09-19 notes differ here too, untested: `{2: {1:0, 2:0}}`
-flipped its values flag at mid-travel (we called it heel-toe), and `{1: {1:0, 2:600}}` and `{3: {1:600}}`
-never fired without a toe switch.
+Zero values are left out of the reply; Cortex Cloud's write spells them out (`08 00 10 00`). In the 2026-09-19
+capture Switch `{2: {1:0, 2:0}}` flipped its values flag at mid-travel; Heel-Toe `{1: {1:0, 2:600}}` and Stop
+`{3: {1:600}}` never fired with the pedal rocked over MIDI.
+
+**Writing** (the EXP button in Edit mode): NanoGig writes the whole list with 0x3E as Cortex Cloud does (byte-exact
+with both captured writes), after a 400 ms pause so a slider drag is one write, then reads it back (0x3C) and shows
+"stored" when the pedal has the same list. The pedal stores it on the preset at once: no Save.
 
 NanoGig requests the assignments after every state dump whose preset differs from the last
 request, remembers which preset it asked for (the reply carries none), and shows a bar at the
@@ -402,7 +406,6 @@ From other open-source Nano Cortex projects. None of it tried from this app yet.
 | USB playback volume | `0x43` `75 <f32 dB>` (settings field 14, −40..0 dB), read back as field 17 | shipped elsewhere |
 | EXP / MIDI jack mode | `0x43` `38 <0 MIDI / 1 expression>` (field 7); settings field 10 absent = TRS MIDI, 1 = expression; field 18 = MIDI clock source (2 = TRS MIDI), reset when the jack leaves MIDI | reported confirmed on a pedal |
 | Expression calibration | reset `04 C0 45 00 00 00`; save `0x47` `18 <min> 20 <max>` (min / max taken from the `0x40` positions between) | shipped elsewhere |
-| Expression assignment write | `0x3E` with every record (zeros included), read back to check; level = write 13, gate = write 21 | shipped elsewhere, with read-back |
 | `0x40` sub-type | field 3: 0 capture input gain, 1 capture output level, 2 expression (never seen 0 / 1 on the wire) | no |
 | Ack after a pedal-side preset change | `06 C0 20 01 1E 00 00 00` after every `0x1D` event: "without it the Nano waits in a pending preset change" | stated, no test note |
 | Preset select field 9 | 0..3 = the footswitch (IA, IB, IIA, IIB) the preset sits on, 4 = none: likely Cortex Cloud's 0 / 1 | no |

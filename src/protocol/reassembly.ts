@@ -107,7 +107,7 @@ export const MSG = {
   EXP_ASSIGN_REQUEST: 0x3c,
   /** Reply: a sub-message `{2: min, 3: max}` per assigned slot. */
   EXP_ASSIGN_REPLY: 0x3d,
-  /** Write a preset's expression assignments (Cortex Cloud; not sent by NanoGig). */
+  /** Write a preset's expression assignments (Cortex Cloud, and NanoGig's EXP sheet). */
   EXP_ASSIGN_WRITE: 0x3e,
   /** Ack to the assignment write. */
   EXP_ASSIGN_ACK: 0x3f,

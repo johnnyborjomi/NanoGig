@@ -13,6 +13,7 @@ import {
   type PresetLabelStyle,
 } from "../protocol/frames";
 import { TUNER_REFERENCE_MAX_HZ, TUNER_REFERENCE_MIN_HZ } from "../protocol/frames";
+import type { ExpressionAssignments } from "../protocol/decode";
 import type { GigState } from "../state/store";
 import type { Store } from "../state/store";
 import type { LogLine } from "../transport/types";
@@ -80,6 +81,8 @@ export interface GigViewActions {
   setOutputsMuted(muted: boolean): Promise<void>;
   /** Outputs 1/2 volume (the pedal's LEVEL knob), raw 0..255; global, works whenever connected. */
   setOutputLevel(raw: number): void;
+  /** The shown preset's expression assignments (the EXP sheet); stored on the preset by the pedal. */
+  setExpression(a: ExpressionAssignments): void;
   /** Tuner: on/off, reference pitch, and its own mute switch. Works whenever connected. */
   startTuner(): Promise<void>;
   stopTuner(): Promise<void>;
@@ -120,6 +123,22 @@ export interface GigViewOptions {
   resumeAvailable?: boolean;
   showMockButton: boolean;
   openConsole?: boolean;
+}
+
+/** An expression pedal from the side: the base, the treadle tilted up to the toe, its hinge at the heel. */
+function pedalIcon(): SVGElement {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2.25", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
+  for (const d of ["M3 20h18", "M5 16.5 20 8", "M18 9.2V20"]) {
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  const hinge = document.createElementNS(NS, "circle");
+  for (const [k, v] of Object.entries({ cx: "5", cy: "17.5", r: "1.6" })) hinge.setAttribute(k, v);
+  svg.append(hinge);
+  return svg;
 }
 
 /** Which of the Nano's footswitches (IA, IB, IIA, IIB) is assigned to preset `index`, if any. */
@@ -223,6 +242,9 @@ export class GigView {
   private readonly expShowCheck = el("input", "menu-check");
   // Expression pedal: a thin vertical bar at the app's right edge, and a track per assigned FX tile.
   private readonly expBar = el("div", "exp-bar");
+  private readonly expBtn = el("button", "exp-btn");
+  /** How many targets the pedal moves on the shown preset (empty: none, or not read yet). */
+  private readonly expCount = el("span", "exp-count");
   private readonly expFill = el("div", "exp-fill");
   // Searching page (connecting / reconnecting): the pairing gesture, what we look for, Cancel.
   private readonly searchOverlay = el("div", "overlay searching page");
@@ -388,6 +410,7 @@ export class GigView {
       toggleFx: (slot) => this.actions.toggleFx(slot),
       toggleGate: () => this.actions.toggleGate(),
       selectPreset: (i) => this.actions.selectPreset(i),
+      setExpression: (a) => this.actions.setExpression(a),
       toast: (e) => this.toast(e),
     });
 
@@ -686,7 +709,12 @@ export class GigView {
         icon.classList.add("t-icon");
         tile.append(icon);
         const gateRow = el("div", "gate-row");
-        gateRow.append(el("div", "t-slot", TILE_LABELS[key]), tile);
+        // Editing: what the expression pedal moves on this preset (kept in the row, hidden, so it never shifts).
+        this.expBtn.type = "button";
+        this.expBtn.title = "Expression pedal: what it moves on this preset";
+        this.expBtn.append(pedalIcon(), el("span", "", "EXP"), this.expCount);
+        this.expBtn.addEventListener("click", () => this.editor.openExpression());
+        gateRow.append(el("div", "t-slot", TILE_LABELS[key]), tile, this.expBtn);
         blocks.append(gateRow, el("div", "hsep"));
         continue;
       }
@@ -1987,6 +2015,8 @@ export class GigView {
     }
     // Tracks: an assignment for the shown preset.
     const assigned = connected && x.assignments !== null && x.assignmentsPreset === s.activePreset.value ? x.assignments : null;
+    const count = assigned ? String(Object.keys(assigned.ranges).length + Object.keys(assigned.bypasses).length) : "";
+    if (this.expCount.textContent !== (count === "0" ? "" : count)) this.expCount.textContent = count === "0" ? "" : count;
     for (const slot of FX_SLOTS) {
       const t = this.tiles.get(slot)!;
       const range = assigned?.ranges[slot] ?? null;
@@ -2001,12 +2031,13 @@ export class GigView {
       const width = range ? pct(range.max - range.min) : "100%";
       if (t.expRange!.style.left !== left) t.expRange!.style.left = left;
       if (t.expRange!.style.width !== width) t.expRange!.style.width = width;
-      const mode = bypass ? (bypass.mode === 2 ? "ht" : "sw") : "";
+      const mode = bypass ? (bypass.mode === "switch" ? "ht" : "sw") : "";
       if (t.exp!.dataset.byp !== mode) t.exp!.dataset.byp = mode;
       // The pedal sends values only while moving, not on preset load: until the first event of
       // this preset, derive them from the last position exactly as the pedal maps it (linear into
       // the range; heel-toe bypass flag = 1 on the heel side of mid-travel, as captured).
-      const derived = range ? range.min + (pos / 254) * (range.max - range.min) : undefined;
+      const span = range ? (range.inverted ? 1 - pos / 254 : pos / 254) : 0;
+      const derived = range ? range.min + span * (range.max - range.min) : undefined;
       const v = range ? (x.values.ranges[slot] ?? derived) : undefined;
       const engaged = x.values.bypasses[slot] ?? pos < 127;
       const w = range ? (v === undefined ? "0%" : pct(v)) : engaged ? "100%" : "0%";
