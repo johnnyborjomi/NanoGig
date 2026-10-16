@@ -54,6 +54,7 @@ import {
   fxModelType,
   fxParamFrame,
   fxParamsRequest,
+  decodeFxParamEvent,
   gateThresholdFrame,
   isPresetSaved,
   libraryRequest,
@@ -385,6 +386,8 @@ export class EditController {
   /** A complete message of `msgType`; true when it was the editor's. */
   onMessage(msgType: number, payload: Uint8Array, hex: string): boolean {
     switch (msgType) {
+      case EDIT_MSG.FX_PARAM:
+        return this.onFxParamEvent(payload, hex);
       case EDIT_MSG.FX_PARAMS:
         this.onFxParams(payload, hex);
         return true;
@@ -501,6 +504,23 @@ export class EditController {
   /** Re-read the open block (the editor's retry button). */
   retryFx(): void {
     this.fxTick(true);
+  }
+
+  /** The pedal moved a parameter itself (a linked one): the open editor and the last values shown follow it. */
+  private onFxParamEvent(payload: Uint8Array, hex: string): boolean {
+    const ev = decodeFxParamEvent(payload);
+    if (!ev) return false;
+    const name = fxDef(this.slotType(ev.slot))?.params[ev.param]?.name ?? `param ${ev.param}`;
+    this.host.log('info', `FX ${ev.slot} ${name} → ${ev.value.toFixed(4)} (by the pedal)`, hex);
+    const fx = this.store.get().edit.fx;
+    if (fx?.slot === ev.slot && fx.values && ev.param < fx.values.length) {
+      const values = fx.values.slice();
+      values[ev.param] = ev.value;
+      this.patchEdit({ fx: { ...fx, values } });
+    }
+    const last = this.fxLast.get(ev.slot);
+    if (last && ev.param < last.values.length) last.values[ev.param] = ev.value;
+    return true;
   }
 
   private onFxParams(payload: Uint8Array, hex: string): void {

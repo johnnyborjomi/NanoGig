@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FX_SLOT_MODELS } from '../src/protocol/fx-params';
 import { FX_DEFAULTS, fxDefaults } from '../src/protocol/fx-defaults';
 import { EDIT_MSG, ampKnobFrame, cabSettingsRequest, fxDef, fxModelType, fxSlotModels, outputLevelFrame } from '../src/protocol/edit';
-import { toHex } from '../src/protocol/hex';
+import { fromHex, toHex } from '../src/protocol/hex';
+import { CURRENT_STATE_REQUEST } from '../src/protocol/frames';
 import type { CurrentState } from '../src/protocol/decode';
 import { writtenSince } from '../src/sync/editor';
 import { Store } from '../src/state/store';
@@ -41,6 +42,24 @@ async function setup(opts: { editing?: boolean; writes?: boolean; device?: Const
 const sent = (mock: MockTransport, type: number) => mock.edits.filter((e) => e.type === type);
 
 describe('FX defaults (the double tap)', () => {
+  it('a parameter the pedal moves itself (a linked feedback) shows in the open editor, with no state read', async () => {
+    const { store, mock, edit } = await setup();
+    edit.openFx('post2');
+    await edit.setFxModel('post2', 6012); // Dual Delay
+    await until(() => store.get().edit.fx?.status === 'ready' && store.get().edit.fx?.type === 6012);
+    await wait(700);
+    let stateReads = 0;
+    const write = mock.writeCommand.bind(mock);
+    mock.writeCommand = (b: Uint8Array) => {
+      if (toHex(b) === toHex(CURRENT_STATE_REQUEST)) stateReads++;
+      return write(b);
+    };
+    mock.inject(fromHex('0F C0 08 01 18 03 20 02 2D CB A1 85 3E 63 00 00 00')); // Feedback L → 0.261
+    await until(() => Math.abs((store.get().edit.fx?.values?.[2] ?? 0) - 0.261) < 1e-4);
+    await wait(700);
+    expect(stateReads).toBe(0);
+  });
+
   it("a double tap sends the model's default", async () => {
     const { mock, edit, store } = await setup();
     const type = fxSlotModels('post2').find((m) => (fxDef(m.type)?.params.length ?? 0) >= 3)!.type;

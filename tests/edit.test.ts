@@ -21,6 +21,7 @@ import {
   captureVolumeDb,
   captureVolumeFrame,
   ampKnobFrame,
+  decodeFxParamEvent,
   outputLevelFrame,
   ampKnobText,
   captureVolumeRaw,
@@ -49,6 +50,7 @@ import {
   presetRenameFrame,
 } from '../src/protocol/edit';
 import { FX_MODELS } from '../src/protocol/models';
+import { fromHex } from '../src/protocol/hex';
 import { bytesField, fixed32FloatField, stringField, varintField } from '../src/protocol/proto';
 
 const bytes = (...xs: (number | string)[]) =>
@@ -102,6 +104,21 @@ describe('FX editing frames', () => {
     const pickup = fxDef(22)!.params[2]!;
     expect(fxParamText(pickup, 1)).toBe('Single');
     expect(fxParamText(pickup, 0)).toBe('HB');
+  });
+});
+
+describe('parameter events from the pedal (0x63)', () => {
+  // The pedal's own reports, Dual Delay in post 2 with Link FBack on (2026-10-17).
+  const body = (hex: string) => fromHex(hex).subarray(2, -4);
+  it('a linked feedback: slot, parameter and value', () => {
+    const ev = decodeFxParamEvent(body('0F C0 08 01 18 03 20 02 2D CB A1 85 3E 63 00 00 00'))!;
+    expect(ev.slot).toBe('post2');
+    expect(ev.param).toBe(2);
+    expect(ev.value).toBeCloseTo(0.261, 4);
+    expect(decodeFxParamEvent(body('0F C0 08 01 18 03 20 05 2D 00 00 80 3E 63 00 00 00'))).toEqual({ slot: 'post2', param: 5, value: 0.25 });
+  });
+  it('zero fields left out: pre 1, parameter 0, value 0', () => {
+    expect(decodeFxParamEvent(body('06 C0 08 01 63 00 00 00'))).toEqual({ slot: 'pre1', param: 0, value: 0 });
   });
 });
 

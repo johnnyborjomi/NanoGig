@@ -135,7 +135,7 @@ field + 3. Field 12 = mute input, field 13 = mute output: the short form `06 C0 
 | `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
 | `0x1E` | Ack to the c304 preset select: `08 C0 08 01 20 01 1E 00 00 00`, after a `0x1F` notice               | send the newest pending select, else re-read state (field 13 confirms) |
 | `0x80` | Tuner pitch reading, ~30/s while the tuner is on and a note sounds (see "Tuner")                     | tuner overlay (note, cents, in tune)   |
-| `0x63` | A parameter changed by the pedal itself, the FX parameter write's shape: `0F C0 08 01 18 <slot> 20 <param> 2D <f32 0..1> 63 00 00 00`. Seen 2026-10-17 right after Dual Delay / Dual Reverse Delay were loaded into post 2 (params 2, 5, 6 → 0.25), likely their tempo sync | debounced re-read (as any unknown event) |
+| `0x63` | A parameter changed by the pedal itself, the FX parameter write's shape: `0F C0 08 01 18 <slot> 20 <param> 2D <f32 0..1> 63 00 00 00` (zero fields left out). **The dual delays' Link FBack** (confirmed on the pedal 2026-10-17, Dual Delay in post 2): with the link on, every Feedback R write (param 5) is answered by Feedback L (param 2) at the same value; turning the link on, or loading Dual Delay / Dual Reverse Delay, reports the feedback copied (0.25) | the open FX editor's slider follows; no state read (the state holds no parameters) |
 | `0x91` | Tap tempo: one per tap with the running BPM, one more on leaving the mode (see "Tap tempo")          | tempo badge live, re-read on exit      |
 
 ## Writes (control mode, c304)

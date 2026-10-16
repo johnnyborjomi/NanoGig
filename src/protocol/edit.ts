@@ -13,7 +13,7 @@
 import { CAB_SLOT_COUNT, CAPTURE_SLOT_COUNT, FX_SLOTS, PRESET_COUNT, type FxSlot } from './frames';
 import { FX_DEFS, FX_SLOT_MODELS, type FxDef, type FxParam } from './fx-params';
 import { FX_MODELS } from './models';
-import { encodeVarint, firstBytes, firstVarint, parseFields, tag, type ProtoField } from './proto';
+import { encodeVarint, firstBytes, firstFixed32Float, firstVarint, parseFields, tag, type ProtoField } from './proto';
 import { encodeFrameHeader } from './reassembly';
 
 export { FX_DEFS, FX_SLOT_MODELS, type FxDef, type FxParam };
@@ -195,6 +195,19 @@ export function decodeFxParams(payload: Uint8Array): number[] {
   const out: number[] = [];
   for (let i = 0; i + 4 <= raw.length; i += 4) out.push(dv.getFloat32(i, true));
   return out;
+}
+
+/**
+ * A parameter the pedal changed itself (0x63, the parameter write's own shape): `0F C0 08 01 18 <slot> 20 <param>
+ * 2D <f32> 63 00 00 00`. Seen for the dual delays' Link FBack (2026-10-17): moving one feedback, the pedal reports
+ * the other; loading the model or turning the link on, it reports the feedback it copied. Zero fields are left out.
+ */
+export function decodeFxParamEvent(payload: Uint8Array): { slot: FxSlot; param: number; value: number } | null {
+  const f = parseFields(payload);
+  const slot = FX_SLOTS[firstVarint(f, 3) ?? 0];
+  const value = firstFixed32Float(f, 5) ?? (f.some((x) => x.field === 5) ? NaN : 0);
+  if (!slot || !Number.isFinite(value)) return null;
+  return { slot, param: firstVarint(f, 4) ?? 0, value };
 }
 
 // ---------------------------------------------------------------------------
