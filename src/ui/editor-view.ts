@@ -679,7 +679,25 @@ export class EditorView {
       this.fxSliders = [];
       if (def) {
         for (const { index, param } of fxParamsInOrder(def)) {
-          if (param.kind === "enum") {
+          if (param.kind === "enum" && param.name.startsWith("Sync Note")) {
+            // A note value (11 to 21 of them): a drop-down on the label's line, not a wall of chips.
+            const row = el("label", "ed-enum ed-enum-select");
+            const select = el("select", "ed-select");
+            select.setAttribute("aria-label", param.name);
+            select.append(...param.options.map((opt, i) => Object.assign(el("option", "", opt), { value: String(i) })));
+            select.addEventListener("change", () => this.run(() => this.edit().setFxParam(slot, index, fxEnumValue(param, Number(select.value)))));
+            row.append(el("span", "ed-label", param.name), select);
+            this.fxParams.append(row);
+            this.fxSliders.push({
+              index,
+              root: row,
+              set: (n, enabled) => {
+                const sel = n === null ? -1 : Math.round(n * (param.options.length - 1));
+                if (document.activeElement !== select) select.value = sel < 0 ? "" : String(sel);
+                select.disabled = !enabled;
+              },
+            });
+          } else if (param.kind === "enum") {
             const row = el("div", "ed-enum");
             row.append(el("span", "ed-label", param.name));
             const chips = el("div", "ed-chips");
