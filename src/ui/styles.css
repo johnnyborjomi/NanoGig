@@ -3615,12 +3615,13 @@ button.warn {
   opacity: 0.45;
 }
 
-/* A sync note, folded: its name and a pill with the note playing (the block's colour, as a chosen chip) on one
-   line; open, every note as chips under it and a ⌃ in the pill's place to fold them. */
+/* A sync note, folded: its name and, right after it, a pill with the note playing (the block's colour, as a chosen
+   chip); open, every note as chips under it and a ⌃ in the pill's place to fold them. Next to the name, not at the
+   far edge, so it reads as that name's. */
 .ed-fold-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   min-height: 44px;
 }
