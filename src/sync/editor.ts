@@ -258,12 +258,13 @@ export class EditController {
         await this.send(fxModelFrame(slot, type), `Defaults run ${(n % jobs.length) + 1}/${jobs.length}${n >= jobs.length ? ' (again)' : ''}: ${slot} model → ${def.name}`);
         await wait(settleMs);
         let values = await read(slot);
-        if (values?.length !== def.params.length) {
+        const count = def.params.length;
+        if (!values || values.length < count) {
           await wait(settleMs * 2);
           values = await read(slot);
         }
-        if (values && values.length === def.params.length) {
-          out[type] = values.map((v) => Math.round(v * 1e5) / 1e5);
+        if (values && values.length >= count) {
+          out[type] = values.slice(0, count).map((v) => Math.round(v * 1e5) / 1e5);
           learnFxDefaults(type, values);
         } else if (n >= jobs.length) {
           this.host.log('warn', `Defaults of ${def.name}: no answer`);

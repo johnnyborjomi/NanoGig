@@ -135,6 +135,7 @@ field + 3. Field 12 = mute input, field 13 = mute output: the short form `06 C0 
 | `0x44` | Ack to the outputs-mute write: `08 C0 08 01 18 01 44 00 00 00`, within ~100 ms                       | confirm the switch, re-read settings   |
 | `0x1E` | Ack to the c304 preset select: `08 C0 08 01 20 01 1E 00 00 00`, after a `0x1F` notice               | send the newest pending select, else re-read state (field 13 confirms) |
 | `0x80` | Tuner pitch reading, ~30/s while the tuner is on and a note sounds (see "Tuner")                     | tuner overlay (note, cents, in tune)   |
+| `0x63` | A parameter changed by the pedal itself, the FX parameter write's shape: `0F C0 08 01 18 <slot> 20 <param> 2D <f32 0..1> 63 00 00 00`. Seen 2026-10-17 right after Dual Delay / Dual Reverse Delay were loaded into post 2 (params 2, 5, 6 → 0.25), likely their tempo sync | debounced re-read (as any unknown event) |
 | `0x91` | Tap tempo: one per tap with the running BPM, one more on leaving the mode (see "Tap tempo")          | tempo badge live, re-read on exit      |
 
 ## Writes (control mode, c304)
@@ -336,7 +337,7 @@ preset is only saved by the pedal's save button) except rename / create / delete
 | FX model | `<len> C0 18 <slot 0..4> 20 <type varint> 88 00 00 00` (type = the varint the dump's model ID spells: `FA2E` = 6010) | state dump confirms |
 | FX parameters read | `08 C0 08 03 18 <slot> 89 00 00 00`, on or off alike: Cortex Cloud reads and edits a bypassed block, and rixrix/deskop-nano-cortex reads every slot on each preset load (a crash on a bypassed one was once reported) | `0x8A`: field 4 = every parameter's 0..1 as packed f32, in the model's order (`src/protocol/fx-params.ts`) |
 | FX parameter | `0F C0 08 01 18 <slot> 20 <param> 2D <f32 0..1> 63 00 00 00` | — |
-| FX defaults | no message: a model write loads the model's defaults, and a parameters read right after gives them. The app keeps them per model (`src/protocol/fx-defaults.ts`; Log → "Read every effect's defaults" writes every model into a slot that takes it, reads, and loads the preset again) for the editor's double tap | `0x8A` |
+| FX defaults | no message: a model write loads the model's defaults, and a parameters read right after gives them. Read for all 53 models on 2.2.1 (2026-10-17), built in; Doubler answers 4 values for its 3 parameters (the 4th, 0, unknown). The app keeps them per model (`src/protocol/fx-defaults.ts`; Log → "Read every effect's defaults" writes every model into a slot that takes it, reads, and loads the preset again) for the editor's double tap | `0x8A` |
 | Capture volume | `0A C0 18 0A 20 <raw 0..255> 28 00 1A 00 00 00` (`0B C0` from raw 128) | state field 44 |
 | Amp knobs (gain / bass / mid / treble) | `<len> C0 18 <0 gain / 2 bass / 3 mid / 4 treble> 20 <raw 0..255> 28 00 1A 00 00 00`: the capture volume's frame. Shown 0.0..10.0. Tried on the pedal 2026-10-16 | state fields 3, 5, 6, 7 |
 | Outputs 1/2 volume (the pedal's LEVEL knob) | the same frame with selector 1. **Global, not part of a preset**: the same on every preset, saved or not, and not heard in the headphones, only at outputs 1/2 (on the pedal, 2026-10-16). Sent whenever connected, as the outputs mute | state field 4 |
