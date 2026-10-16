@@ -39,6 +39,7 @@ import {
   fxParamFrame,
   fxParamText,
   fxParamsInOrder,
+  fxParamIdle,
   fxParamsRequest,
   fxSlotModels,
   gateThresholdFrame,
@@ -284,5 +285,34 @@ describe('presets', () => {
     expect(presetNameProblem('Crunch', 1, names)).toBeNull();
     expect(presetNameProblem(' Lead', 2, names)).toMatch(/spaces/);
     expect(presetNameProblem('x'.repeat(32), 2, names)).toMatch(/31/);
+  });
+});
+
+describe('Dual Delay as Cortex Cloud shows it (screenshot 2026-10-17)', () => {
+  const def = fxDef(6012)!;
+  const at = (name: string) => def.params.findIndex((p) => p.name === name);
+  it('delay times on the n^(5/3) taper: 500 ms and 700 ms', () => {
+    expect(fxParamText(def.params[at('Delay Time L')]!, 0.22342)).toBe('500 ms');
+    expect(fxParamText(def.params[at('Delay Time R')]!, 0.27406)).toBe('700 ms');
+    expect(fxParamText(def.params[at('Mix')]!, 0.5)).toBe('50.0 %'); // linear ones unchanged
+  });
+  it('each L / R pair together', () => {
+    expect(fxParamsInOrder(def).map((x) => x.param.name).slice(0, 10)).toEqual([
+      'Mix', 'Sync L', 'Sync R', 'Sync Note L', 'Sync Note R', 'Delay Time L', 'Delay Time R', 'Feedback L', 'Feedback R', 'X-Feedback',
+    ]);
+    expect(fxParamsInOrder(def)).toHaveLength(def.params.length);
+  });
+  it('greyed as there: Delay Time L while Sync L is on, Sync Note R while Sync R is off', () => {
+    const v = new Array(def.params.length).fill(0);
+    v[at('Sync L')] = 1;
+    expect(fxParamIdle(def, v, at('Delay Time L'))).toBe(true);
+    expect(fxParamIdle(def, v, at('Sync Note L'))).toBe(false);
+    expect(fxParamIdle(def, v, at('Delay Time R'))).toBe(false);
+    expect(fxParamIdle(def, v, at('Sync Note R'))).toBe(true);
+    expect(fxParamIdle(def, v, at('Mix'))).toBe(false);
+    // Dual Reverse Delay: one Sync for both notes.
+    const rev = fxDef(6014)!;
+    const w = new Array(rev.params.length).fill(0);
+    expect(fxParamIdle(rev, w, rev.params.findIndex((p) => p.name === 'Sync Note R'))).toBe(true);
   });
 });

@@ -149,14 +149,57 @@ export function fxSlotModels(slot: FxSlot): FxModelChoice[] {
 /** Parameters in the editor's display order, each with its index on the wire. */
 export function fxParamsInOrder(def: FxDef): { index: number; param: FxParam }[] {
   const order = def.order ?? def.params.map((_, i) => i);
-  return order.filter((i) => i < def.params.length).map((index) => ({ index, param: def.params[index]! }));
+  const list = order.filter((i) => i < def.params.length).map((index) => ({ index, param: def.params[index]! }));
+  // Each "… R" right after its "… L". The order is Cortex Cloud's, which fills a 4-column grid row by row: a pair a
+  // row apart there is a screen apart in one column.
+  const out: typeof list = [];
+  const used = new Set<number>();
+  for (const item of list) {
+    if (used.has(item.index)) continue;
+    out.push(item);
+    used.add(item.index);
+    if (!item.param.name.endsWith(' L')) continue;
+    const r = list.find((x) => x.param.name === `${item.param.name.slice(0, -2)} R`);
+    if (r && !used.has(r.index)) {
+      out.push(r);
+      used.add(r.index);
+    }
+  }
+  return out;
+}
+
+/**
+ * A range parameter's taper: value = min + n^curve · (max − min). Delay times follow n^(5/3), as the IR's filters
+ * (Dual Delay against Cortex Cloud's readouts, 2026-10-17: 0.22342 → 500 ms, 0.27406 → 700 ms; the 4000 and 6000 ms
+ * delays); the rest is linear until checked against Cortex Cloud.
+ */
+export function fxParamCurve(param: FxParam): number {
+  return param.kind === 'range' && param.name.startsWith('Delay Time') && param.max >= 4000 ? 5 / 3 : 1;
+}
+
+/**
+ * A parameter that does nothing now, as Cortex Cloud greys it: a sync note while its sync is off; a delay time, rate
+ * or speed while it is on. "Sync Note L" goes with "Sync L", else with the model's one "Sync".
+ */
+export function fxParamIdle(def: FxDef, values: readonly number[] | null, index: number): boolean {
+  const name = def.params[index]?.name ?? '';
+  if (!values) return false;
+  const side = / [LR]$/.test(name) ? name.slice(-2) : '';
+  let sync = def.params.findIndex((p) => p.name === `Sync${side}`);
+  if (sync < 0) sync = def.params.findIndex((p) => p.name === 'Sync');
+  const v = sync < 0 ? undefined : values[sync];
+  if (v === undefined) return false;
+  const on = v >= 0.5;
+  if (name.startsWith('Sync Note')) return !on;
+  if (name.startsWith('Delay Time') || name === 'Rate' || name === 'Speed') return on;
+  return false;
 }
 
 /** A 0..1 value as the editor shows it: "4.5", "-3.0 dB", "120 ms", or an enum option. */
 export function fxParamText(param: FxParam, n: number): string {
   const v = clamp01(n);
   if (param.kind === 'enum') return param.options[Math.round(v * (param.options.length - 1))] ?? '';
-  const value = param.min + v * (param.max - param.min);
+  const value = param.min + Math.pow(v, fxParamCurve(param)) * (param.max - param.min);
   const text = value.toFixed(Math.max(0, param.decimals));
   return param.unit ? `${text} ${param.unit}` : text;
 }

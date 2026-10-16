@@ -30,6 +30,8 @@ import {
   fxDef,
   fxParamText,
   fxParamsInOrder,
+  fxParamCurve,
+  fxParamIdle,
   fxSlotModels,
   fxEnumValue,
   type CabParam,
@@ -545,7 +547,7 @@ export class EditorView {
   private readonly fxModels = el("div", "ed-models");
   private readonly fxParams = el("div", "ed-params");
   private fxParamsKey = "";
-  private fxSliders: { index: number; set: (n: number | null, enabled: boolean) => void }[] = [];
+  private fxSliders: { index: number; root: HTMLElement; set: (n: number | null, enabled: boolean) => void }[] = [];
 
   openFx(slot: FxSlot) {
     if (!this.canEdit) return;
@@ -691,6 +693,7 @@ export class EditorView {
             this.fxParams.append(row);
             this.fxSliders.push({
               index,
+              root: row,
               set: (n, enabled) => {
                 const sel = n === null ? -1 : Math.round(n * (param.options.length - 1));
                 btns.forEach((b, i) => {
@@ -700,22 +703,28 @@ export class EditorView {
               },
             });
           } else {
-            const fine = Math.max(1, Math.round((param.step / (param.max - param.min || 1)) * 1000));
+            // A tapered one (delay times) steps to the readout's next value; a linear one by its own step.
+            const curved = fxParamCurve(param) !== 1;
+            const fine = curved ? 1 : Math.max(1, Math.round((param.step / (param.max - param.min || 1)) * 1000));
             // Double tap: the model's default (as Cortex Cloud), once read from the pedal.
             const reset = () =>
               this.run(() => {
                 if (!this.edit().resetFxParam(slot, index)) throw new Error(`${param.name}: its default is not known yet (Log → Read every effect's defaults)`);
               });
-            const slider = new Slider(param.name, 1000, (v) => this.run(() => this.edit().setFxParam(slot, index, v / 1000)), (v) => fxParamText(param, v / 1000), reset, fine);
+            const slider = new Slider(param.name, 1000, (v) => this.run(() => this.edit().setFxParam(slot, index, v / 1000)), (v) => fxParamText(param, v / 1000), reset, fine, curved);
             this.fxParams.append(slider.root);
-            this.fxSliders.push({ index, set: (n, enabled) => slider.set(n === null ? null : Math.round(n * 1000), enabled) });
+            this.fxSliders.push({ index, root: slider.root, set: (n, enabled) => slider.set(n === null ? null : Math.round(n * 1000), enabled) });
           }
         }
       }
     }
     // Off or on alike, as in Cortex Cloud: a bypassed block keeps its edits for when it is turned on.
     const ready = status === "ready";
-    for (const r of this.fxSliders) r.set(fx?.values?.[r.index] ?? null, ready);
+    for (const r of this.fxSliders) {
+      r.set(fx?.values?.[r.index] ?? null, ready);
+      // Greyed while it does nothing (a delay time while synced), as Cortex Cloud; still editable.
+      r.root.dataset.idle = String(!!def && fxParamIdle(def, fx?.values ?? null, r.index));
+    }
     this.fxParams.dataset.dim = String(!ready);
     // Off: still editable (heard once it is on), but drawn like the off tile: grey, so it reads as off.
     this.fxParams.dataset.off = String(on === false);
