@@ -147,7 +147,8 @@ function attach(t: Transport) {
 }
 
 async function startMock(): Promise<void> {
-  const mock = new MockTransport({ autoEventIntervalMs: 6000 });
+  // No automatic preset changes: the demo stays on the preset picked, as a pedal nobody steps on.
+  const mock = new MockTransport();
   attach(mock);
   await mock.connect();
 }
