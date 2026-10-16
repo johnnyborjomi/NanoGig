@@ -3615,25 +3615,27 @@ button.warn {
   opacity: 0.45;
 }
 
-/* A sync note: its name and a drop-down on one line, framed in the sheet's colour as the other closed drop-downs. */
-.ed-enum.ed-enum-select {
-  flex-direction: row;
+/* A sync note, folded: its name and a pill with the note playing (the block's colour, as a chosen chip) on one
+   line; open, every note as chips under it and a ⌃ in the pill's place to fold them. */
+.ed-fold-head {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-.ed-select {
-  font: inherit;
-  font-weight: 700;
-  color: var(--text);
-  background: var(--panel-2);
-  border: 1px solid var(--fx, var(--accent));
-  border-radius: 10px;
-  padding: 8px 10px;
   min-height: 44px;
-  min-width: 112px;
 }
-.ed-select:disabled {
-  border-color: #242b35;
+.ed-fold-pill {
+  background: var(--fx, var(--accent));
+  color: var(--fx-ink, #041021);
+  border-color: transparent;
+  font-weight: 700;
+}
+.ed-fold-pill:disabled {
+  background: var(--panel-2);
   color: var(--muted);
+}
+.ed-fold[data-open='false'] > .ed-chips,
+.ed-fold[data-open='false'] .ed-fold-close,
+.ed-fold[data-open='true'] .ed-fold-pill {
+  display: none;
 }

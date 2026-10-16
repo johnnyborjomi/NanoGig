@@ -53,6 +53,7 @@ import {
   ArrowLeftRight,
   Check,
   ChevronDown,
+  ChevronUp,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -680,21 +681,41 @@ export class EditorView {
       if (def) {
         for (const { index, param } of fxParamsInOrder(def)) {
           if (param.kind === "enum" && param.name.startsWith("Sync Note")) {
-            // A note value (11 to 21 of them): a drop-down on the label's line, not a wall of chips.
-            const row = el("label", "ed-enum ed-enum-select");
-            const select = el("select", "ed-select");
-            select.setAttribute("aria-label", param.name);
-            select.append(...param.options.map((opt, i) => Object.assign(el("option", "", opt), { value: String(i) })));
-            select.addEventListener("change", () => this.run(() => this.edit().setFxParam(slot, index, fxEnumValue(param, Number(select.value)))));
-            row.append(el("span", "ed-label", param.name), select);
+            // A note value (11 to 21 of them): folded into one pill with the note playing; a tap opens every note as
+            // chips, the ⌃ folds them again. Opening is the user's own move, so the rows below may shift.
+            const row = el("div", "ed-enum ed-fold");
+            row.dataset.open = "false";
+            const head = el("div", "ed-fold-head");
+            const pill = el("button", "ed-chip ed-fold-pill");
+            pill.type = "button";
+            pill.setAttribute("aria-label", `${param.name}: show the notes`);
+            const pillText = el("span", "", "—");
+            pill.append(pillText, icon(ChevronDown));
+            const fold = iconButton(ChevronUp, `${param.name}: fold the notes`, "ghost icon-btn ed-fold-close");
+            const setOpen = (open: boolean) => (row.dataset.open = String(open));
+            pill.addEventListener("click", () => setOpen(true));
+            fold.addEventListener("click", () => setOpen(false));
+            head.append(el("span", "ed-label", param.name), pill, fold);
+            const chips = el("div", "ed-chips");
+            const btns = param.options.map((opt, i) => {
+              const b = el("button", "ed-chip", opt);
+              b.addEventListener("click", () => this.run(() => this.edit().setFxParam(slot, index, fxEnumValue(param, i))));
+              chips.append(b);
+              return b;
+            });
+            row.append(head, chips);
             this.fxParams.append(row);
             this.fxSliders.push({
               index,
               root: row,
               set: (n, enabled) => {
                 const sel = n === null ? -1 : Math.round(n * (param.options.length - 1));
-                if (document.activeElement !== select) select.value = sel < 0 ? "" : String(sel);
-                select.disabled = !enabled;
+                pillText.textContent = param.options[sel] ?? "—";
+                pill.disabled = !enabled;
+                btns.forEach((b, i) => {
+                  b.dataset.active = String(i === sel);
+                  b.disabled = !enabled;
+                });
               },
             });
           } else if (param.kind === "enum") {
