@@ -22,6 +22,7 @@ import {
   FOOTSWITCHES,
   PRESET_NAME_WRITE_MAX,
   cabValueText,
+  cabNormalized,
   captureVolumeText,
   AMP_KNOBS,
   ampKnobText,
@@ -134,6 +135,8 @@ function iconButton(i: Parameters<typeof lucideElement>[0], label: string, class
 
 const SLOT_LABELS: Record<FxSlot, string> = { pre1: "PRE 1", pre2: "PRE 2", post1: "POST 1", post2: "POST 2", post3: "POST 3" };
 const CAB_LABELS: Record<CabParam, string> = { level: "Level", highPass: "High pass", lowPass: "Low pass" };
+const AMP_KNOB_DEFAULT_RAW = 128;
+const CAB_DEFAULTS: Record<CabParam, number> = { level: cabNormalized("level", 0), highPass: 0, lowPass: 1 };
 const AMP_LABELS: Record<AmpKnob, string> = { gain: "Gain", bass: "Bass", mid: "Mid", treble: "Treble" };
 /** Drag data type for a library item dragged onto a folder (desktop). */
 const DRAG_TYPE = "application/x-nanogig-library-item";
@@ -698,7 +701,12 @@ export class EditorView {
             });
           } else {
             const fine = Math.max(1, Math.round((param.step / (param.max - param.min || 1)) * 1000));
-            const slider = new Slider(param.name, 1000, (v) => this.run(() => this.edit().setFxParam(slot, index, v / 1000)), (v) => fxParamText(param, v / 1000), undefined, fine);
+            // Double tap: the model's default (as Cortex Cloud), once read from the pedal.
+            const reset = () =>
+              this.run(() => {
+                if (!this.edit().resetFxParam(slot, index)) throw new Error(`${param.name}: its default is not known yet (Log → Read every effect's defaults)`);
+              });
+            const slider = new Slider(param.name, 1000, (v) => this.run(() => this.edit().setFxParam(slot, index, v / 1000)), (v) => fxParamText(param, v / 1000), reset, fine);
             this.fxParams.append(slider.root);
             this.fxSliders.push({ index, set: (n, enabled) => slider.set(n === null ? null : Math.round(n * 1000), enabled) });
           }
@@ -757,7 +765,11 @@ export class EditorView {
   private readonly capPower = el("button", "ed-power");
   /** Gain, bass, mid, treble: the pedal's knobs, 0..10. */
   private readonly ampSliders = new Map<AmpKnob, Slider>(
-    AMP_KNOBS.map((k) => [k, new Slider(AMP_LABELS[k], 255, (v) => this.run(() => this.edit().setAmpKnob(k, v)), ampKnobText)]),
+    AMP_KNOBS.map((k) => [
+      k,
+      // Double tap: 5.0, the knob at noon.
+      new Slider(AMP_LABELS[k], 255, (v) => this.run(() => this.edit().setAmpKnob(k, v)), ampKnobText, () => this.run(() => this.edit().setAmpKnob(k, AMP_KNOB_DEFAULT_RAW))),
+    ]),
   );
   private readonly capVolume = new Slider(
     "Capture volume",
@@ -839,7 +851,10 @@ export class EditorView {
     status.append(this.irStatus, this.irRetry);
     const sliders = this.irParamsBox;
     for (const p of ["level", "highPass", "lowPass"] as CabParam[]) {
-      const s = new Slider(CAB_LABELS[p], 1000, (v) => this.run(() => this.edit().setIrParam(p, v / 1000)), (v) => cabValueText(p, v / 1000));
+      // Double tap: level 0 dB, the filters wide open.
+      const s = new Slider(CAB_LABELS[p], 1000, (v) => this.run(() => this.edit().setIrParam(p, v / 1000)), (v) => cabValueText(p, v / 1000), () =>
+        this.run(() => this.edit().setIrParam(p, CAB_DEFAULTS[p])),
+      );
       this.irSliders.set(p, s);
       sliders.append(s.root);
     }
@@ -920,7 +935,7 @@ export class EditorView {
       }
       // The library needs the capture on (a preview onto an off capture hung the pedal; Cortex Cloud hides it too).
       this.capLib.disabled = on !== true;
-      this.capHint.textContent = on === false ? "Turn the capture on to open the library." : "Double-tap the capture volume to reset it to 0 dB.";
+      this.capHint.textContent = on === false ? "Turn the capture on to open the library." : "Double-tap a value to reset it.";
       this.showSrcDiscard(
         this.actions.edit()?.captureChanged() ?? false,
         this.actions.edit()?.capturePreview() ? "Undo the load into the preset's own: the capture it has saved plays again" : "Back to the capture, knobs and volume this preset has saved (on / off stays)",

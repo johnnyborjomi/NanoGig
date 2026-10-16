@@ -2,7 +2,9 @@
  * Editing against the mock pedal with real (short) timers: mock transport → sync engine → edit controller → store.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EDIT_MSG, ampKnobFrame, cabSettingsRequest, fxModelType, fxSlotModels, outputLevelFrame } from '../src/protocol/edit';
+import { FX_SLOT_MODELS } from '../src/protocol/fx-params';
+import { fxDefaults } from '../src/protocol/fx-defaults';
+import { EDIT_MSG, ampKnobFrame, cabSettingsRequest, fxDef, fxModelType, fxSlotModels, outputLevelFrame } from '../src/protocol/edit';
 import { toHex } from '../src/protocol/hex';
 import type { CurrentState } from '../src/protocol/decode';
 import { writtenSince } from '../src/sync/editor';
@@ -37,6 +39,35 @@ async function setup(opts: { editing?: boolean; writes?: boolean; device?: Const
 }
 
 const sent = (mock: MockTransport, type: number) => mock.edits.filter((e) => e.type === type);
+
+describe('FX defaults (the double tap)', () => {
+  it('a model loaded from here gives its defaults on the next read; a double tap sends them', async () => {
+    const { store, mock, edit } = await setup();
+    const type = fxSlotModels('post2').find((m) => fxDefaults(m.type) === null && (fxDef(m.type)?.params.length ?? 0) >= 3)!.type;
+    edit.openFx('post2');
+    await edit.setFxModel('post2', type);
+    await until(() => store.get().edit.fx?.status === 'ready' && store.get().edit.fx?.type === type);
+    const n = fxDef(type)!.params.length;
+    expect(fxDefaults(type)).toEqual(Array.from({ length: n }, (_, i) => (i % 3) / 2));
+    edit.setFxParam('post2', 1, 0.9);
+    await until(() => Math.abs(mock.fxParams.post2[1]! - 0.9) < 1e-6);
+    expect(edit.resetFxParam('post2', 1)).toBe(true);
+    await until(() => mock.fxParams.post2[1] === 0.5);
+  });
+
+  it('the defaults run reads every model, keeps them and loads the preset again', async () => {
+    const { store, mock, edit } = await setup();
+    const before = structuredClone(mock.device.fxModelIds);
+    const seen: number[] = [];
+    const out = await edit.readAllFxDefaults((done) => seen.push(done), 1);
+    const models = new Set(FX_SLOT_MODELS.flat().filter((t) => fxDef(t)));
+    expect(Object.keys(out).length).toBe(models.size);
+    for (const t of models) expect(fxDefaults(t)).not.toBeNull();
+    expect(seen.at(-1)).toBe(models.size);
+    await until(() => store.get().fxModels.source === 'dump' && JSON.stringify(mock.device.fxModelIds) === JSON.stringify(before));
+    expect(store.get().presetDirty.value).not.toBe(true);
+  }, 20000);
+});
 
 describe('outputs 1/2 volume', () => {
   it('works outside Edit mode, sends the newest of a drag, touches no preset and is read back', async () => {

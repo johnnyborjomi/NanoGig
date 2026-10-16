@@ -1173,6 +1173,13 @@ button.warn {
   padding: 2px 10px;
   font-size: 12px;
 }
+.console .c-defaults {
+  margin: 0 12px 10px;
+  min-height: 28px;
+  padding: 2px 10px;
+  font-size: 12px;
+  text-align: left;
+}
 .console .line {
   white-space: pre-wrap;
   word-break: break-all;

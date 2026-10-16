@@ -69,6 +69,8 @@ import {
 } from '../protocol/edit';
 import { CAB_SLOT_COUNT, FX_SLOTS, captureSelectFrame, type FxSlot } from '../protocol/frames';
 import { fromHex, toHex } from '../protocol/hex';
+import { FX_SLOT_MODELS } from '../protocol/fx-params';
+import { fxDefaults, learnFxDefaults } from '../protocol/fx-defaults';
 import { frameSingle } from '../protocol/reassembly';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
 import type { CapturePreview, EditState, FxEditState, IrEditState, SavedModels, SavedParams, SavedSource, Store } from '../state/store';
@@ -100,6 +102,8 @@ const PREVIEW_STOP_WAIT_MS = 1200;
 /** How long an IR slot load waits for the pedal's 0x4F before its select goes anyway. */
 const IR_LOAD_WAIT_MS = 1500;
 const READ_TIMEOUT_MS = 2500;
+/** The defaults run: how long a model gets to load before its parameters are read. */
+const DEFAULTS_SETTLE_MS = 400;
 const LIBRARY_TIMEOUT_MS = 15000;
 
 /**
@@ -194,6 +198,84 @@ export class EditController {
     if (body.length < 4) throw new Error('A frame body ends with the type and 00 00 00');
     await this.send(frameSingle(body), `Frame (by hand)`);
     this.host.confirm(600);
+  }
+
+  /** A model just loaded from here into a slot, no parameter moved since: its next read gives the defaults. */
+  private freshModel: Partial<Record<FxSlot, number>> = {};
+  /** The defaults run's read in flight: it takes the next 0x8A. */
+  private paramsWaiter: ((values: number[]) => void) | null = null;
+
+  /** A block's parameter back to its model's default (the editor's double tap); false while the default is not known. */
+  resetFxParam(slot: FxSlot, param: number): boolean {
+    const d = fxDefaults(this.slotType(slot))?.[param];
+    if (d === undefined) return false;
+    this.setFxParam(slot, param, d);
+    return true;
+  }
+
+  /**
+   * Read every FX model's defaults from the pedal (Log sheet; protocol work, Edit mode): each model goes into a slot
+   * that takes it, its parameters are read, and the shown preset is loaded again at the end (its edits dropped).
+   * Each model's values are kept (`learnFxDefaults`) and the whole set goes to the log as JSON.
+   */
+  async readAllFxDefaults(progress?: (done: number, total: number) => void, settleMs = DEFAULTS_SETTLE_MS): Promise<Record<number, number[]>> {
+    this.assertEdit();
+    if (this.paramsWaiter) throw new Error('Already reading the defaults');
+    if (this.store.get().edit.fx) throw new Error('Close the effect editor first');
+    if (this.activePreset() === null) throw new Error('No preset shown yet');
+    const jobs: { slot: FxSlot; type: number }[] = [];
+    const seen = new Set<number>();
+    FX_SLOTS.forEach((slot, i) => {
+      for (const type of FX_SLOT_MODELS[i] ?? []) {
+        if (seen.has(type) || !fxDef(type) || !lookupFxModel(fxModelId(type))?.known) continue;
+        seen.add(type);
+        jobs.push({ slot, type });
+      }
+    });
+    const out: Record<number, number[]> = {};
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const read = (slot: FxSlot) =>
+      new Promise<number[] | null>((resolve) => {
+        const timer = setTimeout(() => {
+          this.paramsWaiter = null;
+          resolve(null);
+        }, READ_TIMEOUT_MS);
+        this.paramsWaiter = (values) => {
+          clearTimeout(timer);
+          this.paramsWaiter = null;
+          resolve(values);
+        };
+        this.send(fxParamsRequest(slot), `FX parameters read · ${slot} (defaults run)`).catch(() => {});
+      });
+    try {
+      // A second pass for the models missed (a footswitch press, a slow answer).
+      const twice = [...jobs, ...jobs];
+      for (const [n, { slot, type }] of twice.entries()) {
+        if (out[type]) continue;
+        if (n >= jobs.length && Object.keys(out).length === jobs.length) break;
+        progress?.(Math.min(n, jobs.length), jobs.length);
+        const def = fxDef(type)!;
+        await this.send(fxModelFrame(slot, type), `Defaults run ${(n % jobs.length) + 1}/${jobs.length}${n >= jobs.length ? ' (again)' : ''}: ${slot} model → ${def.name}`);
+        await wait(settleMs);
+        let values = await read(slot);
+        if (values?.length !== def.params.length) {
+          await wait(settleMs * 2);
+          values = await read(slot);
+        }
+        if (values && values.length === def.params.length) {
+          out[type] = values.map((v) => Math.round(v * 1e5) / 1e5);
+          learnFxDefaults(type, values);
+        } else if (n >= jobs.length) {
+          this.host.log('warn', `Defaults of ${def.name}: no answer`);
+        }
+      }
+    } finally {
+      this.paramsWaiter = null;
+      await this.host.reloadPreset();
+    }
+    progress?.(jobs.length, jobs.length);
+    this.host.log('info', `FX defaults, ${Object.keys(out).length} of ${jobs.length} models: ${JSON.stringify(out)}`);
+    return out;
   }
 
   /** Coalesced send: while one write of `key` is on the wire, only the newest of the later ones follows it. */
@@ -421,8 +503,13 @@ export class EditController {
   }
 
   private onFxParams(payload: Uint8Array, hex: string): void {
-    const read = this.fxReads.shift();
     const values = decodeFxParams(payload);
+    if (this.paramsWaiter) {
+      this.host.log('info', `FX parameters: ${values.length} values (defaults run)`, hex);
+      this.paramsWaiter(values);
+      return;
+    }
+    const read = this.fxReads.shift();
     const fx = this.store.get().edit.fx;
     this.host.log('info', `FX parameters: ${values.length} values${read ? '' : ' (unasked)'}`, hex);
     if (!fx || !read || this.fxReads.length > 0) return; // closed, unasked, or a newer read is out
@@ -431,6 +518,11 @@ export class EditController {
     this.fxTimer = null;
     this.patchEdit({ fx: { ...fx, values: values.length ? values : null, status: values.length ? 'ready' : 'error' } });
     if (values.length) this.noteSavedParams(fx.slot, values);
+    // The first read after a model load from here, nothing moved since: the model's defaults.
+    if (values.length && fx.type && this.freshModel[fx.slot] === fx.type) {
+      delete this.freshModel[fx.slot];
+      if (!fxDefaults(fx.type) && learnFxDefaults(fx.type, values)) this.host.log('info', `FX defaults of ${fxDef(fx.type)?.name} kept`);
+    }
   }
 
   /** The first read of a block on its saved model, since the preset loaded or was saved: its saved parameters. */
@@ -453,6 +545,7 @@ export class EditController {
     const frame = fxModelFrame(slot, type);
     this.writtenAt.model[slot] = Date.now();
     this.store.setField('fxModels', { ...this.store.get().fxModels.value, [slot]: model }, 'optimistic');
+    this.freshModel[slot] = type;
     await this.send(frame, `FX ${slot} model → ${model.name}`);
     this.host.confirm();
     const fx = this.store.get().edit.fx;
@@ -784,6 +877,7 @@ export class EditController {
   /** One parameter, live while a slider moves; the editor shows the value at once. */
   setFxParam(slot: FxSlot, param: number, normalized: number): void {
     this.assertEdit();
+    delete this.freshModel[slot];
     if (!this.slotEditable(slot)) throw new Error('No model in this slot');
     const def = fxDef(this.slotType(slot));
     if (!def || param >= def.params.length) throw new Error('Unknown parameter');

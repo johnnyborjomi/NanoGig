@@ -60,6 +60,8 @@ import type { EditController } from "../sync/editor";
 export const SUPPORT_URL = "https://buymeacoffee.com/johnnyborjomi";
 import { PRESET_COUNT } from "../protocol/frames";
 
+const DEFAULTS_IDLE = "Read every effect's defaults (Edit mode)";
+
 /** How Connect reaches the pedal: a known one without the chooser, else / always the chooser, or every BT device. */
 export type ConnectMode = 'auto' | 'chooser' | 'all';
 
@@ -279,6 +281,10 @@ export class GigView {
   private readonly consoleBody = el("div", "c-body");
   private readonly frameInput = el("input", "c-frame");
   private readonly frameSend = el("button", "", "send");
+  /** Protocol work: read every FX model's defaults (for the double tap); armed by a first tap. */
+  private readonly defaultsBtn = el("button", "c-defaults", DEFAULTS_IDLE);
+  private defaultsArmed = false;
+  private defaultsBusy = false;
   private readonly overlay = el("div", "overlay connect open");
   private readonly overlayErr = el("div", "err page-err");
   private readonly resumeTip = el("div", "hint resume-tip");
@@ -829,7 +835,27 @@ export class GigView {
       void edit.sendFrameHex(this.frameInput.value).catch((err) => this.toast(err));
     });
     sendRow.append(this.frameInput, this.frameSend);
-    this.consoleEl.append(head, this.consoleBody, sendRow);
+    this.defaultsBtn.type = "button";
+    this.defaultsBtn.addEventListener("click", () => {
+      const edit = this.actions.edit?.();
+      if (!edit || this.defaultsBusy) return;
+      if (!this.defaultsArmed) {
+        this.defaultsArmed = true;
+        this.defaultsBtn.textContent = "Tap again: every effect plays in turn for about a minute (turn it down), then the preset loads again";
+        return;
+      }
+      this.defaultsArmed = false;
+      this.defaultsBusy = true;
+      void edit
+        .readAllFxDefaults((done, total) => (this.defaultsBtn.textContent = `Reading the defaults… ${done} / ${total}`))
+        .then((out) => (this.defaultsBtn.textContent = `Defaults read: ${Object.keys(out).length} models (in the log)`))
+        .catch((err) => {
+          this.defaultsBtn.textContent = DEFAULTS_IDLE;
+          this.toast(err);
+        })
+        .finally(() => (this.defaultsBusy = false));
+    });
+    this.consoleEl.append(head, this.consoleBody, sendRow, this.defaultsBtn);
 
     // Settings overlay --------------------------------------------------
     {
@@ -1779,6 +1805,7 @@ export class GigView {
       const previewing = s.edit.capturePreview?.kept === true && s.edit.capturePreview.preset === s.activePreset.value;
       const unsaved = editing && (s.presetDirty.value === true || previewing) && !!this.actions.edit;
       this.frameInput.disabled = this.frameSend.disabled = !(editing && this.actions.edit);
+      this.defaultsBtn.disabled = this.defaultsBusy || !(editing && this.actions.edit);
       this.editBtn.hidden = s.connection === "disconnected" || !this.actions.edit || unsaved;
       this.saveBtn.hidden = this.discardBtn.hidden = !unsaved;
       const op = s.edit.preset;
