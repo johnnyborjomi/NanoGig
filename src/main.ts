@@ -193,6 +193,7 @@ const view = new GigView(
       return requireEngine().selectPreset(index);
     },
     setOutputsMuted: (muted) => requireEngine().setOutputsMuted(muted),
+    setOutputLevel: (raw) => requireEngine().setOutputLevel(raw),
     startTuner: () => {
       if (store.get().transportName !== 'mock') feature('tuner');
       return requireEngine().startTuner();

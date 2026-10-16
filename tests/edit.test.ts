@@ -21,6 +21,7 @@ import {
   captureVolumeDb,
   captureVolumeFrame,
   ampKnobFrame,
+  outputLevelFrame,
   ampKnobText,
   captureVolumeRaw,
   captureVolumeText,
@@ -112,9 +113,9 @@ describe('capture volume and gate threshold', () => {
     expect(Array.from(captureVolumeFrame(200).subarray(0, 7))).toEqual([0x0b, 0xc0, 0x18, 0x0a, 0x20, 0xc8, 0x01]);
   });
 
-  it('amp knobs: the same frame with selectors 0..4, read 0..10', () => {
+  it('amp knobs and outputs 1/2 volume: the same frame with selectors 0..4, read 0..10', () => {
     expect(ampKnobFrame('gain', 0x71)).toEqual(bytes(0x0a, 0xc0, 0x18, 0x00, 0x20, 0x71, 0x28, 0x00, 0x1a, 0x00, 0x00, 0x00));
-    expect(Array.from(ampKnobFrame('level', 5).subarray(2, 6))).toEqual([0x18, 0x01, 0x20, 5]);
+    expect(Array.from(outputLevelFrame(5).subarray(2, 6))).toEqual([0x18, 0x01, 0x20, 5]);
     expect(Array.from(ampKnobFrame('bass', 5).subarray(2, 4))).toEqual([0x18, 0x02]);
     expect(Array.from(ampKnobFrame('mid', 5).subarray(2, 4))).toEqual([0x18, 0x03]);
     expect(Array.from(ampKnobFrame('treble', 255).subarray(0, 7))).toEqual([0x0b, 0xc0, 0x18, 0x04, 0x20, 0xff, 0x01]);

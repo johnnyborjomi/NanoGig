@@ -47,7 +47,8 @@ import {
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { STRIP_COUNT, watchLayout, type GigLayout } from "./layout";
-import { EditorView } from "./editor-view";
+import { EditorView, Slider } from "./editor-view";
+import { ampKnobText } from "../protocol/edit";
 import { onHold } from "./hold";
 import { canLockOrientation, lockOrientation, saveOrientation, savedOrientation, type AppOrientation } from "./orientation";
 import { isStandalone } from "../pwa";
@@ -75,6 +76,8 @@ export interface GigViewActions {
   selectPreset(index: number): Promise<void>;
   /** Global "Mute Outputs 1/2"; works whenever connected, control mode or not. */
   setOutputsMuted(muted: boolean): Promise<void>;
+  /** Outputs 1/2 volume (the pedal's LEVEL knob), raw 0..255; global, works whenever connected. */
+  setOutputLevel(raw: number): void;
   /** Tuner: on/off, reference pitch, and its own mute switch. Works whenever connected. */
   startTuner(): Promise<void>;
   stopTuner(): Promise<void>;
@@ -340,6 +343,19 @@ export class GigView {
   private readonly muteHint = el("p", "hint", "Silences the pedal's outputs 1/2 while you monitor through the DAW over USB.");
   /** What the pedal says now: its own line, so the settings under it stay put as it changes. */
   private readonly muteState = el("p", "hint hint-line");
+  /** Outputs 1/2 volume: the pedal's LEVEL knob, the same on every preset. */
+  private readonly outputLevel = new Slider(
+    "Outputs 1/2 volume",
+    255,
+    (v) => {
+      try {
+        this.actions.setOutputLevel(v);
+      } catch (e) {
+        this.toast(e);
+      }
+    },
+    ampKnobText,
+  );
   /** On the searching page while auto-reconnecting: stops the retries and opens the device chooser. */
   private readonly reconnectBtn = el("button", "primary", "Pick from the list…");
   private lastRenderedLine: LogLine | null = null;
@@ -954,7 +970,9 @@ export class GigView {
       close.addEventListener("click", () =>
         this.settingsOverlay.classList.remove("open"),
       );
-      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, this.muteState, liveRow, liveHint, expRow, expHint, close);
+      const levelHint = el("p", "hint", "The pedal's LEVEL knob: the same on every preset and not part of one. Not heard in the headphones.");
+      this.outputLevel.root.classList.add("setting-slider");
+      card.append(autoNamesRow, autoNamesHint, muteRow, this.muteHint, this.muteState, this.outputLevel.root, levelHint, liveRow, liveHint, expRow, expHint, close);
       this.settingsOverlay.append(card);
       this.settingsOverlay.addEventListener("click", (e) => {
         if (e.target === this.settingsOverlay)
@@ -1813,6 +1831,7 @@ export class GigView {
       const connected = s.connection === "connected";
       const muted = s.outputsMuted.value;
       this.muteCheck.disabled = !connected;
+      this.outputLevel.set(s.outputLevel.value, connected);
       if (this.muteCheck.checked !== (muted === true)) this.muteCheck.checked = muted === true;
       this.muteState.textContent = !connected
         ? "Connect the pedal to change it."

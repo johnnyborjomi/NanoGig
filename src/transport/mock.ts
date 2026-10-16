@@ -364,7 +364,7 @@ export class MockTransport implements Transport {
         else if (v(3) === 11) this.device.gateThresholdRaw = v(4);
         else if (amp) this.device.amp = { ...this.device.amp, [amp]: v(4) };
         else return false;
-        if (amp !== 'level') this.markDirty(false); // level: the pedal's own, reported not to light the save light
+        if (amp !== 'level') this.markDirty(false); // level: the outputs 1/2 volume, not part of the preset
         break;
       }
       case EDIT_MSG.ENCODER: {

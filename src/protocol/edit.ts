@@ -217,20 +217,25 @@ export function gateThresholdFrame(raw: number): Uint8Array {
 }
 
 /** The capture's amp knobs, in the pedal's order (its knobs and Cortex Cloud's capture page). */
-export const AMP_KNOBS = ['gain', 'bass', 'mid', 'treble', 'level'] as const;
+export const AMP_KNOBS = ['gain', 'bass', 'mid', 'treble'] as const;
 export type AmpKnob = (typeof AMP_KNOBS)[number];
-/** The knob frame's selector per amp knob; state fields 3..7 carry them back (gain 3, level 4, bass 5, mid 6, treble 7). */
-const AMP_KNOB_SELECTOR: Record<AmpKnob, number> = { gain: 0, level: 1, bass: 2, mid: 3, treble: 4 };
+/** The knob frame's selector per amp knob; state fields 3, 5, 6, 7 carry them back. */
+const AMP_KNOB_SELECTOR: Record<AmpKnob, number> = { gain: 0, bass: 2, mid: 3, treble: 4 };
 
-/**
- * An amp knob, raw 0..255: the capture volume's frame with selectors 0..4 (not yet tried from this app). Level is
- * reported to be the pedal's LEVEL knob: for every preset, not marked edited and not kept by a save.
- */
+/** An amp knob, raw 0..255: the capture volume's frame with selectors 0, 2, 3, 4 (tried on the pedal 2026-10-16). */
 export function ampKnobFrame(knob: AmpKnob, raw: number): Uint8Array {
   return knobFrame(AMP_KNOB_SELECTOR[knob], raw);
 }
 
-/** An amp knob's readout, 0.0 .. 10.0 as the pedal's knobs are marked. */
+/**
+ * Outputs 1/2 volume, raw 0..255: selector 1, read back in state field 4. The pedal's LEVEL knob: the same on every
+ * preset, saved or not, and not heard in the headphones (on the pedal, 2026-10-16). Not part of the preset.
+ */
+export function outputLevelFrame(raw: number): Uint8Array {
+  return knobFrame(1, raw);
+}
+
+/** An amp knob's (and the output level's) readout, 0.0 .. 10.0 as the pedal's knobs are marked. */
 export function ampKnobText(raw: number): string {
   return ((raw / 255) * 10).toFixed(1);
 }

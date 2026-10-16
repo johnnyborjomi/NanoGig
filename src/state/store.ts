@@ -236,8 +236,10 @@ export interface GigState {
   irSlots: string[];
   /** Capture volume, raw 0..255 (state field 44; captureVolumeDb for the readout). */
   captureVolume: Field<number | null>;
-  /** The capture's amp knobs, raw 0..255 (state fields 3..7; zero ones are left out by the pedal). */
+  /** The capture's amp knobs, raw 0..255 (state fields 3, 5, 6, 7; zero ones are left out by the pedal). */
   amp: Field<Record<AmpKnob, number> | null>;
+  /** Outputs 1/2 volume, raw 0..255 (state field 4, the pedal's LEVEL knob): global, not part of a preset. */
+  outputLevel: Field<number | null>;
   /** Gate threshold, raw 0..255 (state field 53 × 255). */
   gateThreshold: Field<number | null>;
   /** Field 12 as sent: the IR slot 1..5 (6 = the preset's own IR), null = off / absent. */
@@ -321,6 +323,7 @@ export function initialState(transportName = 'none'): GigState {
     irSlots: [],
     captureVolume: field<number | null>(null),
     amp: field<Record<AmpKnob, number> | null>(null),
+    outputLevel: field<number | null>(null),
     gateThreshold: field<number | null>(null),
     cabSlot: field<number | null>(null),
     irName: field<string | null>(null),
@@ -400,6 +403,7 @@ export class Store {
       captureBank: s.captureBank,
       captureVolume: s.captureVolume,
       amp: s.amp,
+      outputLevel: s.outputLevel,
       gateThreshold: s.gateThreshold,
       cabSlot: s.cabSlot,
       irName: s.irName,

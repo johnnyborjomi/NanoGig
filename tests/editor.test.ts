@@ -2,7 +2,7 @@
  * Editing against the mock pedal with real (short) timers: mock transport → sync engine → edit controller → store.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EDIT_MSG, ampKnobFrame, fxModelType, fxSlotModels } from '../src/protocol/edit';
+import { EDIT_MSG, ampKnobFrame, fxModelType, fxSlotModels, outputLevelFrame } from '../src/protocol/edit';
 import { toHex } from '../src/protocol/hex';
 import type { CurrentState } from '../src/protocol/decode';
 import { writtenSince } from '../src/sync/editor';
@@ -37,6 +37,22 @@ async function setup(opts: { editing?: boolean; writes?: boolean; device?: Const
 }
 
 const sent = (mock: MockTransport, type: number) => mock.edits.filter((e) => e.type === type);
+
+describe('outputs 1/2 volume', () => {
+  it('works outside Edit mode, sends the newest of a drag, touches no preset and is read back', async () => {
+    const { store, mock, engine, edit } = await setup({ editing: false });
+    expect(store.get().outputLevel.value).toBe(mock.device.amp.level);
+    const before = sent(mock, EDIT_MSG.KNOB).length;
+    for (let raw = 50; raw <= 90; raw += 10) engine.setOutputLevel(raw);
+    expect(store.get().outputLevel.value).toBe(90);
+    await until(() => mock.device.amp.level === 90 && store.get().outputLevel.source === 'dump');
+    const writes = sent(mock, EDIT_MSG.KNOB).slice(before);
+    expect(writes.length).toBeLessThan(5); // coalesced
+    expect(writes.at(-1)!.hex).toBe(toHex(outputLevelFrame(90)));
+    expect(edit.captureChanged()).toBe(false);
+    expect(store.get().presetDirty.value).not.toBe(true);
+  });
+});
 
 describe('edit controller', () => {
   it('refuses to write unless control mode and editing are both on', async () => {
@@ -145,18 +161,15 @@ describe('edit controller', () => {
     await edit.discardCapture();
     await until(() => store.get().captureSlot.source === 'dump' && store.get().captureSlot.value === saved.captureSlot && store.get().captureVolume.value === saved.captureVolume);
     expect(edit.captureChanged()).toBe(false);
-    // Amp knobs: bass and treble back as saved; level is the pedal's own and stays.
+    // Amp knobs: bass and treble back as saved.
     edit.setAmpKnob('bass', 3);
     edit.setAmpKnob('treble', 250);
-    edit.setAmpKnob('level', 40);
-    await until(() => store.get().amp.source === 'dump' && mock.device.amp.treble === 250 && mock.device.amp.level === 40);
-    expect(sent(mock, EDIT_MSG.KNOB).slice(-3).map((e) => e.hex)).toEqual(
-      [ampKnobFrame('bass', 3), ampKnobFrame('treble', 250), ampKnobFrame('level', 40)].map((f) => toHex(f)),
-    );
+    await until(() => store.get().amp.source === 'dump' && mock.device.amp.treble === 250);
+    expect(sent(mock, EDIT_MSG.KNOB).slice(-2).map((e) => e.hex)).toEqual([ampKnobFrame('bass', 3), ampKnobFrame('treble', 250)].map((f) => toHex(f)));
     expect(edit.captureChanged()).toBe(true);
     await edit.discardCapture();
     await until(() => store.get().amp.source === 'dump' && mock.device.amp.treble === saved.amp!.treble);
-    expect(store.get().amp.value).toEqual({ ...saved.amp, level: 40 });
+    expect(store.get().amp.value).toEqual(saved.amp);
     expect(edit.captureChanged()).toBe(false);
     // IR: settings read on the saved IR, then another IR and a changed level; Discard brings both back.
     edit.openIr();

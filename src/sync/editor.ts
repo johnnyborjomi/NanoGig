@@ -118,7 +118,7 @@ export class EditController {
   private readonly writtenAt = {
     model: { pre1: 0, pre2: 0, post1: 0, post2: 0, post3: 0 } as Record<FxSlot, number>,
     captureVolume: 0,
-    amp: { gain: 0, bass: 0, mid: 0, treble: 0, level: 0 } as Record<AmpKnob, number>,
+    amp: { gain: 0, bass: 0, mid: 0, treble: 0 } as Record<AmpKnob, number>,
     gateThreshold: 0,
     capture: 0,
     ir: 0,
@@ -677,11 +677,11 @@ export class EditController {
     return this.captureMoved(b);
   }
 
-  /** The preset's amp knobs that differ from the saved ones (not level: the pedal's, a save does not keep it). */
+  /** The preset's amp knobs that differ from the saved ones. */
   private ampChanged(b: SavedSource): AmpKnob[] {
     const now = this.store.get().amp.value;
     if (!b.amp || !now) return [];
-    return AMP_KNOBS.filter((k) => k !== 'level' && now[k] !== b.amp![k]);
+    return AMP_KNOBS.filter((k) => now[k] !== b.amp![k]);
   }
 
   /** Another capture than saved while on: another slot, or (for slots 1..5) another bank. */

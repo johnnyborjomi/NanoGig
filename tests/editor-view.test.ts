@@ -70,6 +70,7 @@ async function setup(editing: boolean) {
       toggleCapture: p,
       selectPreset: (i) => engine.selectPreset(i),
       setOutputsMuted: p,
+      setOutputLevel: () => {},
       startTuner: p,
       stopTuner: p,
       setTunerReference: p,
@@ -469,7 +470,7 @@ describe('edit gestures', () => {
     expect(discard.dataset.shown).toBe('false');
     // The amp knobs come first, then the capture volume; all under their names.
     const labels = [...root.querySelectorAll('.src-sheet .ed-pane:not([hidden]) .ed-slider .ed-label')].map((x) => x.textContent);
-    expect(labels).toEqual(['Gain', 'Bass', 'Mid', 'Treble', 'Level', 'Capture volume']);
+    expect(labels).toEqual(['Gain', 'Bass', 'Mid', 'Treble', 'Capture volume']);
     const gain = root.querySelector<HTMLInputElement>('.src-sheet input[aria-label="Gain"]')!;
     expect(gain.value).toBe(String(store.get().amp.value!.gain));
     gain.value = String(store.get().amp.value!.gain + 20);
@@ -477,12 +478,6 @@ describe('edit gestures', () => {
     expect(discard.dataset.shown).toBe('true');
     tap(discard);
     await until(() => store.get().amp.source === 'dump' && discard.dataset.shown === 'false');
-    // Level is the pedal's own: a change of it is no edit to the preset.
-    const level = root.querySelector<HTMLInputElement>('.src-sheet input[aria-label="Level"]')!;
-    level.value = '30';
-    level.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(discard.dataset.shown).toBe('false');
-    await until(() => store.get().amp.source === 'dump' && store.get().amp.value!.level === 30);
     const volume = root.querySelector<HTMLInputElement>('.src-sheet input[aria-label="Capture volume"]')!;
     volume.value = String((store.get().captureVolume.value ?? 0) + 40);
     volume.dispatchEvent(new Event('input', { bubbles: true }));

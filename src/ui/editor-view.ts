@@ -134,7 +134,7 @@ function iconButton(i: Parameters<typeof lucideElement>[0], label: string, class
 
 const SLOT_LABELS: Record<FxSlot, string> = { pre1: "PRE 1", pre2: "PRE 2", post1: "POST 1", post2: "POST 2", post3: "POST 3" };
 const CAB_LABELS: Record<CabParam, string> = { level: "Level", highPass: "High pass", lowPass: "Low pass" };
-const AMP_LABELS: Record<AmpKnob, string> = { gain: "Gain", bass: "Bass", mid: "Mid", treble: "Treble", level: "Level" };
+const AMP_LABELS: Record<AmpKnob, string> = { gain: "Gain", bass: "Bass", mid: "Mid", treble: "Treble" };
 /** Drag data type for a library item dragged onto a folder (desktop). */
 const DRAG_TYPE = "application/x-nanogig-library-item";
 /** A mouse or trackpad: items can be dragged as well as held. */
@@ -183,7 +183,7 @@ function onDoubleTap(node: HTMLElement, fn: () => void) {
 }
 
 /** A 0..max slider whose value is not overwritten while the user drags it. */
-class Slider {
+export class Slider {
   readonly root = el("div", "ed-slider");
   readonly input = el("input");
   private readonly value = el("span", "ed-value");
@@ -755,7 +755,7 @@ export class EditorView {
   private readonly irLib = el("button", "ed-lib-btn");
   private readonly capHint = el("p", "hint", "");
   private readonly capPower = el("button", "ed-power");
-  /** Gain, bass, mid, treble, level: the pedal's knobs, 0..10. */
+  /** Gain, bass, mid, treble: the pedal's knobs, 0..10. */
   private readonly ampSliders = new Map<AmpKnob, Slider>(
     AMP_KNOBS.map((k) => [k, new Slider(AMP_LABELS[k], 255, (v) => this.run(() => this.edit().setAmpKnob(k, v)), ampKnobText)]),
   );
@@ -824,8 +824,6 @@ export class EditorView {
     capLib.addEventListener("click", () => this.openLibrary("captures"));
     const capHint = this.capHint; // one line under the library button: its text follows on / off (no layout shift)
     sh.head.append(this.nameRow(this.capHead, this.capName, this.capPower, () => this.run(this.edit().setCaptureOn(!this.s.captureOn.value))));
-    const level = this.ampSliders.get("level")!.root;
-    level.title = "The pedal's LEVEL knob: for every preset, a save does not keep it";
     // As the IR tab: the library, its line, then the controls (the amp knobs, then the capture volume).
     this.capPane.append(this.capPicker.root, capLib, capHint, ...[...this.ampSliders.values()].map((x) => x.root), this.capVolume.root);
 
@@ -925,7 +923,7 @@ export class EditorView {
       this.capHint.textContent = on === false ? "Turn the capture on to open the library." : "Double-tap the capture volume to reset it to 0 dB.";
       this.showSrcDiscard(
         this.actions.edit()?.captureChanged() ?? false,
-        this.actions.edit()?.capturePreview() ? "Undo the load into the preset's own: the capture it has saved plays again" : "Back to the capture, knobs and volume this preset has saved (on / off and level stay)",
+        this.actions.edit()?.capturePreview() ? "Undo the load into the preset's own: the capture it has saved plays again" : "Back to the capture, knobs and volume this preset has saved (on / off stays)",
       );
       return;
     }

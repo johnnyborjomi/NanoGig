@@ -34,6 +34,7 @@ describe('mock mode end-to-end', () => {
       toggleCapture: () => engine.toggleCapture(),
       selectPreset: (i: number) => engine.selectPreset(i),
       setOutputsMuted: (m: boolean) => engine.setOutputsMuted(m),
+      setOutputLevel: (raw: number) => engine.setOutputLevel(raw),
       startTuner: () => engine.startTuner(),
       stopTuner: () => engine.stopTuner(),
       setTunerReference: (hz: number) => engine.setTunerReference(hz),

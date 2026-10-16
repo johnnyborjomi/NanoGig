@@ -70,6 +70,7 @@ import {
   type FxSlot,
   type MidiStrategy,
 } from '../protocol/frames';
+import { outputLevelFrame } from '../protocol/edit';
 import { toHex } from '../protocol/hex';
 import { MSG, MessageAssembler, classifyPacket, isTunerPitchPacket, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
 import type { Store } from '../state/store';
@@ -141,7 +142,7 @@ export class SyncEngine {
   /** When the metadata dump was requested: the state it embeds is that old. */
   private metadataRequestedAt = 0;
   /** When each block was last written from here: a dump requested before that cannot undo the tap. */
-  private readonly writtenAt = { fx: { pre1: 0, pre2: 0, post1: 0, post2: 0, post3: 0 } as Record<FxSlot, number>, gate: 0, capture: 0, cab: 0 };
+  private readonly writtenAt = { fx: { pre1: 0, pre2: 0, post1: 0, post2: 0, post3: 0 } as Record<FxSlot, number>, gate: 0, capture: 0, cab: 0, outputLevel: 0 };
   /** Preset select the user asked for last: shown at once; a dump that still reports an older preset does not undo it. */
   private pendingPreset: number | null = null;
   private pendingPresetSince = 0;
@@ -778,7 +779,8 @@ export class SyncEngine {
     this.store.setField('captureVolume', state.captureVolumeRaw ?? 0, 'dump', at);
     // Fields 3..7 absent = raw 0, as field 44.
     const k = state.amp;
-    this.store.setField('amp', { gain: k.gain ?? 0, level: k.level ?? 0, bass: k.bass ?? 0, mid: k.mid ?? 0, treble: k.treble ?? 0 }, 'dump', at);
+    this.store.setField('amp', { gain: k.gain ?? 0, bass: k.bass ?? 0, mid: k.mid ?? 0, treble: k.treble ?? 0 }, 'dump', at);
+    if (!writtenSince(this.writtenAt.outputLevel, requestedAt)) this.store.setField('outputLevel', k.level ?? 0, 'dump', at);
     this.store.setField('gateThreshold', state.gateThresholdRaw, 'dump', at);
     this.store.setField('cabSlot', state.cabOn ? state.cabSlot : null, 'dump', at);
     const irPreview = this.store.get().edit.irPreview;
@@ -1068,6 +1070,39 @@ export class SyncEngine {
       this.settleMuteWaiter();
       this.log('warn', `Outputs 1/2 ${muted ? 'mute' : 'unmute'} not acknowledged by the pedal`);
     }
+  }
+
+  /**
+   * Outputs 1/2 volume (the pedal's LEVEL knob). As the mute: not gated by control mode, it touches no preset.
+   * Drags are coalesced: the newest value waits for the write in flight; a state read afterwards confirms.
+   */
+  setOutputLevel(raw: number): void {
+    if (this.transport.status !== 'connected') throw new Error('Not connected');
+    const v = Math.round(Math.min(255, Math.max(0, raw)));
+    this.writtenAt.outputLevel = Date.now();
+    this.store.setField('outputLevel', v, 'optimistic');
+    this.outputLevelNext = v;
+    if (!this.outputLevelBusy) void this.flushOutputLevel();
+  }
+
+  private outputLevelNext: number | null = null;
+  private outputLevelBusy = false;
+
+  private async flushOutputLevel(): Promise<void> {
+    this.outputLevelBusy = true;
+    try {
+      while (this.outputLevelNext !== null) {
+        const v = this.outputLevelNext;
+        this.outputLevelNext = null;
+        await this.transport.writeCommand(outputLevelFrame(v));
+      }
+    } catch (err) {
+      this.outputLevelNext = null;
+      this.log('warn', `Output level write failed: ${(err as Error).message}`);
+    } finally {
+      this.outputLevelBusy = false;
+    }
+    this.scheduleConfirm();
   }
 
   async toggleGate(): Promise<void> {

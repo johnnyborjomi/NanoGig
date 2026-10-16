@@ -2739,16 +2739,16 @@ button.warn {
   cursor: pointer;
   touch-action: pan-y;
 }
-.edit-sheet input[type='range']:disabled {
+:is(.edit-sheet, .setting-slider) input[type='range']:disabled {
   --c: var(--dim);
   cursor: default;
 }
-.edit-sheet input[type='range']::-webkit-slider-runnable-track {
+:is(.edit-sheet, .setting-slider) input[type='range']::-webkit-slider-runnable-track {
   height: 6px;
   border-radius: 3px;
   background: linear-gradient(to right, var(--c) var(--pct, 0%), #3a4450 var(--pct, 0%));
 }
-.edit-sheet input[type='range']::-webkit-slider-thumb {
+:is(.edit-sheet, .setting-slider) input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 24px;
@@ -2758,17 +2758,17 @@ button.warn {
   border: 3px solid var(--panel);
   background: var(--c);
 }
-.edit-sheet input[type='range']::-moz-range-track {
+:is(.edit-sheet, .setting-slider) input[type='range']::-moz-range-track {
   height: 6px;
   border-radius: 3px;
   background: #3a4450;
 }
-.edit-sheet input[type='range']::-moz-range-progress {
+:is(.edit-sheet, .setting-slider) input[type='range']::-moz-range-progress {
   height: 6px;
   border-radius: 3px;
   background: var(--c);
 }
-.edit-sheet input[type='range']::-moz-range-thumb {
+:is(.edit-sheet, .setting-slider) input[type='range']::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -3590,4 +3590,14 @@ button.warn {
 /* The connect screen's error line keeps two lines of room (a failed connect does not push the page down). */
 .overlay.page .card .page-err {
   min-height: 2.8em;
+}
+
+/* A slider among the settings (outputs 1/2 volume): its name as the other rows'. */
+.setting-slider {
+  flex-shrink: 0;
+  margin-top: 8px;
+}
+.setting-slider .ed-label {
+  font-size: 16px;
+  font-weight: 400;
 }
