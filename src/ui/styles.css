@@ -724,7 +724,8 @@ button.warn {
   gap: 8px;
   flex: 1 1 0;
   min-width: 0;
-  padding: 2px 10px;
+  padding: 12px; /* as on an upright screen */
+  position: relative; /* anchors .t-exp */
 }
 .preset-sub .sub-capture {
   background: color-mix(in srgb, var(--fx-cab) 15%, transparent);
@@ -1356,7 +1357,7 @@ button.warn {
    category colour marks the range set in Cortex Cloud, a solid fill the value the pedal produces (which lives inside the
    band). A bypass-only assignment spans the whole track and fills fully when engaged; the
    switch/stop modes (toe switch) draw the band dashed. No text. */
-.tile .t-exp {
+:is(.tile, .sub-item) .t-exp {
   position: absolute;
   left: 8px;
   right: 8px;
@@ -1371,12 +1372,12 @@ button.warn {
   box-shadow: 0 0 0 2px black;
   overflow: hidden;
 }
-.tile .t-exp[hidden] {
+:is(.tile, .sub-item) .t-exp[hidden] {
   display: block;
   opacity: 0;
   transition: opacity 400ms ease;
 }
-.tile .t-exp-range {
+:is(.tile, .sub-item) .t-exp-range {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -1388,10 +1389,10 @@ button.warn {
 .tile[data-on='true'] .t-exp-range {
   opacity: 0.4; /* the lit tile needs a stronger band to read against its own colour */
 }
-.tile .t-exp[data-byp='sw'] .t-exp-range {
+:is(.tile, .sub-item) .t-exp[data-byp='sw'] .t-exp-range {
   background: repeating-linear-gradient(90deg, var(--fx) 0 4px, transparent 4px 7px);
 }
-.tile .t-exp-fill {
+:is(.tile, .sub-item) .t-exp-fill {
   position: absolute;
   top: 4px;
   bottom: 4px;
@@ -1408,6 +1409,28 @@ button.warn {
 }
 .tile {
   position: relative; /* anchors .t-exp */
+}
+/* The capture and cab / IR boxes' expression track: as an FX tile's, slimmer, in the box's bottom padding (it
+   comes and goes without moving anything), in the block's colour. */
+.preset-sub .sub-capture {
+  --fx: var(--fx-cab);
+}
+.preset-sub .sub-ir {
+  --fx: var(--fx-ir);
+}
+.preset-sub .t-exp {
+  left: 12px;
+  right: 12px;
+  bottom: 3px;
+  height: 6px;
+  border-radius: 3px;
+  box-shadow: none;
+}
+.preset-sub .t-exp-fill {
+  top: 1px;
+  bottom: 1px;
+  border-radius: 2px;
+  opacity: 1;
 }
 /* Edited and not saved yet (what its sheet's Discard would put back): a dot on the block's corner, in Save's colour.
    Over the corner, so it comes and goes without moving anything. */
@@ -1816,7 +1839,15 @@ button.warn {
     font-size: clamp(13px, 2.2vw, 22px);
   }
   .preset-sub .sub-item {
-    padding: 1px 8px;
+    padding: 5px 10px; /* as on a short upright screen */
+  }
+  .preset-sub .t-exp {
+    bottom: 0;
+    height: 4px;
+  }
+  .preset-sub .t-exp-fill {
+    top: 0;
+    bottom: 0;
   }
   .blocks {
     gap: 6px;
@@ -1887,6 +1918,14 @@ button.warn {
 }
 [data-layout='stack'] .preset-sub .sub-item {
   padding: 5px 10px;
+}
+[data-layout='stack'] .preset-sub .t-exp {
+  bottom: 0;
+  height: 4px;
+}
+[data-layout='stack'] .preset-sub .t-exp-fill {
+  top: 0;
+  bottom: 0;
 }
 [data-layout='stack'] .blocks {
   gap: 8px;
@@ -2024,6 +2063,14 @@ button.warn {
   }
   [data-layout='stack'] .preset-sub .sub-item {
     padding: 12px;
+  }
+  [data-layout='stack'] .preset-sub .t-exp {
+    bottom: 3px;
+    height: 6px;
+  }
+  [data-layout='stack'] .preset-sub .t-exp-fill {
+    top: 1px;
+    bottom: 1px;
   }
 }
 /* Taller still: the tiles get their room back. */
@@ -3673,6 +3720,20 @@ button.warn {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+/* A phone: tighter, so OUT LVL and EXP (with its count) stay one line each. */
+@media (max-width: 420px) {
+  .gate-row .exp-btn {
+    padding: 0 9px;
+    gap: 5px;
+    letter-spacing: 0.06em;
+  }
+}
+@media (max-width: 380px) {
+  .gate-row .exp-btn svg {
+    display: none;
+  }
 }
 #app[data-editing='true'] .gate-row .exp-btn {
   visibility: visible;
@@ -3894,3 +3955,4 @@ button.warn {
 #app[data-editing='true'] .preset-sub .sub-edit {
   visibility: visible;
 }
+
