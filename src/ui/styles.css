@@ -3517,6 +3517,11 @@ button.warn {
   min-width: 120px;
   max-width: 100%;
 }
+.ed-fs .fs-badge {
+  margin: 0 0 4px;
+  vertical-align: baseline;
+  font-size: 13px;
+}
 .ed-fs-now {
   font-size: 12px;
   opacity: 0.75;

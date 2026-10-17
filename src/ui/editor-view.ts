@@ -1589,7 +1589,10 @@ export class EditorView {
       b.disabled = !!busy || mode === "create";
       // Which preset each footswitch holds now, as the screen's footswitch chooser shows it.
       const holds = on === null ? "" : on === i ? "this preset" : s.presetNames.value[on] || `preset ${on + 1}`;
-      b.replaceChildren(el("strong", "", key.toUpperCase()), el("span", "ed-fs-now", holds));
+      // The footswitch's name as its badge everywhere else (the preset strip, the big label): in its colour.
+      const badge = el("strong", "fs-badge", key.toUpperCase());
+      badge.dataset.fs = key;
+      b.replaceChildren(badge, el("span", "ed-fs-now", holds));
       b.title = on === null ? "" : `${key.toUpperCase()} plays ${holds} now`;
     }
     this.deleteBtn.disabled = !!busy || mode === "create";
