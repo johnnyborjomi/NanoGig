@@ -566,7 +566,7 @@ export interface EditorViewActions {
   toggleFx(slot: FxSlot): Promise<void>;
   toggleGate(): Promise<void>;
   selectPreset(index: number): Promise<void>;
-  /** The shown preset's expression assignments, as edited (stored on the preset by the pedal). */
+  /** The shown preset's expression assignments, as edited (an edit of the preset: Save keeps them). */
   setExpression(a: ExpressionAssignments): void;
   /** Outputs 1/2 volume: the pedal's LEVEL knob, global (not part of a preset). */
   setOutputLevel(raw: number): void;
@@ -1264,7 +1264,7 @@ export class EditorView {
     pos.append(el("span", "ed-label", "Heel"), track, el("span", "ed-label", "Toe"));
     pos.title = "Where the pedal is now";
     sh.body.append(
-      el("p", "hint ed-intro", "What the pedal moves on this preset: tap + to add, the bin takes it off. The range is how far it goes; Inverted makes the toe the low end. Changes are stored on the preset right away, no Save needed."),
+      el("p", "hint ed-intro", "What the pedal moves on this preset: tap + to add, the bin takes it off. The range is how far it goes; Inverted makes the toe the low end. Changes play at once; like any edit, Save keeps them with the preset and Discard drops them."),
       this.expMsg,
       pos,
     );
@@ -1418,11 +1418,11 @@ export class EditorView {
     const n = preset === null ? "" : ` ${label}`;
     if (!a) setMsg(this.expMsg, preset === null ? "Waiting for the pedal…" : `Reading preset${n}…`);
     else if (w && w.preset === preset) {
-      if (w.state === "saving") setMsg(this.expMsg, `Storing on preset${n}…`);
-      else if (w.state === "saved") setMsg(this.expMsg, `Stored on preset${n} ✓`, "ok");
+      if (w.state === "saving") setMsg(this.expMsg, `Sending to preset${n}…`);
+      else if (w.state === "saved") setMsg(this.expMsg, `On preset${n} ✓ Save keeps it`, "ok");
       else if (w.state === "mismatch") setMsg(this.expMsg, `Preset${n} kept something else: shown as the pedal has it`, "warn");
       else if (w.state === "unchecked") setMsg(this.expMsg, `Sent to preset${n}; the pedal did not answer the check`, "warn");
-      else setMsg(this.expMsg, `Not stored: the write to preset${n} failed`, "warn");
+      else setMsg(this.expMsg, `Not sent: the write to preset${n} failed`, "warn");
     } else {
       const count = Object.keys(a.ranges).length + Object.keys(a.bypasses).length;
       setMsg(this.expMsg, count ? `${count} assigned on preset${n}` : `Nothing assigned on preset${n}`);

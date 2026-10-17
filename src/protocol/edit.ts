@@ -711,7 +711,7 @@ export function isPresetSaved(payload: Uint8Array): boolean {
 /**
  * Write a preset's expression assignments (0x3E): `18 <preset>` then every assigned target, as Cortex Cloud writes
  * them (zeros included: a range `{1: inverted, 2: min, 3: max}`, a bypass `{<mode>: {…}}`); an unassigned target is
- * left out, so the list replaces the preset's whole set. Stored on the preset at once (no Save); acked with 0x3F.
+ * left out, so the list replaces the preset's whole set. An edit of the preset (Save keeps it, a reload drops it); acked with 0x3F.
  */
 export function expressionAssignmentsWrite(preset: number, a: ExpressionAssignments): Uint8Array {
   checkIndex('preset', preset, PRESET_COUNT - 1);

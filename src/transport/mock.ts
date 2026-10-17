@@ -315,6 +315,8 @@ export class MockTransport implements Transport {
 
   /** Expression assignments written here, per preset, as the reply's body (the demo's own on the others). */
   private readonly expAssign = new Map<number, number[]>();
+  /** The ones saved: a write is an edit of the preset (a load brings these back, a save keeps the written ones). */
+  private readonly expAssignSaved = new Map<number, number[]>();
 
   private reply(body: number[], type: number) {
     this.schedule(() => this.emit(frameSingle([...body, type, 0, 0, 0])), this.opts.latencyMs);
@@ -585,12 +587,16 @@ export class MockTransport implements Transport {
 
   private saveEdits() {
     this.savedModelIds = structuredClone(this.device.fxModelIds ?? defaultMockModelIds());
+    const p = this.device.activePreset;
+    if (p !== undefined && this.expAssign.has(p)) this.expAssignSaved.set(p, this.expAssign.get(p)!);
     this.clearDirty();
   }
 
   /** A preset load drops unsaved edits (the desktop editor's Discard is a load of the shown preset). */
   private loadDropsEdits() {
     if (this.device.dirty && this.savedModelIds) this.device.fxModelIds = structuredClone(this.savedModelIds);
+    this.expAssign.clear();
+    for (const [p, body] of this.expAssignSaved) this.expAssign.set(p, body);
     this.clearDirty();
   }
 

@@ -82,7 +82,7 @@ export interface GigViewActions {
   setOutputsMuted(muted: boolean): Promise<void>;
   /** Outputs 1/2 volume (the pedal's LEVEL knob), raw 0..255; global, works whenever connected. */
   setOutputLevel(raw: number): void;
-  /** The shown preset's expression assignments (the EXP sheet); stored on the preset by the pedal. */
+  /** The shown preset's expression assignments (the EXP sheet); an edit of the preset (Save keeps them). */
   setExpression(a: ExpressionAssignments): void;
   /** Tuner: on/off, reference pitch, and its own mute switch. Works whenever connected. */
   startTuner(): Promise<void>;

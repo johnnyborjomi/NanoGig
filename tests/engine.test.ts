@@ -920,7 +920,7 @@ describe('expression assignments written from the EXP sheet', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('a drag is one write after the pause, read back and marked stored; the pedal keeps it', async () => {
+  it('a drag is one write after the pause, read back and marked on the preset; Discard drops it, Save keeps it', async () => {
     const { mock, store, engine } = setup({ writes: true });
     await connect(mock);
     await flush(4000);
@@ -936,7 +936,20 @@ describe('expression assignments written from the EXP sheet', () => {
     expect(store.get().expression.write).toEqual({ preset: 7, state: 'saved' });
     expect(store.get().log.some((l) => /Expression assignments check · preset 8/.test(l.text))).toBe(true);
 
-    // Another preset and back: read again from the pedal, as written.
+    // Discard (the shown preset loaded again): an edit of the preset like the others, read again as saved.
+    const before = store.get().log.filter((l) => /Expression assignments request · preset 8/.test(l.text)).length;
+    const reload = engine.selectPreset(7);
+    await flush(1500);
+    await reload;
+    expect(store.get().log.filter((l) => /Expression assignments request · preset 8/.test(l.text)).length).toBe(before + 1);
+    expect(store.get().expression.assignments).toEqual({ ranges: {}, bypasses: {} });
+    expect(store.get().expression.write).toBeNull();
+
+    // Written again and saved: another preset and back, read again from the pedal, as written.
+    engine.setExpressionAssignments({ ranges: { gain: { min: 10, max: 200, inverted: true } }, bypasses: {} });
+    await flush(1000);
+    mock.pressSave();
+    await flush(500);
     mock.pressFootswitch(4);
     await flush(1500);
     mock.pressFootswitch(7);

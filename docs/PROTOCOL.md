@@ -322,7 +322,9 @@ capture Switch `{2: {1:0, 2:0}}` flipped its values flag at mid-travel; Heel-Toe
 
 **Writing** (the EXP button in Edit mode): NanoGig writes the whole list with 0x3E as Cortex Cloud does (byte-exact
 with both captured writes), after a 400 ms pause so a slider drag is one write, then reads it back (0x3C) and shows
-"stored" when the pedal has the same list. The pedal stores it on the preset at once: no Save.
+"on preset" when the pedal has the same list. It is an edit of the preset like the others: a reload of the
+preset (Discard, the pedal's EXIT) brings back the saved list and Save keeps it, so NanoGig reads the list again
+after a reload of the shown preset and when the save light goes out (board, 2026-10-17).
 
 NanoGig requests the assignments after every state dump whose preset differs from the last
 request, remembers which preset it asked for (the reply carries none), and shows a bar at the
