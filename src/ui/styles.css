@@ -3757,12 +3757,6 @@ button.warn {
 .exp-row[data-on='true'] .exp-name {
   font-weight: 700;
 }
-.exp-sum {
-  color: var(--muted);
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 .exp-row-head:disabled {
   opacity: 0.5;
 }

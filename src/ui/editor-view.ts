@@ -1200,7 +1200,7 @@ export class EditorView {
   private readonly expMsg = el("p", "ed-msg");
   private readonly expFill = el("div", "exp-pos-fill");
   private readonly expGroups: { root: HTMLElement; title: HTMLElement; slot: FxSlot | null }[] = [];
-  private readonly expRows: { root: HTMLElement; head: HTMLButtonElement; sum: HTMLElement; render: (a: ExpressionAssignments | null) => void }[] = [];
+  private readonly expRows: { root: HTMLElement; head: HTMLButtonElement; render: (a: ExpressionAssignments | null) => void }[] = [];
 
   openExpression() {
     if (!this.canEdit) return;
@@ -1256,18 +1256,17 @@ export class EditorView {
     for (const slot of FX_SLOTS) group(SLOT_LABELS[slot], null, slot, [this.expRangeRow(slot, "Amount"), this.expBypassRow(slot, "On / off")]);
   }
 
-  /** A row: a check that assigns the target, its summary, and when assigned its settings below. */
+  /** A row: a check that assigns the target, and when assigned its settings below. */
   private expRow(label: string, body: HTMLElement[], onToggle: () => void) {
     const root = el("div", "exp-row");
     const head = el("button", "exp-row-head");
     head.type = "button";
-    const sum = el("span", "exp-sum");
-    head.append(icon(Square), icon(SquareCheck), el("span", "exp-name", label), sum);
+    head.append(icon(Square), icon(SquareCheck), el("span", "exp-name", label));
     head.addEventListener("click", onToggle);
     const box = el("div", "exp-row-body");
     box.append(...body);
     root.append(head, box);
-    return { root, head, sum };
+    return { root, head };
   }
 
   private expRangeRow(target: ExpRangeTarget, label: string): HTMLElement {
@@ -1277,11 +1276,13 @@ export class EditorView {
         const r = a.ranges[target];
         if (r) a.ranges[target] = f(r);
       });
+    // The readout goes heel → toe, the way the pedal travels: inverted, the heel is the high end.
+    let inv = false;
     const range = new RangeSlider(
-      "Range",
+      "Heel → toe",
       255,
       (min, max) => change((r) => ({ ...r, min, max })),
-      (lo, hi) => `${pct(lo)} – ${pct(hi)}`,
+      (lo, hi) => (inv ? `${pct(hi)} → ${pct(lo)}` : `${pct(lo)} → ${pct(hi)}`),
       () => change((r) => ({ ...r, min: 0, max: 255 })),
     );
     const opts = el("div", "ed-chips");
@@ -1302,12 +1303,8 @@ export class EditorView {
         const r = a?.ranges[target];
         row.root.dataset.on = String(!!r);
         row.head.disabled = !a;
-        if (!r) {
-          row.sum.textContent = "";
-          return;
-        }
-        // Heel → toe, the way the pedal travels.
-        row.sum.textContent = r.inverted ? `${pct(r.max)} → ${pct(r.min)}` : `${pct(r.min)} → ${pct(r.max)}`;
+        if (!r) return;
+        inv = r.inverted;
         range.set(r.min, r.max);
         inverted.dataset.active = String(r.inverted);
       },
@@ -1357,11 +1354,7 @@ export class EditorView {
         const b = a?.bypasses[target];
         row.root.dataset.on = String(!!b);
         row.head.disabled = !a;
-        if (!b) {
-          row.sum.textContent = "";
-          return;
-        }
-        row.sum.textContent = MODES.find(([m]) => m === b.mode)![1] + (b.inverted ? " · inverted" : "");
+        if (!b) return;
         MODES.forEach(([m], i) => (modeBtns[i]!.dataset.active = String(b.mode === m)));
         inverted.hidden = b.mode === "stop";
         inverted.dataset.active = String(b.inverted);
