@@ -198,6 +198,23 @@ describe('edit controller', () => {
     expect(sent(mock, EDIT_MSG.CAB_SETTINGS_REQUEST)).toHaveLength(reads);
   });
 
+  it('a knob the expression pedal moves is not an edit: no mark, and Discard leaves it to the pedal', async () => {
+    const { store, mock, engine, edit } = await setup();
+    await until(() => store.get().edit.savedSource !== null);
+    const saved = store.get().edit.savedSource!;
+    const full = { min: 0, max: 255, inverted: false };
+    engine.setExpressionAssignments({ ranges: { gain: full, gate: full }, bypasses: {} });
+    await until(() => store.get().expression.write?.state === 'saved');
+    edit.setAmpKnob('gain', saved.amp!.gain === 3 ? 4 : 3);
+    edit.setGateThreshold(saved.gateThreshold === 30 ? 31 : 30);
+    await until(() => store.get().amp.source === 'dump' && store.get().amp.value!.gain !== saved.amp!.gain);
+    expect(edit.captureChanged()).toBe(false);
+    expect(edit.gateChanged()).toBe(false);
+    const knobs = sent(mock, EDIT_MSG.KNOB).length;
+    await edit.discardCapture();
+    expect(sent(mock, EDIT_MSG.KNOB).length).toBe(knobs);
+  });
+
   it('capture, IR and gate Discard put back what the preset has saved; on / off and other blocks stay', async () => {
     const { store, mock, edit } = await setup({ device: { initialState: { cabOn: true, cabSlot: 6 } } });
     await until(() => store.get().edit.savedSource !== null && store.get().cabSlot.value === 6);

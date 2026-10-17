@@ -727,10 +727,10 @@ button.warn {
   padding: 2px 10px;
 }
 .preset-sub .sub-capture {
-  background: color-mix(in srgb, var(--fx-cab) 10%, transparent);
+  background: color-mix(in srgb, var(--fx-cab) 15%, transparent);
 }
 .preset-sub .sub-ir {
-  background: color-mix(in srgb, var(--fx-ir) 10%, transparent);
+  background: color-mix(in srgb, var(--fx-ir) 15%, transparent);
 }
 .preset-sub .sub-item .lbl {
   flex: none;
@@ -3850,4 +3850,12 @@ button.warn {
 /* The OUT LVL sheet: the pedal's own level, not a block's, so Control's orange. */
 .level-sheet {
   --fx: var(--warn);
+}
+
+/* A value the expression pedal moves on this preset: it follows the pedal, locked, marked in Control's orange. */
+.ed-slider[data-pedal='true'] .ed-label::after {
+  content: ' · on the pedal';
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 600;
 }

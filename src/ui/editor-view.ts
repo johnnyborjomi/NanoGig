@@ -1084,11 +1084,14 @@ export class EditorView {
         current,
         canSwap: on === true, // as the library button
       });
-      this.capVolume.set(s.captureVolume.value, on !== null);
+      // A value the expression pedal moves follows it here, locked: a drag would only fight the pedal.
+      this.capVolume.set(s.captureVolume.value, on !== null && !this.onPedal("level"));
+      this.capVolume.root.dataset.pedal = String(this.onPedal("level"));
       // Off: the volume and knobs still work (heard once it is on), drawn grey like an off block.
       this.capVolume.root.dataset.off = String(on === false);
       for (const [k, slider] of this.ampSliders) {
-        slider.set(s.amp.value?.[k] ?? null, on !== null);
+        slider.set(s.amp.value?.[k] ?? null, on !== null && !this.onPedal(k));
+        slider.root.dataset.pedal = String(this.onPedal(k));
         slider.root.dataset.off = String(on === false);
       }
       // The library needs the capture on (a preview onto an off capture hung the pedal; Cortex Cloud hides it too).
@@ -1206,7 +1209,8 @@ export class EditorView {
     const on = this.s.gateOn.value;
     this.gatePower.dataset.on = String(on === true);
     (this.gatePower.lastChild as HTMLElement).textContent = on ? "On" : "Off";
-    this.gateThreshold.set(this.s.gateThreshold.value, true);
+    this.gateThreshold.set(this.s.gateThreshold.value, !this.onPedal("gate"));
+    this.gateThreshold.root.dataset.pedal = String(this.onPedal("gate"));
     // Off: the threshold still works, drawn grey like an off block.
     this.gateThreshold.root.dataset.off = String(on === false);
     const changed = this.actions.edit()?.gateChanged() ?? false;
@@ -1227,6 +1231,11 @@ export class EditorView {
     if (!this.canEdit) return;
     this.expSheet.open();
     this.renderExpression();
+  }
+
+  /** The expression pedal moves this on the shown preset. */
+  private onPedal(target: ExpRangeTarget): boolean {
+    return !!this.expAssignments()?.ranges[target];
   }
 
   /** The shown preset's assignments once read (null while reading). */
