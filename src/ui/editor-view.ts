@@ -277,6 +277,83 @@ export class Slider {
   }
 }
 
+/**
+ * One track with two handles, the low and the high end of a range (0..max). The handles do not cross: one stops at
+ * the other. A tap on the track moves the nearer handle there.
+ */
+export class RangeSlider {
+  readonly root = el("div", "ed-slider ed-range");
+  private readonly lo = el("input");
+  private readonly hi = el("input");
+  private readonly value = el("span", "ed-value");
+  private readonly box = el("div", "ed-range-box");
+  private dragging = false;
+
+  constructor(
+    label: string,
+    private readonly max: number,
+    private readonly onInput: (lo: number, hi: number) => void,
+    private readonly format: (lo: number, hi: number) => string,
+    onReset?: () => void,
+  ) {
+    const head = el("div", "ed-slider-head");
+    head.append(el("span", "ed-label", label), this.value);
+    for (const [input, end] of [[this.lo, "low"], [this.hi, "high"]] as const) {
+      input.type = "range";
+      input.min = "0";
+      input.max = String(max);
+      input.step = "1";
+      input.setAttribute("aria-label", `${label} ${end}`);
+      input.addEventListener("pointerdown", () => (this.dragging = true));
+      for (const ev of ["pointerup", "pointercancel", "blur"] as const) input.addEventListener(ev, () => (this.dragging = false));
+      input.addEventListener("input", () => {
+        // The handle being moved stops at the other one.
+        if (Number(this.lo.value) > Number(this.hi.value)) input.value = input === this.lo ? this.hi.value : this.lo.value;
+        this.changed();
+      });
+    }
+    // A tap on the track, off the handles (the inputs only take the pointer on their handles).
+    this.box.addEventListener("pointerdown", (e) => {
+      if (e.target !== this.box || this.lo.disabled) return;
+      const r = this.box.getBoundingClientRect();
+      const HANDLE_PX = 24;
+      const v = Math.round(Math.min(1, Math.max(0, (e.clientX - r.left - HANDLE_PX / 2) / (r.width - HANDLE_PX))) * this.max);
+      const near = Math.abs(v - Number(this.lo.value)) <= Math.abs(v - Number(this.hi.value)) ? this.lo : this.hi;
+      near.value = String(v);
+      this.changed();
+    });
+    if (onReset) {
+      this.value.title = "Double-tap to reset";
+      this.value.classList.add("resettable");
+      onDoubleTap(this.value, onReset);
+    }
+    this.box.append(el("div", "ed-range-rail"), this.lo, this.hi);
+    this.root.append(head, this.box);
+  }
+
+  set(lo: number, hi: number) {
+    if (this.dragging && (document.activeElement === this.lo || document.activeElement === this.hi)) return;
+    this.lo.value = String(lo);
+    this.hi.value = String(hi);
+    this.paint();
+  }
+
+  private changed() {
+    this.paint();
+    this.onInput(Number(this.lo.value), Number(this.hi.value));
+  }
+
+  private paint() {
+    const lo = Number(this.lo.value);
+    const hi = Number(this.hi.value);
+    this.value.textContent = this.format(lo, hi);
+    this.box.style.setProperty("--lo", `${(lo / this.max) * 100}%`);
+    this.box.style.setProperty("--hi", `${(hi / this.max) * 100}%`);
+    // Both handles at the top: the low one on top, or it could not be pulled down again.
+    this.lo.style.zIndex = lo > this.max / 2 ? "2" : "";
+  }
+}
+
 /** A slot the library is opened for (a slot row's swap button): what it loads goes there. */
 type SlotTarget = { bank: number; position: number } | "own";
 
@@ -1157,7 +1234,7 @@ export class EditorView {
     pos.append(el("span", "ed-label", "Heel"), track, el("span", "ed-label", "Toe"));
     pos.title = "Where the pedal is now";
     sh.body.append(
-      el("p", "hint ed-intro", "What the pedal moves on this preset. Heel and toe set the value at either end of the travel. Changes are stored on the preset right away, no Save needed."),
+      el("p", "hint ed-intro", "What the pedal moves on this preset. The range is how far it goes; Inverted makes the toe the low end. Changes are stored on the preset right away, no Save needed."),
       this.expMsg,
       pos,
     );
@@ -1195,18 +1272,25 @@ export class EditorView {
 
   private expRangeRow(target: ExpRangeTarget, label: string): HTMLElement {
     const pct = (raw: number) => `${Math.round((raw / 255) * 100)} %`;
-    // Heel and toe: the range with its direction (inverted = heel at the top of the range).
-    const ends = (r: ExpressionRange) => (r.inverted ? { heel: r.max, toe: r.min } : { heel: r.min, toe: r.max });
-    const set = (end: "heel" | "toe", v: number) =>
+    const change = (f: (r: ExpressionRange) => ExpressionRange) =>
       this.changeExp((a) => {
         const r = a.ranges[target];
-        if (!r) return;
-        const e = { ...ends(r), [end]: v };
-        a.ranges[target] = { min: Math.min(e.heel, e.toe), max: Math.max(e.heel, e.toe), inverted: e.heel > e.toe };
+        if (r) a.ranges[target] = f(r);
       });
-    const heel = new Slider("Heel", 255, (v) => set("heel", v), pct, () => set("heel", 0), 1, true);
-    const toe = new Slider("Toe", 255, (v) => set("toe", v), pct, () => set("toe", 255), 1, true);
-    const row = this.expRow(label, [heel.root, toe.root], () =>
+    const range = new RangeSlider(
+      "Range",
+      255,
+      (min, max) => change((r) => ({ ...r, min, max })),
+      (lo, hi) => `${pct(lo)} – ${pct(hi)}`,
+      () => change((r) => ({ ...r, min: 0, max: 255 })),
+    );
+    const opts = el("div", "ed-chips");
+    const inverted = el("button", "ed-chip", "Inverted");
+    inverted.type = "button";
+    inverted.title = "Heel at the top of the range, toe at the bottom";
+    inverted.addEventListener("click", () => change((r) => ({ ...r, inverted: !r.inverted })));
+    opts.append(inverted);
+    const row = this.expRow(label, [range.root, opts], () =>
       this.changeExp((a) => {
         if (a.ranges[target]) delete a.ranges[target];
         else a.ranges[target] = { min: 0, max: 255, inverted: false };
@@ -1222,10 +1306,10 @@ export class EditorView {
           row.sum.textContent = "";
           return;
         }
-        const e = ends(r);
-        row.sum.textContent = `${pct(e.heel)} → ${pct(e.toe)}`;
-        heel.set(e.heel);
-        toe.set(e.toe);
+        // Heel → toe, the way the pedal travels.
+        row.sum.textContent = r.inverted ? `${pct(r.max)} → ${pct(r.min)}` : `${pct(r.min)} → ${pct(r.max)}`;
+        range.set(r.min, r.max);
+        inverted.dataset.active = String(r.inverted);
       },
     });
     return row.root;

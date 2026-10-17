@@ -3775,3 +3775,50 @@ button.warn {
 .exp-row:not([data-on='true']) .exp-row-body {
   display: none;
 }
+
+/* Two handles on one track (RangeSlider): the inputs lie on top of each other and take the pointer only on their
+   handles; the rail under them draws the range between the two. 12px: half a handle, where its centre stops. */
+.ed-range-box {
+  --c: var(--fx, var(--accent));
+  position: relative;
+  height: 36px;
+  touch-action: pan-y;
+  cursor: pointer;
+}
+.ed-range-rail {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 15px;
+  height: 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    #3a4450 var(--lo, 0%),
+    var(--c) var(--lo, 0%),
+    var(--c) var(--hi, 100%),
+    #3a4450 var(--hi, 100%)
+  );
+}
+.ed-range-box:has(input:disabled) {
+  --c: var(--dim);
+}
+.edit-sheet .ed-range-box input[type='range'] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.edit-sheet .ed-range-box input[type='range']::-webkit-slider-runnable-track {
+  background: transparent;
+}
+.edit-sheet .ed-range-box input[type='range']::-moz-range-track,
+.edit-sheet .ed-range-box input[type='range']::-moz-range-progress {
+  background: transparent;
+}
+.edit-sheet .ed-range-box input[type='range']::-webkit-slider-thumb {
+  pointer-events: auto;
+}
+.edit-sheet .ed-range-box input[type='range']::-moz-range-thumb {
+  pointer-events: auto;
+}
