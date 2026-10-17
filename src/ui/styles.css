@@ -3680,8 +3680,8 @@ button.warn {
   min-width: 1.6em;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #041021;
+  background: var(--warn); /* ours, not a block's: Control's orange */
+  color: var(--on-text);
   font-size: 12px;
   letter-spacing: 0;
   text-align: center;
@@ -3706,7 +3706,7 @@ button.warn {
 .exp-pos-fill {
   height: 100%;
   width: 0;
-  background: var(--accent);
+  background: var(--warn);
   border-radius: 4px;
 }
 :where(.exp-group) {
