@@ -709,26 +709,29 @@ button.warn {
   font-size: clamp(16px, 2.6vw, 30px);
   color: var(--muted);
   display: flex;
-  gap: 18px;
+  gap: 8px;
   flex-wrap: nowrap; /* always one line */
   justify-content: flex-start;
-  align-items: center;
+  align-items: stretch;
   min-width: 0;
-  background: rgba(255,255,255,.1);
-  padding: 2px 10px;
   width: 100%;
 }
-.preset-sub .sep {
-  color: var(--dim);
-  flex: none;
-}
-/* label + name pair: a flex item itself so the label sits on the name's centre line */
+/* label + name pair: a flex item itself so the label sits on the name's centre line. Half the line each, a box
+   tinted with its block's colour. */
 .preset-sub .sub-item {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
+  padding: 12px; /* as on an upright screen */
+  position: relative; /* anchors .t-exp */
+}
+.preset-sub .sub-capture {
+  background: color-mix(in srgb, var(--fx-cab) 15%, transparent);
+}
+.preset-sub .sub-ir {
+  background: color-mix(in srgb, var(--fx-ir) 15%, transparent);
 }
 .preset-sub .sub-item .lbl {
   flex: none;
@@ -1354,7 +1357,7 @@ button.warn {
    category colour marks the range set in Cortex Cloud, a solid fill the value the pedal produces (which lives inside the
    band). A bypass-only assignment spans the whole track and fills fully when engaged; the
    switch/stop modes (toe switch) draw the band dashed. No text. */
-.tile .t-exp {
+:is(.tile, .sub-item) .t-exp {
   position: absolute;
   left: 8px;
   right: 8px;
@@ -1369,12 +1372,12 @@ button.warn {
   box-shadow: 0 0 0 2px black;
   overflow: hidden;
 }
-.tile .t-exp[hidden] {
+:is(.tile, .sub-item) .t-exp[hidden] {
   display: block;
   opacity: 0;
   transition: opacity 400ms ease;
 }
-.tile .t-exp-range {
+:is(.tile, .sub-item) .t-exp-range {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -1386,10 +1389,10 @@ button.warn {
 .tile[data-on='true'] .t-exp-range {
   opacity: 0.4; /* the lit tile needs a stronger band to read against its own colour */
 }
-.tile .t-exp[data-byp='sw'] .t-exp-range {
+:is(.tile, .sub-item) .t-exp[data-byp='sw'] .t-exp-range {
   background: repeating-linear-gradient(90deg, var(--fx) 0 4px, transparent 4px 7px);
 }
-.tile .t-exp-fill {
+:is(.tile, .sub-item) .t-exp-fill {
   position: absolute;
   top: 4px;
   bottom: 4px;
@@ -1406,6 +1409,47 @@ button.warn {
 }
 .tile {
   position: relative; /* anchors .t-exp */
+}
+/* The capture and cab / IR boxes' expression track: as an FX tile's, slimmer, in the box's bottom padding (it
+   comes and goes without moving anything), in the block's colour. */
+.preset-sub .sub-capture {
+  --fx: var(--fx-cab);
+}
+.preset-sub .sub-ir {
+  --fx: var(--fx-ir);
+}
+.preset-sub .t-exp {
+  left: 12px;
+  right: 12px;
+  bottom: 3px;
+  height: 6px;
+  border-radius: 3px;
+  box-shadow: none;
+}
+.preset-sub .t-exp-fill {
+  top: 1px;
+  bottom: 1px;
+  border-radius: 2px;
+  opacity: 1;
+}
+/* With a track: the same height, its padding moved down: the name up a little, the track thicker under it. The
+   value's fill thinner than the band, so the range shows around it. */
+.preset-sub .sub-item:has(> .t-exp:not([hidden])) {
+  padding-top: 6px;
+  padding-bottom: 18px;
+}
+.preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp {
+  bottom: 4px;
+  height: 10px;
+  border-radius: 5px;
+}
+.preset-sub .t-exp-range {
+  opacity: 0.45; /* the boxes are dark: the band needs more to show */
+}
+.preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp-fill {
+  top: 3px;
+  bottom: 3px;
+  border-radius: 3px;
 }
 /* Edited and not saved yet (what its sheet's Discard would put back): a dot on the block's corner, in Save's colour.
    Over the corner, so it comes and goes without moving anything. */
@@ -1812,8 +1856,29 @@ button.warn {
   }
   .preset-sub {
     font-size: clamp(13px, 2.2vw, 22px);
-    padding: 1px 8px;
-    gap: 12px;
+  }
+  .preset-sub .sub-item {
+    padding: 5px 10px; /* as on a short upright screen */
+  }
+  .preset-sub .t-exp {
+    bottom: 0;
+    height: 4px;
+  }
+  .preset-sub .t-exp-fill {
+    top: 0;
+    bottom: 0;
+  }
+  .preset-sub .sub-item:has(> .t-exp:not([hidden])) {
+    padding-top: 2px;
+    padding-bottom: 8px;
+  }
+  .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp {
+    bottom: 1px;
+    height: 6px;
+  }
+  .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp-fill {
+    top: 2px;
+    bottom: 2px;
   }
   .blocks {
     gap: 6px;
@@ -1880,13 +1945,30 @@ button.warn {
 }
 [data-layout='stack'] .preset-sub {
   flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  padding: 5px 10px;
   font-size: clamp(15px, 4.4vw, 19px);
 }
-[data-layout='stack'] .preset-sub .sep {
-  display: none;
+[data-layout='stack'] .preset-sub .sub-item {
+  padding: 5px 10px;
+}
+[data-layout='stack'] .preset-sub .t-exp {
+  bottom: 0;
+  height: 4px;
+}
+[data-layout='stack'] .preset-sub .t-exp-fill {
+  top: 0;
+  bottom: 0;
+}
+[data-layout='stack'] .preset-sub .sub-item:has(> .t-exp:not([hidden])) {
+  padding-top: 2px;
+  padding-bottom: 8px;
+}
+[data-layout='stack'] .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp {
+  bottom: 1px;
+  height: 6px;
+}
+[data-layout='stack'] .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp-fill {
+  top: 2px;
+  bottom: 2px;
 }
 [data-layout='stack'] .blocks {
   gap: 8px;
@@ -2022,9 +2104,28 @@ button.warn {
   [data-layout='stack'] .preset-row {
     row-gap: 0.2em;
   }
-  [data-layout='stack'] .preset-sub {
-    gap: 12px;
+  [data-layout='stack'] .preset-sub .sub-item {
     padding: 12px;
+  }
+  [data-layout='stack'] .preset-sub .t-exp {
+    bottom: 3px;
+    height: 6px;
+  }
+  [data-layout='stack'] .preset-sub .t-exp-fill {
+    top: 1px;
+    bottom: 1px;
+  }
+  [data-layout='stack'] .preset-sub .sub-item:has(> .t-exp:not([hidden])) {
+    padding-top: 6px;
+    padding-bottom: 18px;
+  }
+  [data-layout='stack'] .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp {
+    bottom: 4px;
+    height: 10px;
+  }
+  [data-layout='stack'] .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp-fill {
+    top: 3px;
+    bottom: 3px;
   }
 }
 /* Taller still: the tiles get their room back. */
@@ -2043,11 +2144,7 @@ button.warn {
   }
   [data-layout='stack'] .preset-sub {
     flex-direction: row;
-    gap: 10px;
     font-size: 15px;
-  }
-  [data-layout='stack'] .preset-sub .sep {
-    display: inline;
   }
   [data-layout='stack'] .tile.gate-btn {
     height: 28px;
@@ -3522,6 +3619,11 @@ button.warn {
   min-width: 120px;
   max-width: 100%;
 }
+.ed-fs .fs-badge {
+  margin: 0 0 4px;
+  vertical-align: baseline;
+  font-size: 13px;
+}
 .ed-fs-now {
   font-size: 12px;
   opacity: 0.75;
@@ -3649,4 +3751,285 @@ button.warn {
 .ed-fold[data-open='false'] .ed-fold-close,
 .ed-fold[data-open='true'] .ed-fold-pill {
   display: none;
+}
+
+/* ---- Expression pedal ---------------------------------------------------------------------------------------- */
+/* The gate row's EXP button (editing only): in the row all the time, hidden by visibility, so nothing moves when
+   Edit turns on. As tall as the gate's button; the number of targets the pedal moves on this preset after it. */
+.gate-row .level-btn {
+  margin-left: auto;
+}
+.gate-row .level-btn + .exp-btn {
+  margin-left: 8px;
+}
+.gate-row .exp-btn {
+  margin-left: auto;
+  visibility: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: clamp(28px, 4vh, 40px);
+  min-height: 0;
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+/* A phone: tighter, so OUT LVL and EXP (with its count) stay one line each. */
+@media (max-width: 420px) {
+  .gate-row .exp-btn {
+    padding: 0 9px;
+    gap: 5px;
+    letter-spacing: 0.06em;
+  }
+}
+@media (max-width: 380px) {
+  .gate-row .exp-btn svg {
+    display: none;
+  }
+}
+#app[data-editing='true'] .gate-row .exp-btn {
+  visibility: visible;
+}
+.exp-btn svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.exp-btn .exp-count {
+  min-width: 1.6em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--warn); /* ours, not a block's: Control's orange */
+  color: var(--on-text);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-align: center;
+}
+.exp-btn .exp-count:empty {
+  display: none;
+}
+
+/* The sheet: where the pedal is now, then one group per block in the order of the screen. */
+.exp-pos {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.exp-pos-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: #3a4450;
+  overflow: hidden;
+}
+.exp-pos-fill {
+  height: 100%;
+  width: 0;
+  background: var(--warn);
+  border-radius: 4px;
+}
+:where(.exp-group) {
+  --fx: var(--muted);
+}
+.exp-group[data-cat='ir'] {
+  --fx: var(--fx-ir);
+  --fx-ink: #f4f6f8;
+}
+.exp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--panel-2);
+}
+.exp-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 2px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  text-align: left;
+}
+.exp-row-head svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--muted);
+}
+.exp-row[data-on='true'] .exp-row-head svg {
+  color: color-mix(in srgb, var(--fx) 78%, #fff);
+}
+/* Unassigned: a + (the whole line adds it). Assigned: the pedal, and the line is only a title. */
+.exp-row:not([data-on='true']) .exp-row-head svg:nth-of-type(2),
+.exp-row[data-on='true'] .exp-row-head svg:nth-of-type(1) {
+  display: none;
+}
+.exp-row[data-on='true'] .exp-row-head {
+  cursor: default;
+}
+.exp-row-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exp-row-line .exp-row-head {
+  flex: 1;
+  min-width: 0;
+}
+.exp-remove {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.exp-remove svg {
+  width: 20px;
+  height: 20px;
+}
+.exp-row:not([data-on='true']) .exp-remove {
+  display: none;
+}
+.exp-name {
+  flex: 1;
+  min-width: 0;
+}
+.exp-row[data-on='true'] .exp-name {
+  font-weight: 700;
+}
+.exp-row-head:disabled {
+  opacity: 0.5;
+}
+.exp-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0 12px 32px;
+}
+.exp-row:not([data-on='true']) .exp-row-body {
+  display: none;
+}
+
+/* Two handles on one track (RangeSlider): the inputs lie on top of each other and take the pointer only on their
+   handles; the rail under them draws the range between the two. 12px: half a handle, where its centre stops. */
+.ed-range-box {
+  --c: var(--fx, var(--accent));
+  position: relative;
+  height: 36px;
+  touch-action: pan-y;
+  cursor: pointer;
+}
+.ed-range-rail {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 15px;
+  height: 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    #3a4450 var(--lo, 0%),
+    var(--c) var(--lo, 0%),
+    var(--c) var(--hi, 100%),
+    #3a4450 var(--hi, 100%)
+  );
+}
+.ed-range-box:has(input:disabled) {
+  --c: var(--dim);
+}
+.edit-sheet .ed-range-box input[type='range'] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.edit-sheet .ed-range-box input[type='range']::-webkit-slider-runnable-track {
+  background: transparent;
+}
+.edit-sheet .ed-range-box input[type='range']::-moz-range-track,
+.edit-sheet .ed-range-box input[type='range']::-moz-range-progress {
+  background: transparent;
+}
+.edit-sheet .ed-range-box input[type='range']::-webkit-slider-thumb {
+  pointer-events: auto;
+}
+.edit-sheet .ed-range-box input[type='range']::-moz-range-thumb {
+  pointer-events: auto;
+}
+
+/* The OUT LVL sheet: the pedal's own level, not a block's, so Control's orange. */
+.level-sheet {
+  --fx: var(--warn);
+}
+
+/* A value the expression pedal moves on this preset: it follows the pedal, locked, marked in Control's orange. */
+.ed-slider[data-pedal='true'] .ed-label::after {
+  content: ' · on the pedal';
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Editing: a pencil at the end of the capture and cab / IR boxes, in the block's colour. Always in the box (hidden
+   by visibility), so Edit turning on moves nothing. */
+.preset-sub .sub-edit {
+  visibility: hidden;
+  flex: none;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 1.3em;
+  height: 1em; /* no taller than the name: the box keeps its height */
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: inherit;
+}
+.preset-sub .sub-edit svg {
+  width: 0.85em;
+  height: 0.85em;
+}
+.preset-sub .sub-capture .sub-edit {
+  color: color-mix(in srgb, var(--fx-cab) 80%, #fff);
+}
+.preset-sub .sub-ir .sub-edit {
+  color: color-mix(in srgb, var(--fx-ir) 80%, #fff);
+}
+#app[data-editing='true'] .preset-sub .sub-edit {
+  visibility: visible;
+}
+
+
+/* The gate's button: a tiny track along its bottom edge (its threshold and / or on / off on the pedal). Its padding
+   stays as it is: nothing moves when it comes. */
+.gate-row .tile.gate-btn .t-exp {
+  left: 8px;
+  right: 8px;
+  bottom: 3px;
+  height: 4px;
+  border-radius: 2px;
+  box-shadow: none;
+}
+.gate-row .tile.gate-btn .t-exp-fill {
+  top: 1px;
+  bottom: 1px;
+  border-radius: 1px;
+}
+[data-layout='stack'] .gate-row .tile.gate-btn:has(.t-exp:not([hidden])) {
+  padding-bottom: 0;
+}
+.gate-row .tile.gate-btn:has(.t-exp:not([hidden])) .t-icon {
+  transform: translateY(-3px); /* clear of the track */
 }

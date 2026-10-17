@@ -19,7 +19,7 @@
  * keeps the written value (`filterState`, the firmware's block_edits_filter). Slider writes are coalesced: one
  * write per key in flight, the newest value goes out when it completes (the BLE queue writes with response).
  */
-import type { CurrentState, Metadata } from '../protocol/decode';
+import type { CurrentState, ExpRangeTarget, Metadata } from '../protocol/decode';
 import {
   CAPTURE_OWN_SLOT,
   CAB_OWN_SLOT,
@@ -780,22 +780,32 @@ export class EditController {
     return saved && saved.preset === this.store.get().activePreset.value ? saved : null;
   }
 
+  /**
+   * The expression pedal moves this on the shown preset: its value follows the pedal, so it is not an edit (and
+   * Discard could not keep it: the next move of the pedal sets it again).
+   */
+  private onPedal(target: ExpRangeTarget): boolean {
+    const s = this.store.get();
+    const x = s.expression;
+    return x.assignmentsPreset === s.activePreset.value && !!x.assignments?.ranges[target];
+  }
+
   /** The capture differs from the preset as saved: a library capture previewed over it, its slot (while on), its volume or its amp knobs. */
   captureChanged(): boolean {
     if (this.capturePreview()) return true;
     const b = this.savedSourceNow();
     const s = this.store.get();
     if (!b) return false;
-    if (b.captureVolume !== null && s.captureVolume.value !== null && s.captureVolume.value !== b.captureVolume) return true;
+    if (b.captureVolume !== null && s.captureVolume.value !== null && s.captureVolume.value !== b.captureVolume && !this.onPedal('level')) return true;
     if (this.ampChanged(b).length) return true;
     return this.captureMoved(b);
   }
 
-  /** The preset's amp knobs that differ from the saved ones. */
+  /** The preset's amp knobs that differ from the saved ones (not those the expression pedal moves). */
   private ampChanged(b: SavedSource): AmpKnob[] {
     const now = this.store.get().amp.value;
     if (!b.amp || !now) return [];
-    return AMP_KNOBS.filter((k) => now[k] !== b.amp![k]);
+    return AMP_KNOBS.filter((k) => now[k] !== b.amp![k] && !this.onPedal(k));
   }
 
   /** Another capture than saved while on: another slot, or (for slots 1..5) another bank. */
@@ -817,7 +827,7 @@ export class EditController {
       if (b.captureSlot === CAPTURE_OWN_SLOT || b.captureBank === null) await this.selectCaptureSlot(b.captureSlot);
       else await this.selectCapture(b.captureBank, b.captureSlot);
     }
-    if (b.captureVolume !== null && s.captureVolume.value !== b.captureVolume) this.setCaptureVolume(b.captureVolume);
+    if (b.captureVolume !== null && s.captureVolume.value !== b.captureVolume && !this.onPedal('level')) this.setCaptureVolume(b.captureVolume);
     for (const knob of this.ampChanged(b)) this.setAmpKnob(knob, b.amp![knob]);
   }
 
@@ -825,7 +835,7 @@ export class EditController {
   gateChanged(): boolean {
     const b = this.savedSourceNow();
     const v = this.store.get().gateThreshold.value;
-    return !!b && b.gateThreshold !== null && v !== null && v !== b.gateThreshold;
+    return !!b && b.gateThreshold !== null && v !== null && v !== b.gateThreshold && !this.onPedal('gate');
   }
 
   /** Discard the gate's edit: its saved threshold. On / off stays as it is. */

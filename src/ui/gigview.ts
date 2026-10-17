@@ -13,6 +13,7 @@ import {
   type PresetLabelStyle,
 } from "../protocol/frames";
 import { TUNER_REFERENCE_MAX_HZ, TUNER_REFERENCE_MIN_HZ } from "../protocol/frames";
+import type { ExpBypassTarget, ExpRangeTarget, ExpressionAssignments, ExpressionValues } from "../protocol/decode";
 import type { GigState } from "../state/store";
 import type { Store } from "../state/store";
 import type { LogLine } from "../transport/types";
@@ -41,14 +42,15 @@ import {
   Settings,
   Star,
   Undo2,
+  Volume2,
   VolumeX,
   X,
   createElement as lucideElement,
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { STRIP_COUNT, watchLayout, type GigLayout } from "./layout";
-import { EditorView, Slider } from "./editor-view";
-import { ampKnobText } from "../protocol/edit";
+import { EditorView, pedalIcon, Slider } from "./editor-view";
+import { AMP_KNOBS, ampKnobText } from "../protocol/edit";
 import { onHold } from "./hold";
 import { canLockOrientation, lockOrientation, saveOrientation, savedOrientation, type AppOrientation } from "./orientation";
 import { isStandalone } from "../pwa";
@@ -80,6 +82,8 @@ export interface GigViewActions {
   setOutputsMuted(muted: boolean): Promise<void>;
   /** Outputs 1/2 volume (the pedal's LEVEL knob), raw 0..255; global, works whenever connected. */
   setOutputLevel(raw: number): void;
+  /** The shown preset's expression assignments (the EXP sheet); an edit of the preset (Save keeps them). */
+  setExpression(a: ExpressionAssignments): void;
   /** Tuner: on/off, reference pitch, and its own mute switch. Works whenever connected. */
   startTuner(): Promise<void>;
   stopTuner(): Promise<void>;
@@ -114,6 +118,18 @@ export interface GigViewActions {
   applyUpdate?(): void;
 }
 
+type ExpTrack = { exp: HTMLElement; expRange: HTMLElement; expFill: HTMLElement };
+
+/** An expression track: a band for the set range and a fill for the value the pedal produces; hidden until used. */
+function expTrack(): ExpTrack {
+  const exp = el("div", "t-exp");
+  const expRange = el("div", "t-exp-range");
+  const expFill = el("div", "t-exp-fill");
+  exp.append(expRange, expFill);
+  exp.hidden = true;
+  return { exp, expRange, expFill };
+}
+
 export interface GigViewOptions {
   bluetoothAvailable: boolean;
   /** Chrome can hand back the last pedal without the chooser (getDevices, or the native shell). */
@@ -121,6 +137,7 @@ export interface GigViewOptions {
   showMockButton: boolean;
   openConsole?: boolean;
 }
+
 
 /** Which of the Nano's footswitches (IA, IB, IIA, IIB) is assigned to preset `index`, if any. */
 export { footswitchFor } from "./preset-label";
@@ -223,6 +240,10 @@ export class GigView {
   private readonly expShowCheck = el("input", "menu-check");
   // Expression pedal: a thin vertical bar at the app's right edge, and a track per assigned FX tile.
   private readonly expBar = el("div", "exp-bar");
+  private readonly expBtn = el("button", "exp-btn");
+  private readonly levelBtn = el("button", "exp-btn level-btn");
+  /** How many targets the pedal moves on the shown preset (empty: none, or not read yet). */
+  private readonly expCount = el("span", "exp-count");
   private readonly expFill = el("div", "exp-fill");
   // Searching page (connecting / reconnecting): the pairing gesture, what we look for, Cancel.
   private readonly searchOverlay = el("div", "overlay searching page");
@@ -246,6 +267,8 @@ export class GigView {
   private subLabels: HTMLElement[] = [];
   private readonly captureState = el("span", "sub-state");
   private readonly irState = el("span", "sub-state");
+  /** The capture and cab / IR boxes' expression tracks, slim, in each box's bottom padding. */
+  private readonly subTracks = { capture: expTrack(), ir: expTrack() };
   private readonly tiles = new Map<
     FxSlot | "gate" | "cab",
     { root: HTMLButtonElement; name: HTMLElement; category: HTMLElement; exp?: HTMLElement; expRange?: HTMLElement; expFill?: HTMLElement }
@@ -388,6 +411,8 @@ export class GigView {
       toggleFx: (slot) => this.actions.toggleFx(slot),
       toggleGate: () => this.actions.toggleGate(),
       selectPreset: (i) => this.actions.selectPreset(i),
+      setExpression: (a) => this.actions.setExpression(a),
+      setOutputLevel: (raw) => this.actions.setOutputLevel(raw),
       toast: (e) => this.toast(e),
     });
 
@@ -637,11 +662,22 @@ export class GigView {
       if (i !== null) this.editor.openPreset(i);
     }, () => this.editor.canEdit);
     this.subLabels = [capLbl, irLbl];
-    const capWrap = el("span", "sub-item");
-    capWrap.append(capLbl, this.captureEl);
-    const irWrap = el("span", "sub-item");
-    irWrap.append(irLbl, this.irEl);
-    this.subEl.append(capWrap, el("span", "sep", "•"), irWrap);
+    // Two boxes side by side (stacked on an upright screen), each tinted with its block's colour.
+    // Editing: a pencil at the box's end, where to tap to edit it (kept in place, hidden, so nothing moves).
+    const editPencil = (what: "capture" | "ir") => {
+      const b = el("button", "sub-edit");
+      b.type = "button";
+      b.title = what === "capture" ? "Edit the capture" : "Edit the cab / IR";
+      b.setAttribute("aria-label", b.title);
+      b.append(lucideElement(Pencil, { "stroke-width": 2.25, "aria-hidden": "true" }));
+      b.addEventListener("click", () => this.editor.openSource(what));
+      return b;
+    };
+    const capWrap = el("span", "sub-item sub-capture");
+    capWrap.append(capLbl, this.captureEl, editPencil("capture"), this.subTracks.capture.exp);
+    const irWrap = el("span", "sub-item sub-ir");
+    irWrap.append(irLbl, this.irEl, editPencil("ir"), this.subTracks.ir.exp);
+    this.subEl.append(capWrap, irWrap);
     preset.append(this.slotEl, this.subEl);
     this.presetEl = preset;
     this.rowResize?.observe(preset);
@@ -668,12 +704,8 @@ export class GigView {
       if (key !== "cab") onHold(tile, () => (key === "gate" ? this.editor.openGate() : this.editor.openFx(key)), () => this.editor.canEdit);
       // Expression badge: label with the range, and a live fill of the mapped value.
       // No text: a translucent band marks the assigned range, a solid fill the value inside it.
-      const exp = el("div", "t-exp");
-      const expRange = el("div", "t-exp-range");
-      const expFill = el("div", "t-exp-fill");
-      exp.append(expRange, expFill);
-      exp.hidden = true;
-      if (key !== "gate" && key !== "cab") tile.append(exp);
+      const { exp, expRange, expFill } = expTrack();
+      if (key !== "cab") tile.append(exp);
       this.tiles.set(key, { root: tile, name, category, exp, expRange, expFill });
 
       if (key === "gate") {
@@ -686,7 +718,17 @@ export class GigView {
         icon.classList.add("t-icon");
         tile.append(icon);
         const gateRow = el("div", "gate-row");
-        gateRow.append(el("div", "t-slot", TILE_LABELS[key]), tile);
+        // Editing: what the expression pedal moves on this preset (kept in the row, hidden, so it never shifts).
+        this.expBtn.type = "button";
+        this.expBtn.title = "Expression pedal: what it moves on this preset";
+        this.expBtn.append(pedalIcon(), el("span", "", "EXP"), this.expCount);
+        this.expBtn.addEventListener("click", () => this.editor.openExpression());
+        // The output level (global), left of it: the same as in Settings, at hand while editing.
+        this.levelBtn.type = "button";
+        this.levelBtn.title = "Output level: the pedal's LEVEL knob, the same on every preset";
+        this.levelBtn.append(lucideElement(Volume2, { "stroke-width": 2.25, "aria-hidden": "true" }), el("span", "", "OUT LVL"));
+        this.levelBtn.addEventListener("click", () => this.editor.openLevel());
+        gateRow.append(el("div", "t-slot", TILE_LABELS[key]), tile, this.levelBtn, this.expBtn);
         blocks.append(gateRow, el("div", "hsep"));
         continue;
       }
@@ -1987,31 +2029,42 @@ export class GigView {
     }
     // Tracks: an assignment for the shown preset.
     const assigned = connected && x.assignments !== null && x.assignmentsPreset === s.activePreset.value ? x.assignments : null;
-    for (const slot of FX_SLOTS) {
-      const t = this.tiles.get(slot)!;
-      const range = assigned?.ranges[slot] ?? null;
-      const bypass = assigned?.bypasses[slot] ?? null;
-      const show = (range !== null || bypass !== null) && live;
-      if (t.exp!.hidden !== !show) t.exp!.hidden = !show;
-      if (!range && !bypass) continue;
-      // Band = the set range (whole width for a bypass); fill = the value the pedal produced,
-      // which already sits inside the range. A bypass-only tile fills fully when engaged.
-      const pct = (v: number) => `${Math.round((v / 255) * 1000) / 10}%`;
-      const left = range ? pct(range.min) : "0%";
-      const width = range ? pct(range.max - range.min) : "100%";
-      if (t.expRange!.style.left !== left) t.expRange!.style.left = left;
-      if (t.expRange!.style.width !== width) t.expRange!.style.width = width;
-      const mode = bypass ? (bypass.mode === 2 ? "ht" : "sw") : "";
-      if (t.exp!.dataset.byp !== mode) t.exp!.dataset.byp = mode;
-      // The pedal sends values only while moving, not on preset load: until the first event of
-      // this preset, derive them from the last position exactly as the pedal maps it (linear into
-      // the range; heel-toe bypass flag = 1 on the heel side of mid-travel, as captured).
-      const derived = range ? range.min + (pos / 254) * (range.max - range.min) : undefined;
-      const v = range ? (x.values.ranges[slot] ?? derived) : undefined;
-      const engaged = x.values.bypasses[slot] ?? pos < 127;
-      const w = range ? (v === undefined ? "0%" : pct(v)) : engaged ? "100%" : "0%";
-      if (t.expFill!.style.width !== w) t.expFill!.style.width = w;
-    }
+    const count = assigned ? String(Object.keys(assigned.ranges).length + Object.keys(assigned.bypasses).length) : "";
+    if (this.expCount.textContent !== (count === "0" ? "" : count)) this.expCount.textContent = count === "0" ? "" : count;
+    for (const slot of FX_SLOTS) this.paintExpTrack(this.tiles.get(slot) as ExpTrack, slot, slot, assigned, live, pos, x.values);
+    // The capture: its first knob on the pedal (several follow the same pedal), with its on / off.
+    const capRange = ([...AMP_KNOBS, "level"] as ExpRangeTarget[]).find((k) => assigned?.ranges[k]) ?? null;
+    this.paintExpTrack(this.subTracks.capture, capRange, "capture", assigned, live, pos, x.values);
+    this.paintExpTrack(this.subTracks.ir, null, "ir", assigned, live, pos, x.values);
+    this.paintExpTrack(this.tiles.get("gate") as ExpTrack, "gate", "gate", assigned, live, pos, x.values);
+  }
+
+  /**
+   * One expression track: the band is the set range (whole width for an on / off only), the fill the value the pedal
+   * produced, which sits inside the range. An on / off only track fills fully when engaged.
+   */
+  private paintExpTrack(t: ExpTrack, rangeTarget: ExpRangeTarget | null, bypassTarget: ExpBypassTarget, assigned: ExpressionAssignments | null, live: boolean, pos: number, values: ExpressionValues) {
+    const range = (rangeTarget && assigned?.ranges[rangeTarget]) || null;
+    const bypass = assigned?.bypasses[bypassTarget] ?? null;
+    const show = (range !== null || bypass !== null) && live;
+    if (t.exp.hidden !== !show) t.exp.hidden = !show;
+    if (!range && !bypass) return;
+    const pct = (v: number) => `${Math.round((v / 255) * 1000) / 10}%`;
+    const left = range ? pct(range.min) : "0%";
+    const width = range ? pct(range.max - range.min) : "100%";
+    if (t.expRange.style.left !== left) t.expRange.style.left = left;
+    if (t.expRange.style.width !== width) t.expRange.style.width = width;
+    const mode = bypass ? (bypass.mode === "switch" ? "ht" : "sw") : "";
+    if (t.exp.dataset.byp !== mode) t.exp.dataset.byp = mode;
+    // The pedal sends values only while moving, not on preset load: until the first event of
+    // this preset, derive them from the last position exactly as the pedal maps it (linear into
+    // the range; heel-toe bypass flag = 1 on the heel side of mid-travel, as captured).
+    const span = range ? (range.inverted ? 1 - pos / 254 : pos / 254) : 0;
+    const derived = range ? range.min + span * (range.max - range.min) : undefined;
+    const v = range && rangeTarget ? (values.ranges[rangeTarget] ?? derived) : undefined;
+    const engaged = values.bypasses[bypassTarget] ?? pos < 127;
+    const w = range ? (v === undefined ? "0%" : pct(v)) : engaged ? "100%" : "0%";
+    if (t.expFill.style.width !== w) t.expFill.style.width = w;
   }
 
   /** Top-bar indicator: hidden unless connected with the live tuner on; dim in silence. */

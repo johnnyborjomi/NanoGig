@@ -32,7 +32,12 @@ export interface ExpressionState {
   /** Assignments of `assignmentsPreset` (read after every preset change); null until read. */
   assignments: ExpressionAssignments | null;
   assignmentsPreset: number | null;
+  /** The last assignment write from here (the EXP sheet), for its preset: saving, then the read-back's verdict. */
+  write: { preset: number; state: ExpressionWriteState } | null;
 }
+
+/** saving: waiting / sent; saved: read back the same; mismatch: read back different; unchecked: no read-back answer; failed: the write failed. */
+export type ExpressionWriteState = 'saving' | 'saved' | 'mismatch' | 'unchecked' | 'failed';
 
 /** The pedal's tuner as far as the app knows (protocol captured 2026-09-19; see docs/PROTOCOL.md "Tuner"). */
 export interface TunerState {
@@ -280,6 +285,7 @@ export function emptyExpression(): ExpressionState {
     valuesAt: null,
     assignments: null,
     assignmentsPreset: null,
+    write: null,
   };
 }
 

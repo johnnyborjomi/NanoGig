@@ -900,7 +900,7 @@ describe('expression pedal', () => {
     mock.pressFootswitch(4); // even → post 3, 17–130
     await flush(1500);
     expect(store.get().expression.assignmentsPreset).toBe(4);
-    expect(store.get().expression.assignments?.ranges.post3).toEqual({ min: 17, max: 130, flag: 0 });
+    expect(store.get().expression.assignments?.ranges.post3).toEqual({ min: 17, max: 130, inverted: false });
     expect(store.get().log.filter((l) => l.dir === 'tx' && /3C 00 00 00$/.test(l.hex ?? '') && l.text.startsWith('Expression')).length).toBe(2); // once per preset
 
     mock.sweepExpression(4, 50);
@@ -912,6 +912,58 @@ describe('expression pedal', () => {
     expect(store.get().log.filter((l) => /Undocumented event/.test(l.text))).toHaveLength(0);
     await flush(1000);
     expect(store.get().expression.position).toBe(0); // back at heel
+    engine.dispose();
+  });
+});
+
+describe('expression assignments written from the EXP sheet', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('a drag is one write after the pause, read back and marked on the preset; Discard drops it, Save keeps it', async () => {
+    const { mock, store, engine } = setup({ writes: true });
+    await connect(mock);
+    await flush(4000);
+    expect(store.get().expression.assignmentsPreset).toBe(7);
+    const writes = () => store.get().log.filter((l) => l.dir === 'tx' && l.text.startsWith('Expression assignments write'));
+    for (let max = 100; max <= 200; max += 20) engine.setExpressionAssignments({ ranges: { gain: { min: 10, max, inverted: true } }, bypasses: {} });
+    // On screen at once, written once the drag pauses.
+    expect(store.get().expression.assignments?.ranges.gain?.max).toBe(200);
+    expect(store.get().expression.write).toEqual({ preset: 7, state: 'saving' });
+    expect(writes()).toHaveLength(0);
+    await flush(1000);
+    expect(writes().map((l) => l.hex)).toEqual(['0F C0 18 07 22 07 08 01 10 0A 18 C8 01 3E 00 00 00']);
+    expect(store.get().expression.write).toEqual({ preset: 7, state: 'saved' });
+    expect(store.get().log.some((l) => /Expression assignments check · preset 8/.test(l.text))).toBe(true);
+
+    // Discard (the shown preset loaded again): an edit of the preset like the others, read again as saved.
+    const before = store.get().log.filter((l) => /Expression assignments request · preset 8/.test(l.text)).length;
+    const reload = engine.selectPreset(7);
+    await flush(1500);
+    await reload;
+    expect(store.get().log.filter((l) => /Expression assignments request · preset 8/.test(l.text)).length).toBe(before + 1);
+    expect(store.get().expression.assignments).toEqual({ ranges: {}, bypasses: {} });
+    expect(store.get().expression.write).toBeNull();
+
+    // Written again and saved: another preset and back, read again from the pedal, as written.
+    engine.setExpressionAssignments({ ranges: { gain: { min: 10, max: 200, inverted: true } }, bypasses: {} });
+    await flush(1000);
+    mock.pressSave();
+    await flush(500);
+    mock.pressFootswitch(4);
+    await flush(1500);
+    mock.pressFootswitch(7);
+    await flush(1500);
+    expect(store.get().expression.assignmentsPreset).toBe(7);
+    expect(store.get().expression.assignments).toEqual({ ranges: { gain: { min: 10, max: 200, inverted: true } }, bypasses: {} });
+    engine.dispose();
+  });
+
+  it('needs control mode', async () => {
+    const { mock, engine } = setup();
+    await connect(mock);
+    await flush(4000);
+    expect(() => engine.setExpressionAssignments({ ranges: {}, bypasses: {} })).toThrow();
     engine.dispose();
   });
 });

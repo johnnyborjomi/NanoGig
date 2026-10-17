@@ -14,7 +14,15 @@ import { CAB_SLOT_COUNT, CAPTURE_SLOT_COUNT, FX_SLOTS, PRESET_COUNT, type FxSlot
 import { FX_DEFS, FX_SLOT_MODELS, type FxDef, type FxParam } from './fx-params';
 import { FX_MODELS } from './models';
 import { encodeVarint, firstBytes, firstFixed32Float, firstVarint, parseFields, tag, type ProtoField } from './proto';
-import { encodeFrameHeader } from './reassembly';
+import { encodeFrameHeader, MSG } from './reassembly';
+import {
+  EXP_BYPASS_MODE_KEY,
+  EXP_BYPASS_TARGETS,
+  EXP_RANGE_TARGETS,
+  EXP_WRITE_BYPASS_FIELD,
+  EXP_WRITE_RANGE_FIELD,
+  type ExpressionAssignments,
+} from './decode';
 
 export { FX_DEFS, FX_SLOT_MODELS, type FxDef, type FxParam };
 
@@ -698,4 +706,42 @@ export function decodeOk(payload: Uint8Array): boolean {
 /** 0x1B with field 3 = 2: the pedal saved the shown preset. */
 export function isPresetSaved(payload: Uint8Array): boolean {
   return firstVarint(parseFields(payload), 3) === 2;
+}
+
+/**
+ * Write a preset's expression assignments (0x3E): `18 <preset>` then every assigned target, as Cortex Cloud writes
+ * them (zeros included: a range `{1: inverted, 2: min, 3: max}`, a bypass `{<mode>: {…}}`); an unassigned target is
+ * left out, so the list replaces the preset's whole set. An edit of the preset (Save keeps it, a reload drops it); acked with 0x3F.
+ */
+export function expressionAssignmentsWrite(preset: number, a: ExpressionAssignments): Uint8Array {
+  checkIndex('preset', preset, PRESET_COUNT - 1);
+  const byte = (n: number) => Math.min(255, Math.max(0, Math.round(n)));
+  const ms = (n: number) => Math.min(10000, Math.max(0, Math.round(n)));
+  const pb = new Pb().varint(3, preset);
+  const fields: [number, (p: Pb) => void][] = [];
+  for (const t of EXP_RANGE_TARGETS) {
+    const r = a.ranges[t];
+    if (r) fields.push([EXP_WRITE_RANGE_FIELD[t], (p) => p.varint(1, r.inverted ? 1 : 0).varint(2, byte(r.min)).varint(3, byte(r.max))]);
+  }
+  for (const t of EXP_BYPASS_TARGETS) {
+    const b = a.bypasses[t];
+    if (!b) continue;
+    fields.push([
+      EXP_WRITE_BYPASS_FIELD[t],
+      (p) =>
+        p.sub(EXP_BYPASS_MODE_KEY[b.mode], (q) => {
+          if (b.mode === 'switch') q.varint(1, b.inverted ? 1 : 0).varint(2, b.latch ? 1 : 0);
+          else if (b.mode === 'stop') q.varint(1, ms(b.delayMs));
+          else q.varint(1, b.inverted ? 1 : 0).varint(2, ms(b.delayMs));
+        }),
+    ]);
+  }
+  for (const [field, build] of fields.sort((x, y) => x[0] - y[0])) pb.sub(field, build);
+  return pb.frame(MSG.EXP_ASSIGN_WRITE);
+}
+
+/** Two assignment lists the pedal would store alike (the bytes they write). */
+export function sameExpressionAssignments(a: ExpressionAssignments, b: ExpressionAssignments): boolean {
+  const bytes = (x: ExpressionAssignments) => Array.from(expressionAssignmentsWrite(0, x)).join();
+  return bytes(a) === bytes(b);
 }

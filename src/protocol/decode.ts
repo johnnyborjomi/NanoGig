@@ -432,20 +432,27 @@ const CONTROL_TYPES = new Set<number>([MSG.KNOB, MSG.ENCODER]);
 export interface ExpressionRange {
   min: number;
   max: number;
-  /** Sub-message field 1; 0 in every capture. */
-  flag: number;
+  /** Sub-message field 1: heel = max, toe = min. */
+  inverted: boolean;
 }
-/** A bypass assignment: the sub-message key is the mode (2 = heel-toe, flips at mid-travel; 1 and 3 carry a delay and need the toe switch). */
+/**
+ * How the pedal switches a block: the sub-message key. 1 heel-toe `{1: inverted, 2: delay ms}`, 2 switch
+ * `{1: inverted, 2: latch}` (flips at mid-travel, as captured), 3 stop `{1: delay ms}`.
+ */
+export type ExpBypassMode = 'heelToe' | 'switch' | 'stop';
 export interface ExpressionBypass {
-  mode: number;
+  mode: ExpBypassMode;
+  inverted: boolean;
   delayMs: number;
+  latch: boolean;
 }
-/** Range targets: amp knobs, FX amounts, and one more range Cortex Cloud lists right after post 3 (`range13`, unnamed). */
-export type ExpRangeTarget = 'gain' | 'bass' | 'mid' | 'treble' | 'level' | FxSlot | 'range13';
-/** Bypass targets: capture, IR, the FX slots, and one more listed third by Cortex Cloud (`bypass22`, probably the gate). */
-export type ExpBypassTarget = 'capture' | 'ir' | FxSlot | 'bypass22';
-export const EXP_RANGE_TARGETS: readonly ExpRangeTarget[] = ['gain', 'bass', 'mid', 'treble', 'level', ...FX_SLOTS, 'range13'];
-export const EXP_BYPASS_TARGETS: readonly ExpBypassTarget[] = ['capture', 'ir', ...FX_SLOTS, 'bypass22'];
+export const EXP_BYPASS_MODE_KEY: Record<ExpBypassMode, number> = { heelToe: 1, switch: 2, stop: 3 };
+/** Range targets: amp knobs, capture volume (`level`), FX amounts, gate threshold. */
+export type ExpRangeTarget = 'gain' | 'bass' | 'mid' | 'treble' | 'level' | FxSlot | 'gate';
+/** Bypass targets: capture, IR, the FX slots, the gate. */
+export type ExpBypassTarget = 'capture' | 'ir' | FxSlot | 'gate';
+export const EXP_RANGE_TARGETS: readonly ExpRangeTarget[] = ['gain', 'bass', 'mid', 'treble', 'level', ...FX_SLOTS, 'gate'];
+export const EXP_BYPASS_TARGETS: readonly ExpBypassTarget[] = ['capture', 'ir', ...FX_SLOTS, 'gate'];
 
 export interface ExpressionAssignments {
   ranges: Partial<Record<ExpRangeTarget, ExpressionRange>>;
@@ -459,26 +466,31 @@ export interface ExpressionValues {
 export const EMPTY_EXPRESSION_VALUES: ExpressionValues = { ranges: {}, bypasses: {} };
 
 /**
- * Field numbers, from the 2026-09-19 captures. The write (0x3E, Cortex Cloud) is canonical; the
- * values event (0xAA) puts level at 8 and shifts the FX amounts up by one; the reply (0x3D) was
- * only ever seen with post 3, at 11 = write − 1, so the rest of its table is that rule applied.
+ * Field numbers. The write (0x3E, Cortex Cloud) is canonical; the reply (0x3D) numbers every target one lower;
+ * the values event (0xAA) puts the capture volume at 8 and shifts the FX amounts up by one. Capture volume = 13,
+ * gate = 21 as another editor reads, writes and reads them back (our own 2026-09-19 reading had them swapped:
+ * to hear on the pedal).
  */
-const WRITE_RANGE_FIELD: Record<ExpRangeTarget, number> = { gain: 4, bass: 5, mid: 6, treble: 7, pre1: 8, pre2: 9, post1: 10, post2: 11, post3: 12, range13: 13, level: 21 };
-const WRITE_BYPASS_FIELD: Record<ExpBypassTarget, number> = { capture: 14, ir: 15, pre1: 16, pre2: 17, post1: 18, post2: 19, post3: 20, bypass22: 22 };
-const VALUES_RANGE_FIELD: Record<ExpRangeTarget, number> = { gain: 4, bass: 5, mid: 6, treble: 7, level: 8, pre1: 9, pre2: 10, post1: 11, post2: 12, post3: 13, range13: 14 };
-const VALUES_BYPASS_FIELD: Record<ExpBypassTarget, number> = { capture: 15, ir: 16, pre1: 17, pre2: 18, post1: 19, post2: 20, post3: 21, bypass22: 22 };
+export const EXP_WRITE_RANGE_FIELD: Record<ExpRangeTarget, number> = { gain: 4, bass: 5, mid: 6, treble: 7, pre1: 8, pre2: 9, post1: 10, post2: 11, post3: 12, level: 13, gate: 21 };
+export const EXP_WRITE_BYPASS_FIELD: Record<ExpBypassTarget, number> = { capture: 14, ir: 15, pre1: 16, pre2: 17, post1: 18, post2: 19, post3: 20, gate: 22 };
+const VALUES_RANGE_FIELD: Record<ExpRangeTarget, number> = { gain: 4, bass: 5, mid: 6, treble: 7, level: 8, pre1: 9, pre2: 10, post1: 11, post2: 12, post3: 13, gate: 14 };
+const VALUES_BYPASS_FIELD: Record<ExpBypassTarget, number> = { capture: 15, ir: 16, pre1: 17, pre2: 18, post1: 19, post2: 20, post3: 21, gate: 22 };
 const REPLY_OFFSET = -1;
 
 function decodeRange(sub: Uint8Array): ExpressionRange {
   const sf = parseFields(sub);
-  return { min: firstVarint(sf, 2) ?? 0, max: firstVarint(sf, 3) ?? 255, flag: firstVarint(sf, 1) ?? 0 };
+  return { min: firstVarint(sf, 2) ?? 0, max: firstVarint(sf, 3) ?? 0, inverted: (firstVarint(sf, 1) ?? 0) !== 0 };
 }
 function decodeBypass(sub: Uint8Array): ExpressionBypass | null {
   const sf = parseFields(sub);
   const first = sf[0];
   if (!first || first.wire !== 2) return null;
   const inner = parseFields(first.raw);
-  return { mode: first.field, delayMs: firstVarint(inner, 2) ?? firstVarint(inner, 1) ?? 0 };
+  const v = (n: number) => firstVarint(inner, n) ?? 0;
+  if (first.field === 1) return { mode: 'heelToe', inverted: v(1) !== 0, delayMs: v(2), latch: false };
+  if (first.field === 2) return { mode: 'switch', inverted: v(1) !== 0, delayMs: 0, latch: v(2) !== 0 };
+  if (first.field === 3) return { mode: 'stop', inverted: false, delayMs: v(1), latch: false };
+  return null;
 }
 
 /** Decode an assignment list; `offset` maps the write numbering onto the message at hand (reply = −1). */
@@ -486,11 +498,11 @@ export function decodeExpressionAssignments(payload: Uint8Array, offset = REPLY_
   const f = parseFields(payload);
   const out: ExpressionAssignments = { ranges: {}, bypasses: {} };
   for (const t of EXP_RANGE_TARGETS) {
-    const sub = firstBytes(f, WRITE_RANGE_FIELD[t] + offset);
+    const sub = firstBytes(f, EXP_WRITE_RANGE_FIELD[t] + offset);
     if (sub) out.ranges[t] = decodeRange(sub);
   }
   for (const t of EXP_BYPASS_TARGETS) {
-    const sub = firstBytes(f, WRITE_BYPASS_FIELD[t] + offset);
+    const sub = firstBytes(f, EXP_WRITE_BYPASS_FIELD[t] + offset);
     if (!sub) continue;
     const b = decodeBypass(sub);
     if (b) out.bypasses[t] = b;

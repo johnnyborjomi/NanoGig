@@ -38,7 +38,7 @@ import {
   describeDeviceSettings,
   inferActivePreset,
   type CurrentState,
-  type Metadata, EMPTY_EXPRESSION_VALUES } from '../protocol/decode';
+  type Metadata, type ExpressionAssignments, EMPTY_EXPRESSION_VALUES } from '../protocol/decode';
 import {
   CURRENT_STATE_REQUEST,
   DEVICE_SETTINGS_REQUEST,
@@ -70,10 +70,10 @@ import {
   type FxSlot,
   type MidiStrategy,
 } from '../protocol/frames';
-import { outputLevelFrame } from '../protocol/edit';
+import { expressionAssignmentsWrite, outputLevelFrame, sameExpressionAssignments } from '../protocol/edit';
 import { toHex } from '../protocol/hex';
 import { MSG, MessageAssembler, classifyPacket, isTunerPitchPacket, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
-import type { Store } from '../state/store';
+import type { ExpressionWriteState, Store } from '../state/store';
 import { lookupFxModel, type FxModelsBySlot } from '../protocol/models';
 import type { LogDirection, NotifyPacket, Transport } from '../transport/types';
 import type { MidiOut } from '../transport/webmidi';
@@ -526,14 +526,32 @@ export class SyncEngine {
         if (this.expAssignTimer) clearTimeout(this.expAssignTimer);
         this.expAssignTimer = null;
         this.expAssignRequested = null;
-        const x = this.store.get().expression;
-        const ranges = Object.entries(ev.assignments.ranges).map(([t, r]) => `${t} ${r.min}–${r.max}`);
-        const bypasses = Object.entries(ev.assignments.bypasses).map(([t, b]) => `${t} bypass (mode ${b.mode}${b.delayMs ? `, ${b.delayMs} ms` : ''})`);
+        const ranges = Object.entries(ev.assignments.ranges).map(([t, r]) => `${t} ${r.min}–${r.max}${r.inverted ? ' inverted' : ''}`);
+        const bypasses = Object.entries(ev.assignments.bypasses).map(([t, b]) => `${t} on / off (${b.mode}${b.delayMs ? `, ${b.delayMs} ms` : ''}${b.inverted ? ', inverted' : ''}${b.latch ? ', latch' : ''})`);
         const all = [...ranges, ...bypasses];
         this.log('info', `Expression assignments${preset !== null ? ` of preset ${preset + 1}` : ''}: ${all.length ? all.join(', ') : 'none'}`, toHex(pkt.data));
+        // The read-back of our own write: "saved" when the pedal has what was written.
+        const verify = this.expVerify !== null && this.expVerify.preset === preset ? this.expVerify : null;
+        if (verify) {
+          this.expVerify = null;
+          const same = sameExpressionAssignments(verify.assignments, ev.assignments);
+          if (!same) this.log('warn', `Expression assignments of preset ${verify.preset + 1} differ from what was written`);
+          this.setExpWrite(verify.preset, same ? 'saved' : 'mismatch');
+          // Shown elsewhere now, or edited again since: the list on screen stays.
+          if (preset !== this.store.get().activePreset.value || this.expWriteNext?.preset === preset) {
+            this.expAssignTick();
+            return;
+          }
+        } else if (this.expWriteNext !== null && this.expWriteNext.preset === preset) {
+          return; // an edit waits to be written: it wins over what the pedal had
+        }
+        const x = this.store.get().expression;
         // Values belong to a preset's targets: a new preset starts without the old ones.
         const values = preset === x.assignmentsPreset ? x.values : EMPTY_EXPRESSION_VALUES;
-        this.store.patch({ expression: { ...x, assignments: ev.assignments, assignmentsPreset: preset, values, valuesAt: preset === x.assignmentsPreset ? x.valuesAt : null } });
+        // A plain read (a reload, the save light out): what the pedal has now, no longer our write's result.
+        const write = !verify && x.write?.preset === preset ? null : x.write;
+        this.store.patch({ expression: { ...x, assignments: ev.assignments, assignmentsPreset: preset, values, valuesAt: preset === x.assignmentsPreset ? x.valuesAt : null, write } });
+        this.expAssignTick();
         return;
       }
       case 'expression-assign-ack':
@@ -598,6 +616,7 @@ export class SyncEngine {
       case 'dirty':
         // The pedal's save light (0x73, field 3). Also the ack to slot writes and sent after footswitch presses,
         // so the state is read again as before.
+        this.noteDirty(ev.dirty);
         this.store.setField('presetDirty', ev.dirty, 'dump', pkt.at);
         this.log('info', ev.dirty ? 'The preset has unsaved changes' : 'No unsaved changes', toHex(pkt.data));
         if (this.opts.refreshOnUnknownEvent) this.scheduleDebouncedRefresh();
@@ -757,6 +776,7 @@ export class SyncEngine {
     const models = {} as FxModelsBySlot;
     for (const slot of FX_SLOTS) models[slot] = lookupFxModel(state.fxModelIds[slot]);
     this.store.setField('fxModels', models, 'dump', at);
+    this.noteDirty(state.dirty);
     this.store.setField('presetDirty', state.dirty, 'dump', at);
     const gateStale = writtenSince(this.writtenAt.gate, requestedAt);
     this.store.setField('gateOn', gateStale ? prev.gateOn.value : state.gateOn, gateStale ? 'optimistic' : 'dump', at);
@@ -1164,6 +1184,9 @@ export class SyncEngine {
     this.pendingPreset = index;
     this.pendingPresetSince = Date.now();
     this.expAssignTries = 0;
+    // The shown preset loaded again (Discard): assignments edited here are back as saved, read them.
+    if (index === this.expEditedPreset) this.expStale = true;
+    this.expEditedPreset = null;
     this.store.setField('activePreset', index, 'optimistic');
     this.edit.clearCapturePreview(); // a load puts the preset's own capture back
     this.edit.clearIrPreview();
@@ -1286,11 +1309,85 @@ export class SyncEngine {
   /** Only pitch readings trail a tuner-off, for up to ~0.9 s (screen firmware capture 2026-09-27). */
   private static readonly TUNER_OFF_GRACE_MS = 900;
 
+  /**
+   * The assignments shown may no longer be the pedal's: edited here, then the preset was loaded again or its save
+   * light went out (saved, or the edits dropped by the pedal's EXIT). Read them once more.
+   */
+  private expStale = false;
+  /** The preset whose assignments were written here since it loaded (null: none). */
+  private expEditedPreset: number | null = null;
+
+  private noteDirty(dirty: boolean): void {
+    if (this.store.get().presetDirty.value === true && !dirty && this.expEditedPreset !== null) {
+      this.expEditedPreset = null;
+      this.expStale = true;
+      this.expAssignTries = 0;
+    }
+  }
+
   private expAssignReset(): void {
+    this.expStale = false;
+    this.expEditedPreset = null;
     if (this.expAssignTimer) clearTimeout(this.expAssignTimer);
     this.expAssignTimer = null;
     this.expAssignRequested = null;
     this.expAssignTries = 0;
+    if (this.expWriteTimer) clearTimeout(this.expWriteTimer);
+    this.expWriteTimer = null;
+    this.expWriteNext = null;
+    this.expVerify = null;
+  }
+
+  /** An assignment list edited here, waiting for the pause after the last change. */
+  private expWriteNext: { preset: number; assignments: ExpressionAssignments } | null = null;
+  private expWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Written and to be read back: "saved" once the pedal reports the same list. */
+  private expVerify: { preset: number; assignments: ExpressionAssignments } | null = null;
+  private static readonly EXP_WRITE_PAUSE_MS = 400;
+
+  private setExpWrite(preset: number, state: ExpressionWriteState): void {
+    this.store.patch({ expression: { ...this.store.get().expression, write: { preset, state } } });
+  }
+
+  /**
+   * The shown preset's expression assignments, as edited in the EXP sheet: on screen at once, written (0x3E, the
+   * whole list) after a short pause so a slider drag sends one write, then read back. They are an edit of the preset
+   * like the others: Save keeps them, Discard (a reload) drops them.
+   */
+  setExpressionAssignments(assignments: ExpressionAssignments): void {
+    this.assertWrites();
+    const preset = this.store.get().activePreset.value;
+    if (preset === null) throw new Error('No preset shown');
+    // Another preset's edit still waiting (the preset changed under the sheet): it goes first, to its own preset.
+    if (this.expWriteNext && this.expWriteNext.preset !== preset) this.flushExpWrite();
+    this.expWriteNext = { preset, assignments };
+    this.expEditedPreset = preset;
+    const x = this.store.get().expression;
+    const values = x.assignmentsPreset === preset ? x.values : EMPTY_EXPRESSION_VALUES;
+    this.store.patch({ expression: { ...x, assignments, assignmentsPreset: preset, values, write: { preset, state: 'saving' } } });
+    if (this.expWriteTimer) clearTimeout(this.expWriteTimer);
+    this.expWriteTimer = setTimeout(() => this.flushExpWrite(), SyncEngine.EXP_WRITE_PAUSE_MS);
+  }
+
+  private flushExpWrite(): void {
+    if (this.expWriteTimer) clearTimeout(this.expWriteTimer);
+    this.expWriteTimer = null;
+    const w = this.expWriteNext;
+    if (!w) return;
+    this.expWriteNext = null;
+    const frame = expressionAssignmentsWrite(w.preset, w.assignments);
+    this.log('tx', `Expression assignments write · preset ${w.preset + 1}`, toHex(frame));
+    void this.transport
+      .writeCommand(frame)
+      .then(() => {
+        if (this.expWriteNext?.preset === w.preset) return; // edited again: checked after its own write
+        this.expVerify = w;
+        this.expAssignTick();
+      })
+      .catch((err) => {
+        this.log('warn', `Expression assignments write failed: ${(err as Error).message}`);
+        if (this.expWriteNext?.preset !== w.preset) this.setExpWrite(w.preset, 'failed');
+      });
   }
 
   /**
@@ -1302,18 +1399,28 @@ export class SyncEngine {
   private expAssignTick(): void {
     if (this.transport.status !== 'connected' || this.store.get().syncPhase !== 'ready') return;
     if (this.expAssignRequested !== null) return; // its timeout re-enters here
-    const preset = this.store.get().activePreset.value;
-    if (preset === null || this.pendingPresetActive() || this.selectInflight) return;
-    if (preset === this.store.get().expression.assignmentsPreset) return;
-    if (this.expAssignTries >= SyncEngine.EXP_ASSIGN_MAX_TRIES) return;
+    // A read-back of our write goes first (and only after the reads sent before the write are answered).
+    const verify = this.expVerify;
+    const preset = verify ? verify.preset : this.store.get().activePreset.value;
+    if (!verify) {
+      if (preset === null || this.pendingPresetActive() || this.selectInflight) return;
+      if (preset === this.store.get().expression.assignmentsPreset && !this.expStale) return;
+      if (this.expAssignTries >= SyncEngine.EXP_ASSIGN_MAX_TRIES) return;
+      this.expAssignTries++;
+    }
+    if (preset === null) return;
+    if (!verify) this.expStale = false;
     this.expAssignRequested = preset;
-    this.expAssignTries++;
     const req = expressionAssignmentsRequest(preset);
-    this.log('tx', `Expression assignments request · preset ${preset + 1}`, toHex(req));
+    this.log('tx', `Expression assignments ${verify ? 'check' : 'request'} · preset ${preset + 1}`, toHex(req));
     this.expAssignTimer = setTimeout(() => {
       this.expAssignTimer = null;
       if (this.expAssignRequested === null) return;
       this.log('warn', `Expression assignments request (preset ${this.expAssignRequested + 1}) unanswered`);
+      if (this.expVerify?.preset === this.expAssignRequested) {
+        this.setExpWrite(this.expVerify.preset, 'unchecked');
+        this.expVerify = null;
+      }
       this.expAssignRequested = null;
       this.expAssignTick();
     }, SyncEngine.EXP_ASSIGN_TIMEOUT_MS);

@@ -42,7 +42,7 @@ import { TUNER_OFF } from '../protocol/frames';
 import { EDIT_MSG, FX_SLOT_MODELS, fxDef, fxModelId, type CabSettings } from '../protocol/edit';
 import { fromHex } from '../protocol/hex';
 import { bytesField, firstBytes, firstVarint, fixed32FloatField, parseFields, stringField, varintField } from '../protocol/proto';
-import { frameSingle, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
+import { MSG, frameSingle, parseFrameHeader, splitTrailer } from '../protocol/reassembly';
 import { defaultMockModelIds } from '../fixtures/captures';
 import {
   Emitter,
@@ -238,7 +238,9 @@ export class MockTransport implements Transport {
     // Expression assignments read: 08 C0 08 03 18 <preset> 3C … → the demo has post 3 (17–130) on even presets.
     if (bytes.length === 10 && bytes[0] === 0x08 && bytes[1] === 0xc0 && bytes[2] === 0x08 && bytes[3] === 0x03 && bytes[4] === 0x18 && bytes[6] === 0x3c) {
       const preset = bytes[5]!;
-      this.schedule(() => this.emit(preset % 2 === 0 ? HW_EXP_ASSIGN_REPLY_58 : Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x3d, 0x00, 0x00, 0x00])), this.opts.latencyMs);
+      const written = this.expAssign.get(preset);
+      if (written) this.reply([...varintField(1, 1), ...written], MSG.EXP_ASSIGN_REPLY);
+      else this.schedule(() => this.emit(preset % 2 === 0 ? HW_EXP_ASSIGN_REPLY_58 : Uint8Array.from([0x06, 0xc0, 0x08, 0x01, 0x3d, 0x00, 0x00, 0x00])), this.opts.latencyMs);
       return;
     }
     if (bytesEqual(bytes, DEVICE_SETTINGS_REQUEST)) {
@@ -311,6 +313,11 @@ export class MockTransport implements Transport {
     return type;
   }
 
+  /** Expression assignments written here, per preset, as the reply's body (the demo's own on the others). */
+  private readonly expAssign = new Map<number, number[]>();
+  /** The ones saved: a write is an edit of the preset (a load brings these back, a save keeps the written ones). */
+  private readonly expAssignSaved = new Map<number, number[]>();
+
   private reply(body: number[], type: number) {
     this.schedule(() => this.emit(frameSingle([...body, type, 0, 0, 0])), this.opts.latencyMs);
   }
@@ -332,6 +339,14 @@ export class MockTransport implements Transport {
     };
     const ok = (preset?: number) => [...varintField(1, 6), ...(preset ? varintField(3, preset) : []), ...varintField(4, 1)];
     switch (msgType) {
+      case MSG.EXP_ASSIGN_WRITE: {
+        // Stored as the reply carries it: every target one field lower, no preset.
+        const body: number[] = [];
+        for (const x of f) if (x.field !== 3 && x.wire === 2) body.push(...bytesField(x.field - 1, x.raw));
+        this.expAssign.set(v(3), body);
+        this.reply([...varintField(1, 1), ...varintField(3, 1)], MSG.EXP_ASSIGN_ACK);
+        return true;
+      }
       case EDIT_MSG.FX_MODEL: {
         const slot = FX_SLOTS[v(3)];
         const type = v(4);
@@ -572,12 +587,16 @@ export class MockTransport implements Transport {
 
   private saveEdits() {
     this.savedModelIds = structuredClone(this.device.fxModelIds ?? defaultMockModelIds());
+    const p = this.device.activePreset;
+    if (p !== undefined && this.expAssign.has(p)) this.expAssignSaved.set(p, this.expAssign.get(p)!);
     this.clearDirty();
   }
 
   /** A preset load drops unsaved edits (the desktop editor's Discard is a load of the shown preset). */
   private loadDropsEdits() {
     if (this.device.dirty && this.savedModelIds) this.device.fxModelIds = structuredClone(this.savedModelIds);
+    this.expAssign.clear();
+    for (const [p, body] of this.expAssignSaved) this.expAssign.set(p, body);
     this.clearDirty();
   }
 

@@ -71,6 +71,7 @@ async function setup(editing: boolean) {
       selectPreset: (i) => engine.selectPreset(i),
       setOutputsMuted: p,
       setOutputLevel: () => {},
+      setExpression: () => {},
       startTuner: p,
       stopTuner: p,
       setTunerReference: p,

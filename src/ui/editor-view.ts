@@ -6,6 +6,7 @@
  *   Amp & cab sheet tap the capture / IR name: capture slot, on / off, volume; IR slot, on / off, level,
  *                   high / low pass, phase, microphone and position; both with the pedal's library
  *   Gate sheet      hold the gate: on / off and threshold
+ *   EXP sheet       the gate row's EXP button: what the expression pedal moves on the preset (heel / toe, on / off)
  *   Preset sheet    hold the preset name (or a preset in the list): rename, name an empty slot, footswitch, delete
  *   Presets list    Menu → Presets: all 64, tap to switch (control mode), ⋯ to manage
  *
@@ -40,7 +41,8 @@ import {
   type LibraryKind,
   type LibraryList,
 } from "../protocol/edit";
-import { CAB_SLOT_COUNT, labelHasBanks, PRESET_COUNT, presetLabel, type FxSlot } from "../protocol/frames";
+import { CAB_SLOT_COUNT, FX_SLOTS, labelHasBanks, PRESET_COUNT, presetLabel, type FxSlot } from "../protocol/frames";
+import type { ExpBypassMode, ExpBypassTarget, ExpRangeTarget, ExpressionAssignments, ExpressionBypass, ExpressionRange } from "../protocol/decode";
 import { lookupFxModel } from "../protocol/models";
 import type { GigState, Store } from "../state/store";
 import type { EditController } from "../sync/editor";
@@ -117,6 +119,22 @@ function icon(i: Parameters<typeof lucideElement>[0], label?: string): SVGElemen
   return svg;
 }
 
+/** An expression pedal from the side: the base, the treadle tilted up to the toe, its hinge at the heel. */
+export function pedalIcon(): SVGElement {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2.25", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
+  for (const d of ["M3 20h18", "M5 16.5 20 8", "M18 9.2V20"]) {
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  const hinge = document.createElementNS(NS, "circle");
+  for (const [k, v] of Object.entries({ cx: "5", cy: "17.5", r: "1.6" })) hinge.setAttribute(k, v);
+  svg.append(hinge);
+  return svg;
+}
+
 /** A sheet's Discard (left of its close button): shown while its block differs from the preset as saved. */
 function discardButton(onClick: () => void): HTMLButtonElement {
   const b = el("button", "ghost ed-discard");
@@ -141,6 +159,9 @@ const CAB_LABELS: Record<CabParam, string> = { level: "Level", highPass: "High p
 const AMP_KNOB_DEFAULT_RAW = 128;
 const CAB_DEFAULTS: Record<CabParam, number> = { level: cabNormalized("level", 0), highPass: 0, lowPass: 1 };
 const AMP_LABELS: Record<AmpKnob, string> = { gain: "Gain", bass: "Bass", mid: "Mid", treble: "Treble" };
+/** An on / off's delay (heel-toe, stop): Cortex Cloud's 600 ms to start with, up to 2 s. */
+const EXP_DELAY_DEFAULT_MS = 600;
+const EXP_DELAY_MAX_MS = 2000;
 /** Drag data type for a library item dragged onto a folder (desktop). */
 const DRAG_TYPE = "application/x-nanogig-library-item";
 /** A mouse or trackpad: items can be dragged as well as held. */
@@ -269,6 +290,83 @@ export class Slider {
   /** The track's fill up to the thumb (the slider is drawn in CSS, which has no fill of its own in WebKit). */
   private paint() {
     this.input.style.setProperty("--pct", `${(Number(this.input.value) / this.max) * 100}%`);
+  }
+}
+
+/**
+ * One track with two handles, the low and the high end of a range (0..max). The handles do not cross: one stops at
+ * the other. A tap on the track moves the nearer handle there.
+ */
+export class RangeSlider {
+  readonly root = el("div", "ed-slider ed-range");
+  private readonly lo = el("input");
+  private readonly hi = el("input");
+  private readonly value = el("span", "ed-value");
+  private readonly box = el("div", "ed-range-box");
+  private dragging = false;
+
+  constructor(
+    label: string,
+    private readonly max: number,
+    private readonly onInput: (lo: number, hi: number) => void,
+    private readonly format: (lo: number, hi: number) => string,
+    onReset?: () => void,
+  ) {
+    const head = el("div", "ed-slider-head");
+    head.append(el("span", "ed-label", label), this.value);
+    for (const [input, end] of [[this.lo, "low"], [this.hi, "high"]] as const) {
+      input.type = "range";
+      input.min = "0";
+      input.max = String(max);
+      input.step = "1";
+      input.setAttribute("aria-label", `${label} ${end}`);
+      input.addEventListener("pointerdown", () => (this.dragging = true));
+      for (const ev of ["pointerup", "pointercancel", "blur"] as const) input.addEventListener(ev, () => (this.dragging = false));
+      input.addEventListener("input", () => {
+        // The handle being moved stops at the other one.
+        if (Number(this.lo.value) > Number(this.hi.value)) input.value = input === this.lo ? this.hi.value : this.lo.value;
+        this.changed();
+      });
+    }
+    // A tap on the track, off the handles (the inputs only take the pointer on their handles).
+    this.box.addEventListener("pointerdown", (e) => {
+      if (e.target !== this.box || this.lo.disabled) return;
+      const r = this.box.getBoundingClientRect();
+      const HANDLE_PX = 24;
+      const v = Math.round(Math.min(1, Math.max(0, (e.clientX - r.left - HANDLE_PX / 2) / (r.width - HANDLE_PX))) * this.max);
+      const near = Math.abs(v - Number(this.lo.value)) <= Math.abs(v - Number(this.hi.value)) ? this.lo : this.hi;
+      near.value = String(v);
+      this.changed();
+    });
+    if (onReset) {
+      this.value.title = "Double-tap to reset";
+      this.value.classList.add("resettable");
+      onDoubleTap(this.value, onReset);
+    }
+    this.box.append(el("div", "ed-range-rail"), this.lo, this.hi);
+    this.root.append(head, this.box);
+  }
+
+  set(lo: number, hi: number) {
+    if (this.dragging && (document.activeElement === this.lo || document.activeElement === this.hi)) return;
+    this.lo.value = String(lo);
+    this.hi.value = String(hi);
+    this.paint();
+  }
+
+  private changed() {
+    this.paint();
+    this.onInput(Number(this.lo.value), Number(this.hi.value));
+  }
+
+  private paint() {
+    const lo = Number(this.lo.value);
+    const hi = Number(this.hi.value);
+    this.value.textContent = this.format(lo, hi);
+    this.box.style.setProperty("--lo", `${(lo / this.max) * 100}%`);
+    this.box.style.setProperty("--hi", `${(hi / this.max) * 100}%`);
+    // Both handles at the top: the low one on top, or it could not be pulled down again.
+    this.lo.style.zIndex = lo > this.max / 2 ? "2" : "";
   }
 }
 
@@ -468,6 +566,10 @@ export interface EditorViewActions {
   toggleFx(slot: FxSlot): Promise<void>;
   toggleGate(): Promise<void>;
   selectPreset(index: number): Promise<void>;
+  /** The shown preset's expression assignments, as edited (an edit of the preset: Save keeps them). */
+  setExpression(a: ExpressionAssignments): void;
+  /** Outputs 1/2 volume: the pedal's LEVEL knob, global (not part of a preset). */
+  setOutputLevel(raw: number): void;
   toast(err: unknown): void;
 }
 
@@ -481,6 +583,10 @@ export class EditorView {
   private readonly listSheet = new Sheet("list-sheet");
   /** Over the library: where a library item goes (its "Bank / Slot" button). */
   private readonly slotSheet = new Sheet("slot-sheet");
+  /** The gate row's EXP button: what the expression pedal moves on the shown preset. */
+  private readonly expSheet = new Sheet("exp-sheet");
+  /** The gate row's OUT LVL button: the pedal's output level, the same one as in Settings. */
+  private readonly levelSheet = new Sheet("level-sheet");
   private s: GigState;
 
   constructor(
@@ -489,7 +595,7 @@ export class EditorView {
     private readonly folders = new LibraryFolders(),
   ) {
     this.s = store.get();
-    this.overlays = [this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet, this.listSheet, this.slotSheet].map((x) => x.overlay);
+    this.overlays = [this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet, this.listSheet, this.slotSheet, this.expSheet, this.levelSheet].map((x) => x.overlay);
     this.buildFx();
     this.buildSource();
     this.buildGate();
@@ -497,6 +603,8 @@ export class EditorView {
     this.buildLibrary();
     this.buildList();
     this.buildSlotChooser();
+    this.buildExpression();
+    this.buildLevel();
     this.folders.onChange(() => this.renderLibrary());
     store.subscribe((s) => this.render(s));
   }
@@ -510,7 +618,7 @@ export class EditorView {
   /** The sheets close with Escape; true when one was open. */
   closeTop(): boolean {
     // The one on top: opened last.
-    const top = [this.slotSheet, this.libSheet, this.presetSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.listSheet]
+    const top = [this.slotSheet, this.libSheet, this.presetSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.listSheet, this.expSheet, this.levelSheet]
       .filter((sh) => sh.isOpen)
       .sort((a, b) => b.order - a.order)[0];
     top?.close();
@@ -976,11 +1084,14 @@ export class EditorView {
         current,
         canSwap: on === true, // as the library button
       });
-      this.capVolume.set(s.captureVolume.value, on !== null);
+      // A value the expression pedal moves follows it here, locked: a drag would only fight the pedal.
+      this.capVolume.set(s.captureVolume.value, on !== null && !this.onPedal("level"));
+      this.capVolume.root.dataset.pedal = String(this.onPedal("level"));
       // Off: the volume and knobs still work (heard once it is on), drawn grey like an off block.
       this.capVolume.root.dataset.off = String(on === false);
       for (const [k, slider] of this.ampSliders) {
-        slider.set(s.amp.value?.[k] ?? null, on !== null);
+        slider.set(s.amp.value?.[k] ?? null, on !== null && !this.onPedal(k));
+        slider.root.dataset.pedal = String(this.onPedal(k));
         slider.root.dataset.off = String(on === false);
       }
       // The library needs the capture on (a preview onto an off capture hung the pedal; Cortex Cloud hides it too).
@@ -1098,12 +1209,261 @@ export class EditorView {
     const on = this.s.gateOn.value;
     this.gatePower.dataset.on = String(on === true);
     (this.gatePower.lastChild as HTMLElement).textContent = on ? "On" : "Off";
-    this.gateThreshold.set(this.s.gateThreshold.value, true);
+    this.gateThreshold.set(this.s.gateThreshold.value, !this.onPedal("gate"));
+    this.gateThreshold.root.dataset.pedal = String(this.onPedal("gate"));
     // Off: the threshold still works, drawn grey like an off block.
     this.gateThreshold.root.dataset.off = String(on === false);
     const changed = this.actions.edit()?.gateChanged() ?? false;
     this.gateDiscard.dataset.shown = String(changed);
     this.gateDiscard.title = changed ? "Back to the threshold this preset has saved (on / off stays)" : "";
+  }
+
+  // -------------------------------------------------------------------------
+  // Expression sheet
+  // -------------------------------------------------------------------------
+
+  private readonly expMsg = el("p", "ed-msg");
+  private readonly expFill = el("div", "exp-pos-fill");
+  private readonly expGroups: { root: HTMLElement; title: HTMLElement; slot: FxSlot | null }[] = [];
+  private readonly expRows: { root: HTMLElement; head: HTMLButtonElement; render: (a: ExpressionAssignments | null) => void }[] = [];
+
+  openExpression() {
+    if (!this.canEdit) return;
+    this.expSheet.open();
+    this.renderExpression();
+  }
+
+  /** The expression pedal moves this on the shown preset. */
+  private onPedal(target: ExpRangeTarget): boolean {
+    return !!this.expAssignments()?.ranges[target];
+  }
+
+  /** The shown preset's assignments once read (null while reading). */
+  private expAssignments(): ExpressionAssignments | null {
+    const x = this.s.expression;
+    const preset = this.s.activePreset.value;
+    return preset !== null && x.assignmentsPreset === preset ? x.assignments : null;
+  }
+
+  /** A changed copy of the shown preset's assignments goes to the pedal. */
+  private changeExp(change: (a: ExpressionAssignments) => void) {
+    const current = this.expAssignments();
+    if (!current) return;
+    const next: ExpressionAssignments = { ranges: { ...current.ranges }, bypasses: { ...current.bypasses } };
+    change(next);
+    this.run(() => this.actions.setExpression(next));
+  }
+
+  private buildExpression() {
+    const sh = this.expSheet;
+    sh.sub.textContent = "Expression pedal";
+    sh.title.textContent = "";
+    const pos = el("div", "exp-pos");
+    const track = el("div", "exp-pos-track");
+    track.append(this.expFill);
+    pos.append(el("span", "ed-label", "Heel"), track, el("span", "ed-label", "Toe"));
+    pos.title = "Where the pedal is now";
+    sh.body.append(
+      el("p", "hint ed-intro", "What the pedal moves on this preset: tap + to add, the bin takes it off. The range is how far it goes; Inverted makes the toe the low end. Changes play at once; like any edit, Save keeps them with the preset and Discard drops them."),
+      this.expMsg,
+      pos,
+    );
+    const group = (title: string, cat: string | null, slot: FxSlot | null, rows: HTMLElement[]) => {
+      const g = el("div", "ed-model-group exp-group");
+      if (cat) g.dataset.cat = cat;
+      const t = el("div", "ed-group-title", title);
+      g.append(t, ...rows);
+      this.expGroups.push({ root: g, title: t, slot });
+      sh.body.append(g);
+    };
+    group("Capture", "cab", null, [
+      ...AMP_KNOBS.map((k) => this.expRangeRow(k, AMP_LABELS[k])),
+      this.expRangeRow("level", "Capture volume"),
+      this.expBypassRow("capture", "On / off"),
+    ]);
+    group("Cab / IR", "ir", null, [this.expBypassRow("ir", "On / off")]);
+    group("Gate", "gate", null, [this.expRangeRow("gate", "Threshold"), this.expBypassRow("gate", "On / off")]);
+    for (const slot of FX_SLOTS) group(SLOT_LABELS[slot], null, slot, [this.expRangeRow(slot, "Amount"), this.expBypassRow(slot, "On / off")]);
+  }
+
+  /**
+   * A row: unassigned, a tap on it assigns the target; assigned, its settings below and a trash button that takes the
+   * assignment off (as the head no longer toggles, closing nothing ever leaves it assigned unseen).
+   */
+  private expRow(label: string, body: HTMLElement[], onAssign: () => void, onRemove: () => void) {
+    const root = el("div", "exp-row");
+    const line = el("div", "exp-row-line");
+    const head = el("button", "exp-row-head");
+    head.type = "button";
+    head.append(icon(Plus), pedalIcon(), el("span", "exp-name", label));
+    head.addEventListener("click", () => {
+      if (root.dataset.on !== "true") onAssign();
+    });
+    const remove = iconButton(Trash2, `Remove ${label} from the pedal`, "ghost exp-remove");
+    remove.addEventListener("click", onRemove);
+    line.append(head, remove);
+    const box = el("div", "exp-row-body");
+    box.append(...body);
+    root.append(line, box);
+    return { root, head };
+  }
+
+  private expRangeRow(target: ExpRangeTarget, label: string): HTMLElement {
+    const pct = (raw: number) => `${Math.round((raw / 255) * 100)} %`;
+    const change = (f: (r: ExpressionRange) => ExpressionRange) =>
+      this.changeExp((a) => {
+        const r = a.ranges[target];
+        if (r) a.ranges[target] = f(r);
+      });
+    // The readout goes heel → toe, the way the pedal travels: inverted, the heel is the high end.
+    let inv = false;
+    const range = new RangeSlider(
+      "Heel → toe",
+      255,
+      (min, max) => change((r) => ({ ...r, min, max })),
+      (lo, hi) => (inv ? `${pct(hi)} → ${pct(lo)}` : `${pct(lo)} → ${pct(hi)}`),
+      () => change((r) => ({ ...r, min: 0, max: 255 })),
+    );
+    const opts = el("div", "ed-chips");
+    const inverted = el("button", "ed-chip", "Inverted");
+    inverted.type = "button";
+    inverted.title = "Heel at the top of the range, toe at the bottom";
+    inverted.addEventListener("click", () => change((r) => ({ ...r, inverted: !r.inverted })));
+    opts.append(inverted);
+    const row = this.expRow(
+      label,
+      [range.root, opts],
+      () => this.changeExp((a) => (a.ranges[target] ??= { min: 0, max: 255, inverted: false })),
+      () => this.changeExp((a) => delete a.ranges[target]),
+    );
+    this.expRows.push({
+      ...row,
+      render: (a) => {
+        const r = a?.ranges[target];
+        row.root.dataset.on = String(!!r);
+        row.head.disabled = !a;
+        if (!r) return;
+        inv = r.inverted;
+        range.set(r.min, r.max);
+        inverted.dataset.active = String(r.inverted);
+      },
+    });
+    return row.root;
+  }
+
+  private expBypassRow(target: ExpBypassTarget, label: string): HTMLElement {
+    const MODES: [ExpBypassMode, string][] = [
+      ["heelToe", "Heel-toe"],
+      ["switch", "Switch"],
+      ["stop", "Stop"],
+    ];
+    const change = (f: (b: ExpressionBypass) => ExpressionBypass) =>
+      this.changeExp((a) => {
+        const b = a.bypasses[target];
+        if (b) a.bypasses[target] = f(b);
+      });
+    const modes = el("div", "ed-chips");
+    const modeBtns = MODES.map(([mode, text]) => {
+      const b = el("button", "ed-chip", text);
+      b.type = "button";
+      b.addEventListener("click", () => change((x) => ({ ...x, mode, delayMs: mode !== "switch" && !x.delayMs ? EXP_DELAY_DEFAULT_MS : x.delayMs })));
+      modes.append(b);
+      return b;
+    });
+    const opts = el("div", "ed-chips");
+    const inverted = el("button", "ed-chip", "Inverted");
+    inverted.type = "button";
+    inverted.title = "Swap which end of the pedal turns it on";
+    inverted.addEventListener("click", () => change((x) => ({ ...x, inverted: !x.inverted })));
+    const latch = el("button", "ed-chip", "Latch");
+    latch.type = "button";
+    latch.addEventListener("click", () => change((x) => ({ ...x, latch: !x.latch })));
+    opts.append(inverted, latch);
+    // In steps of 10 ms, as the slider moves.
+    const delay = new Slider("Delay", EXP_DELAY_MAX_MS / 10, (v) => change((x) => ({ ...x, delayMs: v * 10 })), (v) => `${v * 10} ms`, () => change((x) => ({ ...x, delayMs: EXP_DELAY_DEFAULT_MS })));
+    const row = this.expRow(
+      label,
+      [modes, opts, delay.root],
+      () => this.changeExp((a) => (a.bypasses[target] ??= { mode: "switch", inverted: false, delayMs: 0, latch: false })),
+      () => this.changeExp((a) => delete a.bypasses[target]),
+    );
+    this.expRows.push({
+      ...row,
+      render: (a) => {
+        const b = a?.bypasses[target];
+        row.root.dataset.on = String(!!b);
+        row.head.disabled = !a;
+        if (!b) return;
+        MODES.forEach(([m], i) => (modeBtns[i]!.dataset.active = String(b.mode === m)));
+        inverted.hidden = b.mode === "stop";
+        inverted.dataset.active = String(b.inverted);
+        latch.hidden = b.mode !== "switch";
+        latch.dataset.active = String(b.latch);
+        delay.root.hidden = b.mode === "switch";
+        delay.set(Math.round(Math.min(EXP_DELAY_MAX_MS, b.delayMs) / 10));
+      },
+    });
+    return row.root;
+  }
+
+  private renderExpression() {
+    if (!this.expSheet.isOpen) return;
+    const s = this.s;
+    const preset = s.activePreset.value;
+    const name = preset !== null ? (s.presetNames.value[preset] ?? "") : "";
+    const label = preset === null ? "" : presetLabel(preset, { presetsPerBank: s.presetsPerBank, style: s.labelStyle });
+    this.expSheet.title.textContent = preset === null ? "—" : `${label}${name ? ` · ${name}` : ""}`;
+    const a = this.expAssignments();
+    const w = s.expression.write;
+    const n = preset === null ? "" : ` ${label}`;
+    if (!a) setMsg(this.expMsg, preset === null ? "Waiting for the pedal…" : `Reading preset${n}…`);
+    else if (w && w.preset === preset) {
+      if (w.state === "saving") setMsg(this.expMsg, `Sending to preset${n}…`);
+      else if (w.state === "saved") setMsg(this.expMsg, `On preset${n} ✓ Save keeps it`, "ok");
+      else if (w.state === "mismatch") setMsg(this.expMsg, `Preset${n} kept something else: shown as the pedal has it`, "warn");
+      else if (w.state === "unchecked") setMsg(this.expMsg, `Sent to preset${n}; the pedal did not answer the check`, "warn");
+      else setMsg(this.expMsg, `Not sent: the write to preset${n} failed`, "warn");
+    } else {
+      const count = Object.keys(a.ranges).length + Object.keys(a.bypasses).length;
+      setMsg(this.expMsg, count ? `${count} assigned on preset${n}` : `Nothing assigned on preset${n}`);
+    }
+    // Where the pedal is: the fill, at the heel until it moves.
+    const pct = `${Math.round(((s.expression.position ?? 0) / 254) * 1000) / 10}%`;
+    if (this.expFill.style.width !== pct) this.expFill.style.width = pct;
+    for (const g of this.expGroups) {
+      if (!g.slot) continue;
+      const model = s.fxModels.value[g.slot];
+      g.root.dataset.cat = model?.known ? slug(model.category) : "none";
+      g.title.textContent = `${SLOT_LABELS[g.slot]} · ${model ? model.name : "Empty"}`;
+    }
+    for (const r of this.expRows) r.render(a);
+  }
+
+  // -------------------------------------------------------------------------
+  // Output level sheet
+  // -------------------------------------------------------------------------
+
+  private readonly levelSlider = new Slider("Outputs 1/2", 255, (v) => this.run(() => this.actions.setOutputLevel(v)), ampKnobText);
+
+  openLevel() {
+    if (!this.canEdit) return;
+    this.levelSheet.open();
+    this.renderLevel();
+  }
+
+  private buildLevel() {
+    const sh = this.levelSheet;
+    sh.sub.textContent = "Output level";
+    sh.title.textContent = "Global";
+    sh.body.append(
+      el("p", "hint ed-intro", "The pedal's LEVEL knob: the same on every preset, not saved with one. A preset's own volume is Capture volume. Not heard in the headphones."),
+      this.levelSlider.root,
+    );
+  }
+
+  private renderLevel() {
+    if (!this.levelSheet.isOpen) return;
+    this.levelSlider.set(this.s.outputLevel.value);
   }
 
   // -------------------------------------------------------------------------
@@ -1229,7 +1589,10 @@ export class EditorView {
       b.disabled = !!busy || mode === "create";
       // Which preset each footswitch holds now, as the screen's footswitch chooser shows it.
       const holds = on === null ? "" : on === i ? "this preset" : s.presetNames.value[on] || `preset ${on + 1}`;
-      b.replaceChildren(el("strong", "", key.toUpperCase()), el("span", "ed-fs-now", holds));
+      // The footswitch's name as its badge everywhere else (the preset strip, the big label): in its colour.
+      const badge = el("strong", "fs-badge", key.toUpperCase());
+      badge.dataset.fs = key;
+      b.replaceChildren(badge, el("span", "ed-fs-now", holds));
       b.title = on === null ? "" : `${key.toUpperCase()} plays ${holds} now`;
     }
     this.deleteBtn.disabled = !!busy || mode === "create";
@@ -1985,7 +2348,7 @@ export class EditorView {
     this.s = s;
     // Lost the link, control mode or the setting: the edit sheets close (the list stays; it only reads).
     if (!(s.connection === "connected" && s.writesEnabled && s.editing)) {
-      for (const sh of [this.slotSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet]) sh.close();
+      for (const sh of [this.slotSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet, this.expSheet, this.levelSheet]) sh.close();
     }
     // The pedal saved an unnamed preset: ask for a name, as Cortex Cloud does.
     if (s.edit.preset.nameNew !== null && prev.edit.preset.nameNew !== s.edit.preset.nameNew && !this.presetSheet.isOpen) this.openPreset(s.edit.preset.nameNew);
@@ -1993,6 +2356,8 @@ export class EditorView {
     this.renderFx();
     this.renderSource();
     this.renderGate();
+    this.renderExpression();
+    this.renderLevel();
     this.renderPreset();
     this.renderSlotChooser();
     if (
