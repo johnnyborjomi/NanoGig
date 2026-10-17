@@ -119,6 +119,22 @@ function icon(i: Parameters<typeof lucideElement>[0], label?: string): SVGElemen
   return svg;
 }
 
+/** An expression pedal from the side: the base, the treadle tilted up to the toe, its hinge at the heel. */
+export function pedalIcon(): SVGElement {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2.25", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
+  for (const d of ["M3 20h18", "M5 16.5 20 8", "M18 9.2V20"]) {
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  const hinge = document.createElementNS(NS, "circle");
+  for (const [k, v] of Object.entries({ cx: "5", cy: "17.5", r: "1.6" })) hinge.setAttribute(k, v);
+  svg.append(hinge);
+  return svg;
+}
+
 /** A sheet's Discard (left of its close button): shown while its block differs from the preset as saved. */
 function discardButton(onClick: () => void): HTMLButtonElement {
   const b = el("button", "ghost ed-discard");
@@ -1234,7 +1250,7 @@ export class EditorView {
     pos.append(el("span", "ed-label", "Heel"), track, el("span", "ed-label", "Toe"));
     pos.title = "Where the pedal is now";
     sh.body.append(
-      el("p", "hint ed-intro", "What the pedal moves on this preset. The range is how far it goes; Inverted makes the toe the low end. Changes are stored on the preset right away, no Save needed."),
+      el("p", "hint ed-intro", "What the pedal moves on this preset: tap + to add, the bin takes it off. The range is how far it goes; Inverted makes the toe the low end. Changes are stored on the preset right away, no Save needed."),
       this.expMsg,
       pos,
     );
@@ -1256,16 +1272,25 @@ export class EditorView {
     for (const slot of FX_SLOTS) group(SLOT_LABELS[slot], null, slot, [this.expRangeRow(slot, "Amount"), this.expBypassRow(slot, "On / off")]);
   }
 
-  /** A row: a check that assigns the target, and when assigned its settings below. */
-  private expRow(label: string, body: HTMLElement[], onToggle: () => void) {
+  /**
+   * A row: unassigned, a tap on it assigns the target; assigned, its settings below and a trash button that takes the
+   * assignment off (as the head no longer toggles, closing nothing ever leaves it assigned unseen).
+   */
+  private expRow(label: string, body: HTMLElement[], onAssign: () => void, onRemove: () => void) {
     const root = el("div", "exp-row");
+    const line = el("div", "exp-row-line");
     const head = el("button", "exp-row-head");
     head.type = "button";
-    head.append(icon(Square), icon(SquareCheck), el("span", "exp-name", label));
-    head.addEventListener("click", onToggle);
+    head.append(icon(Plus), pedalIcon(), el("span", "exp-name", label));
+    head.addEventListener("click", () => {
+      if (root.dataset.on !== "true") onAssign();
+    });
+    const remove = iconButton(Trash2, `Remove ${label} from the pedal`, "ghost exp-remove");
+    remove.addEventListener("click", onRemove);
+    line.append(head, remove);
     const box = el("div", "exp-row-body");
     box.append(...body);
-    root.append(head, box);
+    root.append(line, box);
     return { root, head };
   }
 
@@ -1291,11 +1316,11 @@ export class EditorView {
     inverted.title = "Heel at the top of the range, toe at the bottom";
     inverted.addEventListener("click", () => change((r) => ({ ...r, inverted: !r.inverted })));
     opts.append(inverted);
-    const row = this.expRow(label, [range.root, opts], () =>
-      this.changeExp((a) => {
-        if (a.ranges[target]) delete a.ranges[target];
-        else a.ranges[target] = { min: 0, max: 255, inverted: false };
-      }),
+    const row = this.expRow(
+      label,
+      [range.root, opts],
+      () => this.changeExp((a) => (a.ranges[target] ??= { min: 0, max: 255, inverted: false })),
+      () => this.changeExp((a) => delete a.ranges[target]),
     );
     this.expRows.push({
       ...row,
@@ -1342,11 +1367,11 @@ export class EditorView {
     opts.append(inverted, latch);
     // In steps of 10 ms, as the slider moves.
     const delay = new Slider("Delay", EXP_DELAY_MAX_MS / 10, (v) => change((x) => ({ ...x, delayMs: v * 10 })), (v) => `${v * 10} ms`, () => change((x) => ({ ...x, delayMs: EXP_DELAY_DEFAULT_MS })));
-    const row = this.expRow(label, [modes, opts, delay.root], () =>
-      this.changeExp((a) => {
-        if (a.bypasses[target]) delete a.bypasses[target];
-        else a.bypasses[target] = { mode: "switch", inverted: false, delayMs: 0, latch: false };
-      }),
+    const row = this.expRow(
+      label,
+      [modes, opts, delay.root],
+      () => this.changeExp((a) => (a.bypasses[target] ??= { mode: "switch", inverted: false, delayMs: 0, latch: false })),
+      () => this.changeExp((a) => delete a.bypasses[target]),
     );
     this.expRows.push({
       ...row,

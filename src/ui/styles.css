@@ -3746,8 +3746,37 @@ button.warn {
 .exp-row[data-on='true'] .exp-row-head svg {
   color: color-mix(in srgb, var(--fx) 78%, #fff);
 }
+/* Unassigned: a + (the whole line adds it). Assigned: the pedal, and the line is only a title. */
 .exp-row:not([data-on='true']) .exp-row-head svg:nth-of-type(2),
 .exp-row[data-on='true'] .exp-row-head svg:nth-of-type(1) {
+  display: none;
+}
+.exp-row[data-on='true'] .exp-row-head {
+  cursor: default;
+}
+.exp-row-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exp-row-line .exp-row-head {
+  flex: 1;
+  min-width: 0;
+}
+.exp-remove {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.exp-remove svg {
+  width: 20px;
+  height: 20px;
+}
+.exp-row:not([data-on='true']) .exp-remove {
   display: none;
 }
 .exp-name {

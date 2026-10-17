@@ -48,7 +48,7 @@ import {
 } from "lucide";
 import { REFERENCE_PX, fitPresetRowFont } from "./fit";
 import { STRIP_COUNT, watchLayout, type GigLayout } from "./layout";
-import { EditorView, Slider } from "./editor-view";
+import { EditorView, pedalIcon, Slider } from "./editor-view";
 import { ampKnobText } from "../protocol/edit";
 import { onHold } from "./hold";
 import { canLockOrientation, lockOrientation, saveOrientation, savedOrientation, type AppOrientation } from "./orientation";
@@ -125,21 +125,6 @@ export interface GigViewOptions {
   openConsole?: boolean;
 }
 
-/** An expression pedal from the side: the base, the treadle tilted up to the toe, its hinge at the heel. */
-function pedalIcon(): SVGElement {
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(NS, "svg");
-  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2.25", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
-  for (const d of ["M3 20h18", "M5 16.5 20 8", "M18 9.2V20"]) {
-    const path = document.createElementNS(NS, "path");
-    path.setAttribute("d", d);
-    svg.append(path);
-  }
-  const hinge = document.createElementNS(NS, "circle");
-  for (const [k, v] of Object.entries({ cx: "5", cy: "17.5", r: "1.6" })) hinge.setAttribute(k, v);
-  svg.append(hinge);
-  return svg;
-}
 
 /** Which of the Nano's footswitches (IA, IB, IIA, IIB) is assigned to preset `index`, if any. */
 export { footswitchFor } from "./preset-label";
