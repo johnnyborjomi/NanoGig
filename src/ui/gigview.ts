@@ -649,10 +649,20 @@ export class GigView {
     }, () => this.editor.canEdit);
     this.subLabels = [capLbl, irLbl];
     // Two boxes side by side (stacked on an upright screen), each tinted with its block's colour.
+    // Editing: a pencil at the box's end, where to tap to edit it (kept in place, hidden, so nothing moves).
+    const editPencil = (what: "capture" | "ir") => {
+      const b = el("button", "sub-edit");
+      b.type = "button";
+      b.title = what === "capture" ? "Edit the capture" : "Edit the cab / IR";
+      b.setAttribute("aria-label", b.title);
+      b.append(lucideElement(Pencil, { "stroke-width": 2.25, "aria-hidden": "true" }));
+      b.addEventListener("click", () => this.editor.openSource(what));
+      return b;
+    };
     const capWrap = el("span", "sub-item sub-capture");
-    capWrap.append(capLbl, this.captureEl);
+    capWrap.append(capLbl, this.captureEl, editPencil("capture"));
     const irWrap = el("span", "sub-item sub-ir");
-    irWrap.append(irLbl, this.irEl);
+    irWrap.append(irLbl, this.irEl, editPencil("ir"));
     this.subEl.append(capWrap, irWrap);
     preset.append(this.slotEl, this.subEl);
     this.presetEl = preset;

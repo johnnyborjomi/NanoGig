@@ -3859,3 +3859,33 @@ button.warn {
   font-size: 13px;
   font-weight: 600;
 }
+
+/* Editing: a pencil at the end of the capture and cab / IR boxes, in the block's colour. Always in the box (hidden
+   by visibility), so Edit turning on moves nothing. */
+.preset-sub .sub-edit {
+  visibility: hidden;
+  flex: none;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 1.3em;
+  height: 1em; /* no taller than the name: the box keeps its height */
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: inherit;
+}
+.preset-sub .sub-edit svg {
+  width: 0.85em;
+  height: 0.85em;
+}
+.preset-sub .sub-capture .sub-edit {
+  color: color-mix(in srgb, var(--fx-cab) 80%, #fff);
+}
+.preset-sub .sub-ir .sub-edit {
+  color: color-mix(in srgb, var(--fx-ir) 80%, #fff);
+}
+#app[data-editing='true'] .preset-sub .sub-edit {
+  visibility: visible;
+}
