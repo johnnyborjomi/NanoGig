@@ -648,11 +648,12 @@ export class GigView {
       if (i !== null) this.editor.openPreset(i);
     }, () => this.editor.canEdit);
     this.subLabels = [capLbl, irLbl];
-    const capWrap = el("span", "sub-item");
+    // Two boxes side by side (stacked on an upright screen), each tinted with its block's colour.
+    const capWrap = el("span", "sub-item sub-capture");
     capWrap.append(capLbl, this.captureEl);
-    const irWrap = el("span", "sub-item");
+    const irWrap = el("span", "sub-item sub-ir");
     irWrap.append(irLbl, this.irEl);
-    this.subEl.append(capWrap, el("span", "sep", "•"), irWrap);
+    this.subEl.append(capWrap, irWrap);
     preset.append(this.slotEl, this.subEl);
     this.presetEl = preset;
     this.rowResize?.observe(preset);
