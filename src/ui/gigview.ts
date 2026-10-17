@@ -42,6 +42,7 @@ import {
   Settings,
   Star,
   Undo2,
+  Volume2,
   VolumeX,
   X,
   createElement as lucideElement,
@@ -228,6 +229,7 @@ export class GigView {
   // Expression pedal: a thin vertical bar at the app's right edge, and a track per assigned FX tile.
   private readonly expBar = el("div", "exp-bar");
   private readonly expBtn = el("button", "exp-btn");
+  private readonly levelBtn = el("button", "exp-btn level-btn");
   /** How many targets the pedal moves on the shown preset (empty: none, or not read yet). */
   private readonly expCount = el("span", "exp-count");
   private readonly expFill = el("div", "exp-fill");
@@ -396,6 +398,7 @@ export class GigView {
       toggleGate: () => this.actions.toggleGate(),
       selectPreset: (i) => this.actions.selectPreset(i),
       setExpression: (a) => this.actions.setExpression(a),
+      setOutputLevel: (raw) => this.actions.setOutputLevel(raw),
       toast: (e) => this.toast(e),
     });
 
@@ -699,7 +702,12 @@ export class GigView {
         this.expBtn.title = "Expression pedal: what it moves on this preset";
         this.expBtn.append(pedalIcon(), el("span", "", "EXP"), this.expCount);
         this.expBtn.addEventListener("click", () => this.editor.openExpression());
-        gateRow.append(el("div", "t-slot", TILE_LABELS[key]), tile, this.expBtn);
+        // The output level (global), left of it: the same as in Settings, at hand while editing.
+        this.levelBtn.type = "button";
+        this.levelBtn.title = "Output level: the pedal's LEVEL knob, the same on every preset";
+        this.levelBtn.append(lucideElement(Volume2, { "stroke-width": 2.25, "aria-hidden": "true" }), el("span", "", "OUT LVL"));
+        this.levelBtn.addEventListener("click", () => this.editor.openLevel());
+        gateRow.append(el("div", "t-slot", TILE_LABELS[key]), tile, this.levelBtn, this.expBtn);
         blocks.append(gateRow, el("div", "hsep"));
         continue;
       }

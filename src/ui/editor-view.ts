@@ -568,6 +568,8 @@ export interface EditorViewActions {
   selectPreset(index: number): Promise<void>;
   /** The shown preset's expression assignments, as edited (stored on the preset by the pedal). */
   setExpression(a: ExpressionAssignments): void;
+  /** Outputs 1/2 volume: the pedal's LEVEL knob, global (not part of a preset). */
+  setOutputLevel(raw: number): void;
   toast(err: unknown): void;
 }
 
@@ -583,6 +585,8 @@ export class EditorView {
   private readonly slotSheet = new Sheet("slot-sheet");
   /** The gate row's EXP button: what the expression pedal moves on the shown preset. */
   private readonly expSheet = new Sheet("exp-sheet");
+  /** The gate row's OUT LVL button: the pedal's output level, the same one as in Settings. */
+  private readonly levelSheet = new Sheet("level-sheet");
   private s: GigState;
 
   constructor(
@@ -591,7 +595,7 @@ export class EditorView {
     private readonly folders = new LibraryFolders(),
   ) {
     this.s = store.get();
-    this.overlays = [this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet, this.listSheet, this.slotSheet, this.expSheet].map((x) => x.overlay);
+    this.overlays = [this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet, this.listSheet, this.slotSheet, this.expSheet, this.levelSheet].map((x) => x.overlay);
     this.buildFx();
     this.buildSource();
     this.buildGate();
@@ -600,6 +604,7 @@ export class EditorView {
     this.buildList();
     this.buildSlotChooser();
     this.buildExpression();
+    this.buildLevel();
     this.folders.onChange(() => this.renderLibrary());
     store.subscribe((s) => this.render(s));
   }
@@ -613,7 +618,7 @@ export class EditorView {
   /** The sheets close with Escape; true when one was open. */
   closeTop(): boolean {
     // The one on top: opened last.
-    const top = [this.slotSheet, this.libSheet, this.presetSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.listSheet, this.expSheet]
+    const top = [this.slotSheet, this.libSheet, this.presetSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.listSheet, this.expSheet, this.levelSheet]
       .filter((sh) => sh.isOpen)
       .sort((a, b) => b.order - a.order)[0];
     top?.close();
@@ -1423,6 +1428,33 @@ export class EditorView {
       g.title.textContent = `${SLOT_LABELS[g.slot]} · ${model ? model.name : "Empty"}`;
     }
     for (const r of this.expRows) r.render(a);
+  }
+
+  // -------------------------------------------------------------------------
+  // Output level sheet
+  // -------------------------------------------------------------------------
+
+  private readonly levelSlider = new Slider("Outputs 1/2", 255, (v) => this.run(() => this.actions.setOutputLevel(v)), ampKnobText);
+
+  openLevel() {
+    if (!this.canEdit) return;
+    this.levelSheet.open();
+    this.renderLevel();
+  }
+
+  private buildLevel() {
+    const sh = this.levelSheet;
+    sh.sub.textContent = "Output level";
+    sh.title.textContent = "Global";
+    sh.body.append(
+      el("p", "hint ed-intro", "The pedal's LEVEL knob: the same on every preset, not saved with one. A preset's own volume is Capture volume. Not heard in the headphones."),
+      this.levelSlider.root,
+    );
+  }
+
+  private renderLevel() {
+    if (!this.levelSheet.isOpen) return;
+    this.levelSlider.set(this.s.outputLevel.value);
   }
 
   // -------------------------------------------------------------------------
@@ -2304,7 +2336,7 @@ export class EditorView {
     this.s = s;
     // Lost the link, control mode or the setting: the edit sheets close (the list stays; it only reads).
     if (!(s.connection === "connected" && s.writesEnabled && s.editing)) {
-      for (const sh of [this.slotSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet, this.expSheet]) sh.close();
+      for (const sh of [this.slotSheet, this.fxSheet, this.srcSheet, this.gateSheet, this.presetSheet, this.libSheet, this.expSheet, this.levelSheet]) sh.close();
     }
     // The pedal saved an unnamed preset: ask for a name, as Cortex Cloud does.
     if (s.edit.preset.nameNew !== null && prev.edit.preset.nameNew !== s.edit.preset.nameNew && !this.presetSheet.isOpen) this.openPreset(s.edit.preset.nameNew);
@@ -2313,6 +2345,7 @@ export class EditorView {
     this.renderSource();
     this.renderGate();
     this.renderExpression();
+    this.renderLevel();
     this.renderPreset();
     this.renderSlotChooser();
     if (

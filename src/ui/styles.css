@@ -3654,6 +3654,12 @@ button.warn {
 /* ---- Expression pedal ---------------------------------------------------------------------------------------- */
 /* The gate row's EXP button (editing only): in the row all the time, hidden by visibility, so nothing moves when
    Edit turns on. As tall as the gate's button; the number of targets the pedal moves on this preset after it. */
+.gate-row .level-btn {
+  margin-left: auto;
+}
+.gate-row .level-btn + .exp-btn {
+  margin-left: 8px;
+}
 .gate-row .exp-btn {
   margin-left: auto;
   visibility: hidden;
@@ -3844,4 +3850,9 @@ button.warn {
 }
 .edit-sheet .ed-range-box input[type='range']::-moz-range-thumb {
   pointer-events: auto;
+}
+
+/* The OUT LVL sheet: the pedal's own level, not a block's, so Control's orange. */
+.level-sheet {
+  --fx: var(--warn);
 }
