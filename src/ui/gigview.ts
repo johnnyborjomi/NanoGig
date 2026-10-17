@@ -705,7 +705,7 @@ export class GigView {
       // Expression badge: label with the range, and a live fill of the mapped value.
       // No text: a translucent band marks the assigned range, a solid fill the value inside it.
       const { exp, expRange, expFill } = expTrack();
-      if (key !== "gate" && key !== "cab") tile.append(exp);
+      if (key !== "cab") tile.append(exp);
       this.tiles.set(key, { root: tile, name, category, exp, expRange, expFill });
 
       if (key === "gate") {
@@ -2036,6 +2036,7 @@ export class GigView {
     const capRange = ([...AMP_KNOBS, "level"] as ExpRangeTarget[]).find((k) => assigned?.ranges[k]) ?? null;
     this.paintExpTrack(this.subTracks.capture, capRange, "capture", assigned, live, pos, x.values);
     this.paintExpTrack(this.subTracks.ir, null, "ir", assigned, live, pos, x.values);
+    this.paintExpTrack(this.tiles.get("gate") as ExpTrack, "gate", "gate", assigned, live, pos, x.values);
   }
 
   /**

@@ -1432,7 +1432,8 @@ button.warn {
   border-radius: 2px;
   opacity: 1;
 }
-/* With a track: the same height, its padding moved down: the name up a little, the track thicker under it. */
+/* With a track: the same height, its padding moved down: the name up a little, the track thicker under it. The
+   value's fill thinner than the band, so the range shows around it. */
 .preset-sub .sub-item:has(> .t-exp:not([hidden])) {
   padding-top: 6px;
   padding-bottom: 18px;
@@ -1442,9 +1443,12 @@ button.warn {
   height: 10px;
   border-radius: 5px;
 }
+.preset-sub .t-exp-range {
+  opacity: 0.45; /* the boxes are dark: the band needs more to show */
+}
 .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp-fill {
-  top: 2px;
-  bottom: 2px;
+  top: 3px;
+  bottom: 3px;
   border-radius: 3px;
 }
 /* Edited and not saved yet (what its sheet's Discard would put back): a dot on the block's corner, in Save's colour.
@@ -1873,8 +1877,8 @@ button.warn {
     height: 6px;
   }
   .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp-fill {
-    top: 1px;
-    bottom: 1px;
+    top: 2px;
+    bottom: 2px;
   }
   .blocks {
     gap: 6px;
@@ -1963,8 +1967,8 @@ button.warn {
   height: 6px;
 }
 [data-layout='stack'] .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp-fill {
-  top: 1px;
-  bottom: 1px;
+  top: 2px;
+  bottom: 2px;
 }
 [data-layout='stack'] .blocks {
   gap: 8px;
@@ -2120,8 +2124,8 @@ button.warn {
     height: 10px;
   }
   [data-layout='stack'] .preset-sub .sub-item:has(> .t-exp:not([hidden])) .t-exp-fill {
-    top: 2px;
-    bottom: 2px;
+    top: 3px;
+    bottom: 3px;
   }
 }
 /* Taller still: the tiles get their room back. */
@@ -4007,3 +4011,25 @@ button.warn {
   visibility: visible;
 }
 
+
+/* The gate's button: a tiny track along its bottom edge (its threshold and / or on / off on the pedal). Its padding
+   stays as it is: nothing moves when it comes. */
+.gate-row .tile.gate-btn .t-exp {
+  left: 8px;
+  right: 8px;
+  bottom: 3px;
+  height: 4px;
+  border-radius: 2px;
+  box-shadow: none;
+}
+.gate-row .tile.gate-btn .t-exp-fill {
+  top: 1px;
+  bottom: 1px;
+  border-radius: 1px;
+}
+[data-layout='stack'] .gate-row .tile.gate-btn:has(.t-exp:not([hidden])) {
+  padding-bottom: 0;
+}
+.gate-row .tile.gate-btn:has(.t-exp:not([hidden])) .t-icon {
+  transform: translateY(-3px); /* clear of the track */
+}
